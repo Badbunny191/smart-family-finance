@@ -11,8 +11,13 @@ export function createAuth(d1: D1Database) {
       provider: 'sqlite',
       schema: {
         user: schema.users,
+        authSession: schema.sessions,
+        authAccount: schema.accountsAuth,
+        authVerification: schema.verifications,
       },
     }),
+    secret: process.env.BETTER_AUTH_SECRET,
+    baseURL: process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL,
     emailAndPassword: {
       enabled: true,
       autoSignIn: true,
@@ -28,8 +33,15 @@ export function createAuth(d1: D1Database) {
       },
     },
     session: {
+      modelName: 'authSession',
       expiresIn: 60 * 60 * 24 * 30, // 30 Days
       updateAge: 60 * 60 * 24, // 1 Day
+    },
+    account: {
+      modelName: 'authAccount',
+    },
+    verification: {
+      modelName: 'authVerification',
     },
   });
 }

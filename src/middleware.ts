@@ -6,7 +6,7 @@ export async function middleware(request: NextRequest) {
   // ข้าม Static Assets และ Public Paths
   if (
     pathname.startsWith('/_next') ||
-    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/api/') ||
     pathname === '/login' ||
     pathname.includes('.')
   ) {

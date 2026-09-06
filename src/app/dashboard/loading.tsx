@@ -1,0 +1,3 @@
+export default function DashboardLoading() {
+  return <main className="min-h-screen bg-slate-50 px-5 py-8"><div className="animate-pulse space-y-5"><div className="h-8 w-48 rounded bg-slate-200" /><div className="grid grid-cols-2 gap-3"><div className="h-28 rounded-2xl bg-slate-200" /><div className="h-28 rounded-2xl bg-slate-200" /><div className="h-28 rounded-2xl bg-slate-200" /><div className="h-28 rounded-2xl bg-slate-200" /></div><div className="h-36 rounded-2xl bg-slate-200" /></div></main>;
+}

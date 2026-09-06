@@ -1,12 +1,16 @@
 name = "smart-family-finance"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = ".vercel/output/static"
+main = ".open-next/worker.js"
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "smart-family-finance-db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "d53cb4c2-8150-4fff-852f-7aa3390ffe2c"
 migrations_dir = "drizzle/migrations"
 
 [[r2_buckets]]
