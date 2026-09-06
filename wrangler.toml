@@ -1,6 +1,6 @@
 name = "smart-family-finance"
 compatibility_date = "2026-09-01"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = [ "nodejs_compat" ]
 main = ".open-next/worker.js"
 
 [assets]

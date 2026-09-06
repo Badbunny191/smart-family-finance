@@ -16,18 +16,19 @@ export function MobileNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_18px_rgba(15,23,42,0.06)] backdrop-blur sm:absolute">
-      <div className="mx-auto grid h-16 max-w-md grid-cols-5">
+    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200/80 bg-white/90 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(31,42,68,0.08)] backdrop-blur-xl sm:absolute">
+      <div className="mx-auto grid h-[4.5rem] max-w-md grid-cols-5">
         {items.map(({ href, label, icon: Icon }) => {
           const active = pathname === href;
           return (
             <Link
               key={href}
               href={href}
-              className={`flex min-h-11 flex-col items-center justify-center gap-1 text-xs font-medium transition-colors ${
-                active ? 'text-emerald-700' : 'text-slate-500'
+              className={`relative flex min-h-11 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors ${
+                active ? 'text-emerald-700' : 'text-slate-400'
               }`}
             >
+              {active && <span className="absolute top-1 h-1 w-7 rounded-full bg-emerald-600" />}
               <Icon aria-hidden="true" size={20} strokeWidth={active ? 2.5 : 2} />
               <span>{label}</span>
             </Link>
