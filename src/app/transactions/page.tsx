@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowRightLeft, ArrowUpRight, CircleMinus, CirclePlus, Pencil, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
 
@@ -78,6 +78,11 @@ export default function TransactionsPage() {
     loadData().catch((error: Error) => setErrorMessage(error.message)).finally(() => setIsLoading(false));
   }, []);
 
+  useEffect(() => {
+    const businessStatus = new URLSearchParams(window.location.search).get('businessStatus');
+    if (businessStatus === 'customer_paid' || businessStatus === 'business_received' || businessStatus === 'closed') setSelectedBusinessStatus(businessStatus);
+  }, []);
+
   const openCreate = (type: TransactionType = 'expense') => {
     setForm({ ...emptyForm, type, date: today(), ownerPersonId: people[0]?.id || '', payerPersonId: people[0]?.id || '' });
     setErrorMessage(null);
@@ -113,6 +118,13 @@ export default function TransactionsPage() {
     setEditingTransaction(null);
   };
 
+  const markBusinessReceived = async (id: string) => {
+    const response = await fetch(`/api/transactions/${id}/received`, { method: 'POST' });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) return setErrorMessage(payload.error || 'อัปเดตสถานะไม่สำเร็จ');
+    await loadData();
+  };
+
   const personNames = useMemo(() => new Map(people.map((person) => [person.id, person.name])), [people]);
   const accountNames = useMemo(() => new Map(accounts.map((account) => [account.id, account.name])), [accounts]);
   const visibleTransactions = transactions.filter((transaction) => (selectedType === 'all' || transaction.type === selectedType) && (selectedBusinessStatus === 'all' || transaction.businessStatus === selectedBusinessStatus));
@@ -123,17 +135,18 @@ export default function TransactionsPage() {
       <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/90 px-5 pb-5 pt-6 backdrop-blur-xl">
         <div className="flex items-center justify-between gap-4">
           <div><p className="section-label">เงินเข้า เงินออก และการโอน</p><h1 className="mt-2 text-[1.65rem] font-bold tracking-tight text-slate-900">รายการเงิน</h1></div>
-          <button type="button" onClick={() => openCreate()} disabled={people.length === 0 || accounts.length === 0} className="touch-button grid min-w-11 place-items-center rounded-xl bg-emerald-600 text-white shadow-[0_8px_18px_rgba(22,134,107,0.2)] disabled:cursor-not-allowed disabled:opacity-50" aria-label="เพิ่มรายการ"><Plus size={20} /></button>
         </div>
-        <div className="mt-5 grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">
-          {typeOptions.map(({ value, label, icon: Icon }) => <button key={value} type="button" onClick={() => openCreate(value)} className="touch-button flex items-center justify-center gap-1 rounded-xl text-xs font-semibold text-slate-500"><Icon size={16} />{label}</button>)}
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <ActionCard label="รายรับ" description="รับเงินลูกค้า" icon={<CirclePlus size={27} />} color="emerald" disabled={people.length === 0 || accounts.length === 0} onClick={() => openCreate('income')} />
+          <ActionCard label="รายจ่าย" description="ต้นทุนและค่าใช้จ่าย" icon={<CircleMinus size={27} />} color="rose" disabled={people.length === 0 || accounts.length === 0} onClick={() => openCreate('expense')} />
+          <ActionCard label="โอนเงิน" description="ย้ายระหว่างบัญชี" icon={<ArrowRightLeft size={27} />} color="indigo" disabled={people.length === 0 || accounts.length < 2} onClick={() => openCreate('transfer')} />
         </div>
       </header>
 
       <section className="space-y-3 px-5 py-5">
         {errorMessage && <p className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
         <div className="grid grid-cols-2 gap-2"><select value={selectedType} onChange={(event) => setSelectedType(event.target.value as 'all' | TransactionType)} className="h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">ทุกประเภท</option><option value="income">รายรับ</option><option value="expense">รายจ่าย</option><option value="transfer">โอนเงิน</option></select><select value={selectedBusinessStatus} onChange={(event) => setSelectedBusinessStatus(event.target.value as 'all' | BusinessStatus)} className="h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">ทุกสถานะธุรกิจ</option>{Object.entries(businessStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
-        {isLoading ? <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p> : visibleTransactions.length === 0 ? <EmptyState /> : visibleTransactions.map((transaction) => <TransactionCard key={transaction.id} transaction={transaction} personName={personNames.get(transaction.ownerPersonId)} accountNames={accountNames} onEdit={setEditingTransaction} onDelete={deleteTransaction} />)}
+        {isLoading ? <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p> : visibleTransactions.length === 0 ? <EmptyState /> : visibleTransactions.map((transaction) => <TransactionCard key={transaction.id} transaction={transaction} personName={personNames.get(transaction.ownerPersonId)} accountNames={accountNames} onEdit={setEditingTransaction} onReceived={markBusinessReceived} onDelete={deleteTransaction} />)}
       </section>
 
       {isFormOpen && <TransactionForm form={form} setForm={setForm} people={people} properties={properties} accounts={accounts} categories={availableCategories} onClose={() => setIsFormOpen(false)} onSubmit={saveTransaction} />}
@@ -143,10 +156,14 @@ export default function TransactionsPage() {
   );
 }
 
-function TransactionCard({ transaction, personName, accountNames, onEdit, onDelete }: { transaction: Transaction; personName: string | undefined; accountNames: Map<string, string>; onEdit: (transaction: Transaction) => void; onDelete: (id: string) => Promise<void> }) {
+function ActionCard({ label, description, icon, color, disabled, onClick }: { label: string; description: string; icon: React.ReactNode; color: 'emerald' | 'rose' | 'indigo'; disabled: boolean; onClick: () => void }) { const colors = { emerald: 'border-emerald-100 bg-emerald-50 text-emerald-700', rose: 'border-rose-100 bg-rose-50 text-rose-700', indigo: 'border-indigo-100 bg-indigo-50 text-indigo-700' }; return <button type="button" disabled={disabled} onClick={onClick} className={`flex min-h-32 flex-col items-center justify-center rounded-2xl border px-2 text-center disabled:opacity-45 ${colors[color]}`}><span>{icon}</span><span className="mt-2 text-sm font-bold">{label}</span><span className="mt-1 text-[10px] leading-tight text-slate-500">{description}</span></button>; }
+
+function TransactionCard({ transaction, personName, accountNames, onEdit, onReceived, onDelete }: { transaction: Transaction; personName: string | undefined; accountNames: Map<string, string>; onEdit: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
   const icon = transaction.type === 'income' ? <ArrowDownLeft size={18} /> : transaction.type === 'expense' ? <ArrowUpRight size={18} /> : <ArrowLeftRight size={18} />;
   const color = transaction.type === 'income' ? 'bg-emerald-50 text-emerald-700' : transaction.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700';
-  return <article className="surface-card p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><span className={`grid min-h-10 min-w-10 place-items-center rounded-2xl ${color}`}>{icon}</span><div><h2 className="truncate font-semibold text-slate-900">{transaction.title}</h2><p className="text-xs text-slate-500">{new Date(transaction.date).toLocaleDateString('th-TH')}</p></div></div><p className={`mt-3 text-xl font-bold tracking-tight ${transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700'}`}>{transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท</p><p className="mt-1 text-xs text-slate-500">{personName || 'ไม่ระบุ'} · {transaction.type === 'transfer' ? `${accountNames.get(transaction.sourceAccountId || '') || '-'} → ${accountNames.get(transaction.destinationAccountId || '') || '-'}` : accountNames.get(transaction.sourceAccountId || transaction.destinationAccountId || '') || 'ไม่ระบุบัญชี'}</p><div className="mt-2 flex flex-wrap gap-2">{transaction.categoryName && <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">{transaction.categoryName}</span>}{transaction.businessStatus && <span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700">{businessStatusLabels[transaction.businessStatus]}</span>}</div></div><div className="flex gap-2"><button type="button" onClick={() => onEdit(transaction)} aria-label={`แก้ไข ${transaction.title}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"><Pencil size={18} /></button><button type="button" onClick={() => onDelete(transaction.id)} aria-label={`ลบ ${transaction.title}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600"><Trash2 size={18} /></button></div></div></article>;
+  const isOverdue = transaction.businessStatus === 'customer_paid' && Date.now() - new Date(transaction.date).getTime() > 7 * 24 * 60 * 60 * 1000;
+  const badgeClass = transaction.businessStatus === 'customer_paid' ? 'bg-amber-50 text-amber-700' : transaction.businessStatus === 'business_received' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600';
+  return <article className="surface-card p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><span className={`grid min-h-10 min-w-10 place-items-center rounded-2xl ${color}`}>{icon}</span><div><h2 className="truncate font-semibold text-slate-900">{transaction.title}</h2><p className="text-xs text-slate-500">{new Date(transaction.date).toLocaleDateString('th-TH')}</p></div></div><p className={`mt-3 text-xl font-bold tracking-tight ${transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700'}`}>{transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท</p><p className="mt-1 text-xs text-slate-500">{personName || 'ไม่ระบุ'} · {transaction.type === 'transfer' ? `${accountNames.get(transaction.sourceAccountId || '') || '-'} → ${accountNames.get(transaction.destinationAccountId || '') || '-'}` : accountNames.get(transaction.sourceAccountId || transaction.destinationAccountId || '') || 'ไม่ระบุบัญชี'}</p><div className="mt-2 flex flex-wrap gap-2">{transaction.categoryName && <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">🏷️ {transaction.categoryName}</span>}{transaction.businessStatus && <span className={`rounded-full px-2 py-1 text-xs font-medium ${badgeClass}`}>{businessStatusLabels[transaction.businessStatus]}</span>}{isOverdue && <span className="rounded-full bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700">ค้างเกิน 7 วัน</span>}</div>{transaction.businessStatus === 'customer_paid' && <button type="button" onClick={() => onReceived(transaction.id)} className="touch-button mt-3 w-full rounded-xl bg-emerald-600 px-3 text-sm font-semibold text-white">โอนเข้าธุรกิจแล้ว</button>}</div><div className="flex gap-2"><button type="button" onClick={() => onEdit(transaction)} aria-label={`แก้ไข ${transaction.title}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"><Pencil size={18} /></button><button type="button" onClick={() => onDelete(transaction.id)} aria-label={`ลบ ${transaction.title}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600"><Trash2 size={18} /></button></div></div></article>;
 }
 
 function TransactionForm({ form, setForm, people, properties, accounts, categories, onClose, onSubmit }: { form: FormState; setForm: (form: FormState) => void; people: Person[]; properties: Property[]; accounts: Account[]; categories: Category[]; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void> }) {

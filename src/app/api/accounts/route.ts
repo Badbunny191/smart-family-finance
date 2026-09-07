@@ -13,6 +13,9 @@ export async function GET(request: NextRequest) {
       .select({
         id: accounts.id,
         name: accounts.name,
+        accountAlias: accounts.accountAlias,
+        bankName: accounts.bankName,
+        accountNumber: accounts.accountNumber,
         personId: accounts.personId,
         personName: persons.name,
         propertyId: accounts.propertyId,

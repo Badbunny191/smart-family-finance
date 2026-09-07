@@ -37,7 +37,7 @@ export default async function DashboardPage() {
             <SummaryCard label="เงินสดรวม" value={data.summary.totalCash} icon={<WalletCards size={20} />} tone="sky" />
             <SummaryCard label="รายรับเดือนนี้" value={data.summary.monthlyIncome} icon={<ArrowDownLeft size={20} />} tone="emerald" />
             <SummaryCard label="รายจ่ายเดือนนี้" value={data.summary.monthlyExpense} icon={<ArrowUpRight size={20} />} tone="rose" />
-            <SummaryCard label="เงินรอโอนเข้าธุรกิจ" value={data.summary.pendingBusinessTransfer} icon={<ArrowLeftRight size={20} />} tone="sky" />
+            <a href="/transactions?businessStatus=customer_paid" className="surface-card block p-4 transition-transform active:scale-[0.98]"><div className="grid min-h-10 min-w-10 w-fit place-items-center rounded-2xl bg-amber-50 text-amber-700"><ArrowLeftRight size={20} /></div><p className="mt-3 text-xs font-medium text-slate-500">รอโอนเข้าธุรกิจ</p><p className="mt-1 text-lg font-bold tracking-tight text-slate-900">{formatCurrency(data.summary.pendingBusinessTransfer)}</p><p className="mt-1 text-xs font-medium text-amber-700">{data.summary.pendingBusinessTransferCount} รายการ</p></a>
             <div className="col-span-2 lg:col-span-4"><SummaryCard label="คงเหลือสุทธิเดือนนี้" value={data.summary.netBalance} icon={<CircleDollarSign size={20} />} tone={data.summary.netBalance >= 0 ? 'emerald' : 'rose'} /></div>
           </div>
         </section>

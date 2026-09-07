@@ -114,6 +114,9 @@ export const accounts = sqliteTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
+    accountAlias: text('account_alias'),
+    bankName: text('bank_name'),
+    accountNumber: text('account_number'),
     personId: text('person_id')
       .notNull()
       .references(() => persons.id),

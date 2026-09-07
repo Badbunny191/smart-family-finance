@@ -15,6 +15,9 @@ export const propertyInputSchema = z.object({
 
 export const accountInputSchema = z.object({
   name: requiredName,
+  accountAlias: z.string().trim().max(120, 'ชื่อเรียกต้องไม่เกิน 120 ตัวอักษร').nullable().optional(),
+  bankName: z.string().trim().max(120, 'ชื่อธนาคารต้องไม่เกิน 120 ตัวอักษร').nullable().optional(),
+  accountNumber: z.string().trim().max(50, 'เลขบัญชีต้องไม่เกิน 50 ตัวอักษร').nullable().optional(),
   personId: z.string().trim().min(1, 'กรุณาเลือกบุคคล'),
   propertyId: z.string().trim().min(1).nullable().optional(),
   accountType: z.enum(['bank', 'cash']),
