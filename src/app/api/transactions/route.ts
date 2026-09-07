@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
-import { accounts, persons, properties, transactions } from '@/db/schema';
+import { accounts, categories, persons, properties, transactions } from '@/db/schema';
 import { getRequestContext, serverErrorResponse, unauthorizedResponse } from '@/lib/api-auth';
 import { transactionInputSchema, validationError } from '@/lib/validation';
 
@@ -9,10 +9,34 @@ export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   try {
     const { db } = await getRequestContext(request);
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type');
+    const businessStatus = searchParams.get('businessStatus');
+    const categoryId = searchParams.get('categoryId');
+    const filters = [isNull(transactions.deletedAt)];
+    if (type === 'income' || type === 'expense' || type === 'transfer') filters.push(eq(transactions.type, type));
+    if (businessStatus === 'customer_paid' || businessStatus === 'business_received' || businessStatus === 'closed') filters.push(eq(transactions.businessStatus, businessStatus));
+    if (categoryId) filters.push(eq(transactions.categoryId, categoryId));
     const rows = await db
-      .select()
+      .select({
+        id: transactions.id,
+        type: transactions.type,
+        amount: transactions.amount,
+        date: transactions.date,
+        title: transactions.title,
+        ownerPersonId: transactions.ownerPersonId,
+        payerPersonId: transactions.payerPersonId,
+        propertyId: transactions.propertyId,
+        categoryId: transactions.categoryId,
+        categoryName: categories.name,
+        businessStatus: transactions.businessStatus,
+        sourceAccountId: transactions.sourceAccountId,
+        destinationAccountId: transactions.destinationAccountId,
+        note: transactions.note,
+      })
       .from(transactions)
-      .where(isNull(transactions.deletedAt))
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .where(and(...filters))
       .orderBy(desc(transactions.date), desc(transactions.createdAt));
     return NextResponse.json(rows);
   } catch (error) {
@@ -49,6 +73,13 @@ export async function POST(request: NextRequest) {
       if (!property[0]) return NextResponse.json({ error: 'ไม่พบทรัพย์สินที่เลือก' }, { status: 400 });
     }
 
+    if (input.categoryId) {
+      const category = await db.select({ type: categories.type }).from(categories).where(and(eq(categories.id, input.categoryId), isNull(categories.deletedAt))).limit(1);
+      if (!category[0] || category[0].type !== input.type) {
+        return NextResponse.json({ error: 'หมวดหมู่ไม่ตรงกับประเภทรายการ' }, { status: 400 });
+      }
+    }
+
     const accountIds = [input.sourceAccountId, input.destinationAccountId].filter(
       (id): id is string => Boolean(id)
     );
@@ -75,10 +106,11 @@ export async function POST(request: NextRequest) {
       ownerPersonId: input.ownerPersonId,
       payerPersonId: input.payerPersonId,
       propertyId: input.propertyId || null,
-      categoryId: null,
+      categoryId: input.categoryId || null,
       sourceAccountId: input.sourceAccountId || null,
       destinationAccountId: input.destinationAccountId || null,
       status: 'completed' as const,
+      businessStatus: input.businessStatus || null,
       note: input.note || null,
       createdByUserId: session.user.id,
       recurringScheduleId: null,

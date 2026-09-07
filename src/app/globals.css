@@ -67,4 +67,21 @@ a {
 	.touch-button {
 		min-height: 44px;
 	}
+
+	.form-input {
+		margin-top: 0.5rem;
+		height: 3rem;
+		width: 100%;
+		border: 1px solid #e2e8f0;
+		border-radius: 0.75rem;
+		background: #fff;
+		padding: 0 1rem;
+		font-size: 1rem;
+		outline: none;
+	}
+
+	.form-input:focus {
+		border-color: #16866b;
+		box-shadow: 0 0 0 3px rgba(22, 134, 107, 0.12);
+	}
 }

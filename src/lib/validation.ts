@@ -31,6 +31,8 @@ export const transactionInputSchema = z
     ownerPersonId: z.string().trim().min(1, 'กรุณาเลือกผู้รับผิดชอบ'),
     payerPersonId: z.string().trim().min(1, 'กรุณาเลือกผู้จ่าย/แหล่งเงิน'),
     propertyId: z.string().trim().min(1).nullable().optional(),
+    categoryId: z.string().trim().min(1).nullable().optional(),
+    businessStatus: z.enum(['customer_paid', 'business_received', 'closed']).nullable().optional(),
     sourceAccountId: z.string().trim().min(1).nullable().optional(),
     destinationAccountId: z.string().trim().min(1).nullable().optional(),
     note: z.string().trim().max(500, 'หมายเหตุต้องไม่เกิน 500 ตัวอักษร').nullable().optional(),
@@ -48,7 +50,15 @@ export const transactionInputSchema = z
     if (value.sourceAccountId && value.sourceAccountId === value.destinationAccountId) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['destinationAccountId'], message: 'บัญชีต้นทางและปลายทางต้องต่างกัน' });
     }
+    if (value.type === 'transfer' && value.categoryId) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['categoryId'], message: 'รายการโอนไม่ใช้หมวดหมู่รายรับหรือรายจ่าย' });
+    }
   });
+
+export const transactionMetadataSchema = z.object({
+  categoryId: z.string().trim().min(1).nullable().optional(),
+  businessStatus: z.enum(['customer_paid', 'business_received', 'closed']).nullable().optional(),
+});
 
 export function validationError(error: z.ZodError) {
   return {

@@ -172,6 +172,9 @@ export const transactions = sqliteTable(
     status: text('status', { enum: ['pending', 'completed', 'cancelled'] })
       .notNull()
       .default('completed'),
+    businessStatus: text('business_status', {
+      enum: ['customer_paid', 'business_received', 'closed'],
+    }),
     note: text('note'),
     createdByUserId: text('created_by_user_id')
       .notNull()
@@ -191,6 +194,7 @@ export const transactions = sqliteTable(
       table.deletedAt
     ),
     propertyIdx: index('transactions_property_idx').on(table.propertyId),
+    businessStatusIdx: index('transactions_business_status_idx').on(table.businessStatus),
     deletedIdx: index('transactions_deleted_idx').on(table.deletedAt),
   })
 );

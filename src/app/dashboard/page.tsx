@@ -37,6 +37,7 @@ export default async function DashboardPage() {
             <SummaryCard label="เงินสดรวม" value={data.summary.totalCash} icon={<WalletCards size={20} />} tone="sky" />
             <SummaryCard label="รายรับเดือนนี้" value={data.summary.monthlyIncome} icon={<ArrowDownLeft size={20} />} tone="emerald" />
             <SummaryCard label="รายจ่ายเดือนนี้" value={data.summary.monthlyExpense} icon={<ArrowUpRight size={20} />} tone="rose" />
+            <SummaryCard label="เงินรอโอนเข้าธุรกิจ" value={data.summary.pendingBusinessTransfer} icon={<ArrowLeftRight size={20} />} tone="sky" />
             <div className="col-span-2 lg:col-span-4"><SummaryCard label="คงเหลือสุทธิเดือนนี้" value={data.summary.netBalance} icon={<CircleDollarSign size={20} />} tone={data.summary.netBalance >= 0 ? 'emerald' : 'rose'} /></div>
           </div>
         </section>
