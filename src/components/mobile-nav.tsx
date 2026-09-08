@@ -1,16 +1,14 @@
 'use client';
 
-import { ArrowLeftRight, Building2, LayoutDashboard, Users, WalletCards } from 'lucide-react';
+import { ArrowLeftRight, LayoutDashboard, Menu, WalletCards } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const items = [
   { href: '/dashboard', label: 'หน้าหลัก', icon: LayoutDashboard },
-  { href: '/persons', label: 'บุคคล', icon: Users },
-  { href: '/properties', label: 'ทรัพย์สิน', icon: Building2 },
-  { href: '/accounts', label: 'บัญชี', icon: WalletCards },
-  { href: '/categories', label: 'หมวดหมู่', icon: WalletCards },
   { href: '/transactions', label: 'รายการ', icon: ArrowLeftRight },
+  { href: '/accounts', label: 'บัญชี', icon: WalletCards },
+  { href: '/more', label: 'เพิ่มเติม', icon: Menu },
 ];
 
 export function MobileNav() {
@@ -18,9 +16,9 @@ export function MobileNav() {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200/80 bg-white/90 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(31,42,68,0.08)] backdrop-blur-xl sm:absolute">
-      <div className="mx-auto grid h-[4.5rem] max-w-md grid-cols-5">
+      <div className="mx-auto grid h-[4.5rem] max-w-md grid-cols-4">
         {items.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href;
+          const active = href === '/more' ? pathname.startsWith('/more') || pathname === '/persons' || pathname === '/properties' || pathname === '/categories' || pathname === '/settings' : pathname === href;
           return (
             <Link
               key={href}

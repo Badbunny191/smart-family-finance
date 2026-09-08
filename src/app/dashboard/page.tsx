@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Building2, CircleDollarSign, WalletCards } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CircleDollarSign, WalletCards } from 'lucide-react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
@@ -47,15 +47,6 @@ export default async function DashboardPage() {
           {data.recentTransactions.length === 0 ? <EmptyState title="ยังไม่มีรายการเงิน" description="เริ่มต้นด้วยการเพิ่มรายรับหรือรายจ่าย" href="/transactions" action="เพิ่มรายการ" /> : <div className="grid gap-3 lg:grid-cols-2">{data.recentTransactions.map((transaction) => <article key={transaction.id} className="surface-card p-4"><div className="flex items-start gap-3"><div className={`grid min-h-10 min-w-10 place-items-center rounded-2xl ${transaction.type === 'income' ? 'bg-emerald-50 text-emerald-700' : transaction.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700'}`}>{transaction.type === 'income' ? <ArrowDownLeft size={19} /> : transaction.type === 'expense' ? <ArrowUpRight size={19} /> : <ArrowLeftRight size={19} />}</div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><h3 className="truncate font-semibold text-slate-900">{transaction.title}</h3><p className="mt-1 text-xs text-slate-500">{typeLabels[transaction.type]} · {new Date(transaction.date).toLocaleDateString('th-TH')}</p></div><p className={`shrink-0 font-bold ${transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700'}`}>{transaction.type === 'expense' ? '-' : '+'}{formatCurrency(transaction.amount)}</p></div><p className="mt-2 text-xs text-slate-500">{transaction.type === 'transfer' ? `${transaction.sourceAccountName || '-'} → ${transaction.destinationAccountName || '-'}` : transaction.sourceAccountName || transaction.destinationAccountName || 'ไม่ระบุบัญชี'}</p></div></div></article>)}</div>}
         </section>
 
-        <section>
-          <SectionHeading title="บัญชีทั้งหมด" href="/accounts" />
-          {data.accountSummary.length === 0 ? <EmptyState title="ยังไม่มีบัญชี" description="เพิ่มบัญชีเพื่อเริ่มติดตามยอดคงเหลือ" href="/accounts" action="เพิ่มบัญชี" /> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{data.accountSummary.map((account) => <article key={account.id} className="surface-card p-4"><div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold text-slate-900">{account.name}</h3><p className="mt-1 text-xs text-slate-500">{account.accountType === 'cash' ? 'เงินสด' : 'ธนาคาร'}</p></div><WalletCards className="text-emerald-600" size={21} /></div><p className="mt-4 text-xl font-bold tracking-tight text-slate-900">{formatCurrency(account.currentBalance)}</p></article>)}</div>}
-        </section>
-
-        <section>
-          <SectionHeading title={`ทรัพย์สิน (${data.propertySummary.length})`} href="/properties" />
-          {data.propertySummary.length === 0 ? <EmptyState title="ยังไม่มีทรัพย์สิน" description="เพิ่มทรัพย์สินเพื่อจัดกลุ่มการเงินของครอบครัว" href="/properties" action="เพิ่มทรัพย์สิน" /> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{data.propertySummary.map((property) => <article key={property.id} className="surface-card p-4"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-slate-900">{property.name}</h3><p className="mt-1 text-sm text-slate-500">เจ้าของ: {property.ownerName}</p></div><Building2 className="text-indigo-600" size={21} /></div><span className={`mt-4 inline-flex min-h-7 items-center rounded-full px-3 text-xs font-semibold ${property.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{property.status === 'active' ? 'ใช้งานอยู่' : 'ไม่ใช้งาน'}</span></article>)}</div>}
-        </section>
       </div>
       <MobileNav />
     </main>
