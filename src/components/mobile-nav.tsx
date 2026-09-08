@@ -9,6 +9,7 @@ const items = [
   { href: '/persons', label: 'บุคคล', icon: Users },
   { href: '/properties', label: 'ทรัพย์สิน', icon: Building2 },
   { href: '/accounts', label: 'บัญชี', icon: WalletCards },
+  { href: '/categories', label: 'หมวดหมู่', icon: WalletCards },
   { href: '/transactions', label: 'รายการ', icon: ArrowLeftRight },
 ];
 

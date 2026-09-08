@@ -25,17 +25,33 @@ export const accountInputSchema = z.object({
   currentBalance: z.number().finite().default(0),
 });
 
+export const categoryInputSchema = z.object({
+  name: requiredName,
+  type: z.enum(['income', 'expense']),
+  icon: z.string().trim().max(50).nullable().optional(),
+  color: z.string().trim().max(50).nullable().optional(),
+  isActive: z.boolean().default(true),
+});
+
+export const transactionStatusInputSchema = z.object({
+  name: requiredName,
+  slug: z.string().trim().min(1, 'กรุณาระบุรหัสสถานะ').max(60, 'รหัสสถานะต้องไม่เกิน 60 ตัวอักษร'),
+  isActive: z.boolean().default(true),
+  sortOrder: z.number().int().min(0).max(999).default(0),
+});
+
 export const transactionInputSchema = z
   .object({
     type: z.enum(['income', 'expense', 'transfer']),
     amount: z.number().finite().positive('จำนวนเงินต้องมากกว่า 0'),
     date: z.coerce.date(),
     title: requiredName,
-    ownerPersonId: z.string().trim().min(1, 'กรุณาเลือกผู้รับผิดชอบ'),
-    payerPersonId: z.string().trim().min(1, 'กรุณาเลือกผู้จ่าย/แหล่งเงิน'),
     propertyId: z.string().trim().min(1).nullable().optional(),
     categoryId: z.string().trim().min(1).nullable().optional(),
-    businessStatus: z.enum(['customer_paid', 'business_received', 'closed']).nullable().optional(),
+    businessStatus: z
+      .enum(['pending_payment', 'customer_paid', 'awaiting_business_transfer', 'business_received', 'closed'])
+      .nullable()
+      .optional(),
     sourceAccountId: z.string().trim().min(1).nullable().optional(),
     destinationAccountId: z.string().trim().min(1).nullable().optional(),
     note: z.string().trim().max(500, 'หมายเหตุต้องไม่เกิน 500 ตัวอักษร').nullable().optional(),
@@ -60,7 +76,10 @@ export const transactionInputSchema = z
 
 export const transactionMetadataSchema = z.object({
   categoryId: z.string().trim().min(1).nullable().optional(),
-  businessStatus: z.enum(['customer_paid', 'business_received', 'closed']).nullable().optional(),
+  businessStatus: z
+    .enum(['pending_payment', 'customer_paid', 'awaiting_business_transfer', 'business_received', 'closed'])
+    .nullable()
+    .optional(),
 });
 
 export function validationError(error: z.ZodError) {

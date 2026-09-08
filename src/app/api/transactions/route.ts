@@ -24,8 +24,6 @@ export async function GET(request: NextRequest) {
         amount: transactions.amount,
         date: transactions.date,
         title: transactions.title,
-        ownerPersonId: transactions.ownerPersonId,
-        payerPersonId: transactions.payerPersonId,
         propertyId: transactions.propertyId,
         categoryId: transactions.categoryId,
         categoryName: categories.name,
@@ -55,14 +53,6 @@ export async function POST(request: NextRequest) {
     }
 
     const input = parsed.data;
-    const personIds = [input.ownerPersonId, input.payerPersonId];
-    const people = await db
-      .select({ id: persons.id })
-      .from(persons)
-      .where(and(inArray(persons.id, personIds), isNull(persons.deletedAt)));
-    if (people.length !== new Set(personIds).size) {
-      return NextResponse.json({ error: 'ไม่พบบุคคลที่เลือก' }, { status: 400 });
-    }
 
     if (input.propertyId) {
       const property = await db
@@ -103,8 +93,6 @@ export async function POST(request: NextRequest) {
       amount: input.amount,
       date: input.date,
       title: input.title,
-      ownerPersonId: input.ownerPersonId,
-      payerPersonId: input.payerPersonId,
       propertyId: input.propertyId || null,
       categoryId: input.categoryId || null,
       sourceAccountId: input.sourceAccountId || null,

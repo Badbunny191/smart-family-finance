@@ -5,6 +5,7 @@ import type {
   properties,
   accounts,
   categories,
+  transactionStatuses,
   transactions,
   attachments,
   activityLogs,
@@ -30,6 +31,9 @@ export type NewAccount = InferInsertModel<typeof accounts>;
 
 export type Category = InferSelectModel<typeof categories>;
 export type NewCategory = InferInsertModel<typeof categories>;
+
+export type TransactionStatusMaster = InferSelectModel<typeof transactionStatuses>;
+export type NewTransactionStatusMaster = InferInsertModel<typeof transactionStatuses>;
 
 export type Transaction = InferSelectModel<typeof transactions>;
 export type NewTransaction = InferInsertModel<typeof transactions>;

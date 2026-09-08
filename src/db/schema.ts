@@ -144,12 +144,30 @@ export const categories = sqliteTable(
     type: text('type', { enum: ['income', 'expense'] }).notNull(),
     icon: text('icon'),
     color: text('color'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
     deletedAt: integer('deleted_at', { mode: 'timestamp' }),
   },
   (table) => ({
     deletedIdx: index('categories_deleted_idx').on(table.deletedAt),
+  })
+);
+
+export const transactionStatuses = sqliteTable(
+  'transaction_statuses',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull().unique(),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+    deletedAt: integer('deleted_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    deletedIdx: index('transaction_statuses_deleted_idx').on(table.deletedAt),
   })
 );
 
@@ -162,12 +180,6 @@ export const transactions = sqliteTable(
     amount: real('amount').notNull(),
     date: integer('date', { mode: 'timestamp' }).notNull(),
     title: text('title').notNull(),
-    ownerPersonId: text('owner_person_id')
-      .notNull()
-      .references(() => persons.id),
-    payerPersonId: text('payer_person_id')
-      .notNull()
-      .references(() => persons.id),
     propertyId: text('property_id').references(() => properties.id),
     categoryId: text('category_id').references(() => categories.id),
     sourceAccountId: text('source_account_id').references(() => accounts.id),
@@ -176,7 +188,13 @@ export const transactions = sqliteTable(
       .notNull()
       .default('completed'),
     businessStatus: text('business_status', {
-      enum: ['customer_paid', 'business_received', 'closed'],
+      enum: [
+        'pending_payment',
+        'customer_paid',
+        'awaiting_business_transfer',
+        'business_received',
+        'closed',
+      ],
     }),
     note: text('note'),
     createdByUserId: text('created_by_user_id')
@@ -190,8 +208,6 @@ export const transactions = sqliteTable(
   (table) => ({
     dateIdx: index('transactions_date_idx').on(table.date),
     supportQueryIdx: index('transactions_support_idx').on(
-      table.payerPersonId,
-      table.ownerPersonId,
       table.type,
       table.status,
       table.deletedAt
@@ -328,8 +344,6 @@ export const usersRelations = relations(users, ({ many, one }) => ({
 export const personsRelations = relations(persons, ({ many }) => ({
   properties: many(properties),
   accounts: many(accounts),
-  ownedTransactions: many(transactions, { relationName: 'ownerTransactions' }),
-  paidTransactions: many(transactions, { relationName: 'payerTransactions' }),
 }));
 
 export const propertiesRelations = relations(properties, ({ one, many }) => ({
@@ -349,17 +363,11 @@ export const categoriesRelations = relations(categories, ({ many }) => ({
   transactions: many(transactions),
 }));
 
+export const transactionStatusesRelations = relations(transactionStatuses, ({ many }) => ({
+  transactions: many(transactions),
+}));
+
 export const transactionsRelations = relations(transactions, ({ one, many }) => ({
-  owner: one(persons, {
-    fields: [transactions.ownerPersonId],
-    references: [persons.id],
-    relationName: 'ownerTransactions',
-  }),
-  payer: one(persons, {
-    fields: [transactions.payerPersonId],
-    references: [persons.id],
-    relationName: 'payerTransactions',
-  }),
   property: one(properties, { fields: [transactions.propertyId], references: [properties.id] }),
   category: one(categories, { fields: [transactions.categoryId], references: [categories.id] }),
   sourceAccount: one(accounts, {
