@@ -1,8 +1,9 @@
 ﻿'use client';
 
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight,ArrowRightLeft, CircleMinus, CirclePlus, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight,ArrowRightLeft, CircleMinus, CirclePlus, Loader2, Pencil, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
+import { useToast } from '@/components/ui/toast';
 
 type TransactionType = 'income' | 'expense' | 'transfer';
 type BusinessStatus = 'pending_payment' | 'customer_paid' | 'awaiting_business_transfer' | 'business_received' | 'closed';
@@ -69,6 +70,11 @@ export default function TransactionsPage() {
   const [selectedBusinessStatus, setSelectedBusinessStatus] = useState<'all' | BusinessStatus>('all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isMarkingReceived, setIsMarkingReceived] = useState<string | null>(null);
+  const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadData = async () => {
@@ -106,7 +112,7 @@ export default function TransactionsPage() {
 
   const saveTransaction = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setErrorMessage(null);
+    setIsSaving(true);
 
     const response = await fetch('/api/transactions', {
       method: 'POST',
@@ -124,24 +130,38 @@ export default function TransactionsPage() {
       }),
     });
 
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) return setErrorMessage(payload.error || 'บันทึกรายการไม่สำเร็จ');
+    setIsSaving(false);
 
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+      return;
+    }
+
+    showToast('บันทึกข้อมูลสำเร็จ', 'success');
     await loadData();
     setIsFormOpen(false);
   };
 
   const deleteTransaction = async (id: string) => {
     if (!window.confirm('ต้องการลบรายการนี้หรือไม่ ยอดบัญชีจะถูกย้อนกลับ')) return;
+    setIsDeleting(id);
 
     const response = await fetch(`/api/transactions/${id}`, { method: 'DELETE' });
-    if (!response.ok) return setErrorMessage('ลบรายการไม่สำเร็จ');
+    setIsDeleting(null);
 
+    if (!response.ok) {
+      showToast('ไม่สามารถลบข้อมูลได้', 'error');
+      return;
+    }
+
+    showToast('ลบข้อมูลสำเร็จ', 'success');
     await loadData();
   };
 
   const updateMetadata = async (categoryId: string, businessStatus: '' | BusinessStatus) => {
     if (!editingTransaction) return;
+    setIsUpdating(true);
 
     const response = await fetch(`/api/transactions/${editingTransaction.id}`, {
       method: 'PATCH',
@@ -149,18 +169,33 @@ export default function TransactionsPage() {
       body: JSON.stringify({ categoryId: categoryId || null, businessStatus: businessStatus || null }),
     });
 
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) return setErrorMessage(payload.error || 'บันทึกไม่สำเร็จ');
+    setIsUpdating(false);
 
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+      return;
+    }
+
+    showToast('บันทึกข้อมูลสำเร็จ', 'success');
     await loadData();
     setEditingTransaction(null);
   };
 
   const markBusinessReceived = async (id: string) => {
-    const response = await fetch(`/api/transactions/${id}/received`, { method: 'POST' });
-    const payload = (await response.json()) as { error?: string };
-    if (!response.ok) return setErrorMessage(payload.error || 'อัปเดตสถานะไม่สำเร็จ');
+    setIsMarkingReceived(id);
 
+    const response = await fetch(`/api/transactions/${id}/received`, { method: 'POST' });
+
+    setIsMarkingReceived(null);
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+      return;
+    }
+
+    showToast('บันทึกข้อมูลสำเร็จ', 'success');
     await loadData();
   };
 
@@ -230,6 +265,8 @@ export default function TransactionsPage() {
               onEdit={setEditingTransaction}
               onReceived={markBusinessReceived}
               onDelete={deleteTransaction}
+              isDeleting={isDeleting === transaction.id}
+              isMarkingReceived={isMarkingReceived === transaction.id}
             />
           ))
         )}
@@ -244,6 +281,7 @@ export default function TransactionsPage() {
           categories={availableCategories}
           onClose={() => setIsFormOpen(false)}
           onSubmit={saveTransaction}
+          isSaving={isSaving}
         />
       )}
 
@@ -253,6 +291,7 @@ export default function TransactionsPage() {
           categories={categories.filter((category) => category.type === editingTransaction.type && category.isActive)}
           onClose={() => setEditingTransaction(null)}
           onSubmit={updateMetadata}
+          isSaving={isUpdating}
         />
       )}
 
@@ -277,7 +316,7 @@ function ActionCard({ label, description, icon, color, disabled, onClick }: { la
   );
 }
 
-function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onDelete }: { transaction: Transaction; getAccountLabel: (accountId: string | null) => string; onEdit: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void> }) {
+function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onDelete, isDeleting, isMarkingReceived }: { transaction: Transaction; getAccountLabel: (accountId: string | null) => string; onEdit: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean }) {
   const icon = transaction.type === 'income' ? <ArrowDownLeft size={18} /> : transaction.type === 'expense' ? <ArrowUpRight size={18} /> : <ArrowLeftRight size={18} />;
   const color = transaction.type === 'income' ? 'bg-emerald-50 text-emerald-700' : transaction.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700';
   const badgeClass = transaction.businessStatus === 'pending_payment' ? 'bg-amber-50 text-amber-700' : transaction.businessStatus === 'customer_paid' ? 'bg-sky-50 text-sky-700' : transaction.businessStatus === 'awaiting_business_transfer' ? 'bg-violet-50 text-violet-700' : transaction.businessStatus === 'business_received' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600';
@@ -316,8 +355,8 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
           </div>
 
           {transaction.businessStatus === 'customer_paid' && (
-            <button type="button" onClick={() => void onReceived(transaction.id)} className="touch-button mt-3 w-full rounded-xl bg-emerald-600 px-3 text-sm font-semibold text-white">
-              โอนเข้าธุรกิจแล้ว
+            <button type="button" onClick={() => void onReceived(transaction.id)} disabled={isMarkingReceived} className="touch-button mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-50">
+              {isMarkingReceived ? <><Loader2 size={16} className="animate-spin" /> กำลังอัปเดตสถานะ...</> : 'โอนเข้าธุรกิจแล้ว'}
             </button>
           )}
         </div>
@@ -326,8 +365,8 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
           <button type="button" onClick={() => onEdit(transaction)} aria-label={`แก้ไข ${transaction.title}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
             <Pencil size={18} />
           </button>
-          <button type="button" onClick={() => void onDelete(transaction.id)} aria-label={`ลบ ${transaction.title}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600">
-            <Trash2 size={18} />
+          <button type="button" onClick={() => void onDelete(transaction.id)} disabled={isDeleting} aria-label={`ลบ ${transaction.title}`} className="touch-button grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+            {isDeleting ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
           </button>
         </div>
       </div>
@@ -335,7 +374,7 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
   );
 }
 
-function TransactionForm({ form, setForm, properties, accounts, categories, onClose, onSubmit }: { form: FormState; setForm: (form: FormState) => void; properties: Property[]; accounts: Account[]; categories: Category[]; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void> }) {
+function TransactionForm({ form, setForm, properties, accounts, categories, onClose, onSubmit, isSaving }: { form: FormState; setForm: (form: FormState) => void; properties: Property[]; accounts: Account[]; categories: Category[]; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>; isSaving: boolean }) {
   const update = (values: Partial<FormState>) => setForm({ ...form, ...values });
   const isTransfer = form.type === 'transfer';
   const sameAccountSelected =
@@ -428,8 +467,10 @@ function TransactionForm({ form, setForm, properties, accounts, categories, onCl
         {/* Sticky Footer with Cancel and Save Buttons */}
         <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={onClose} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700">ยกเลิก</button>
-            <button type="submit" className="h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
+            <button type="button" onClick={onClose} disabled={isSaving} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 disabled:opacity-50">ยกเลิก</button>
+            <button type="submit" disabled={isSaving} className="h-12 w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white disabled:opacity-50">
+              {isSaving ? <><Loader2 size={18} className="animate-spin" /> กำลังบันทึกรายการ...</> : 'บันทึก'}
+            </button>
           </div>
         </div>
 
@@ -475,7 +516,7 @@ function BusinessStatusSelect({ value, onChange }: { value: '' | BusinessStatus;
   );
 }
 
-function TransactionMetadataForm({ transaction, categories, onClose, onSubmit }: { transaction: Transaction; categories: Category[]; onClose: () => void; onSubmit: (categoryId: string, businessStatus: '' | BusinessStatus) => Promise<void> }) {
+function TransactionMetadataForm({ transaction, categories, onClose, onSubmit, isSaving }: { transaction: Transaction; categories: Category[]; onClose: () => void; onSubmit: (categoryId: string, businessStatus: '' | BusinessStatus) => Promise<void>; isSaving: boolean }) {
   const [categoryId, setCategoryId] = useState(transaction.categoryId || '');
   const [businessStatus, setBusinessStatus] = useState<'' | BusinessStatus>(transaction.businessStatus || '');
 
@@ -515,8 +556,10 @@ function TransactionMetadataForm({ transaction, categories, onClose, onSubmit }:
 
         <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={onClose} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700">ยกเลิก</button>
-            <button type="submit" className="h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
+            <button type="button" onClick={onClose} disabled={isSaving} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 disabled:opacity-50">ยกเลิก</button>
+            <button type="submit" disabled={isSaving} className="h-12 w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white disabled:opacity-50">
+              {isSaving ? <><Loader2 size={18} className="animate-spin" /> กำลังบันทึก...</> : 'บันทึก'}
+            </button>
           </div>
         </div>
       </form>

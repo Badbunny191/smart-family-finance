@@ -1,8 +1,9 @@
 'use client';
 
-import { Building2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Building2, Pencil, Plus, Trash2, X, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
+import { useToast } from '@/components/ui/toast';
 
 type Person = { id: string; name: string };
 type Property = { id: string; name: string; ownerPersonId: string; ownerName: string; status: 'active' | 'inactive' };
@@ -17,6 +18,9 @@ export default function PropertiesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadData = async () => {
@@ -46,28 +50,33 @@ export default function PropertiesPage() {
 
   const saveProperty = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setErrorMessage(null);
+    setIsSaving(true);
     const response = await fetch(editingId ? `/api/properties/${editingId}` : '/api/properties', {
       method: editingId ? 'PATCH' : 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(form),
     });
+    setIsSaving(false);
     const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setErrorMessage(payload.error || 'บันทึกไม่สำเร็จ');
+      showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
       return;
     }
+    showToast(editingId ? 'บันทึกข้อมูลสำเร็จ' : 'เพิ่มข้อมูลสำเร็จ', 'success');
     await loadData();
     setIsFormOpen(false);
   };
 
   const deleteProperty = async (id: string) => {
     if (!window.confirm('ต้องการลบทรัพย์สินนี้หรือไม่')) return;
+    setIsDeleting(id);
     const response = await fetch(`/api/properties/${id}`, { method: 'DELETE' });
+    setIsDeleting(null);
     if (!response.ok) {
-      setErrorMessage('ลบข้อมูลไม่สำเร็จ');
+      showToast('ไม่สามารถลบข้อมูลได้', 'error');
       return;
     }
+    showToast('ลบข้อมูลสำเร็จ', 'success');
     await loadData();
   };
 
@@ -108,7 +117,9 @@ export default function PropertiesPage() {
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => openEdit(property)} aria-label={`แก้ไข ${property.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"><Pencil size={18} aria-hidden="true" /></button>
-                  <button type="button" onClick={() => deleteProperty(property.id)} aria-label={`ลบ ${property.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600"><Trash2 size={18} aria-hidden="true" /></button>
+                  <button type="button" onClick={() => deleteProperty(property.id)} disabled={isDeleting === property.id} aria-label={`ลบ ${property.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+                    {isDeleting === property.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} aria-hidden="true" />}
+                  </button>
                 </div>
               </div>
             </article>
@@ -126,10 +137,15 @@ export default function PropertiesPage() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              <label className="block text-sm font-medium text-slate-700">ชื่อทรัพย์สิน<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-base outline-none focus:border-emerald-600" /></label>
-              <label className="mt-4 block text-sm font-medium text-slate-700">เจ้าของ<select required value={form.ownerPersonId} onChange={(event) => setForm({ ...form, ownerPersonId: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base"><option value="">เลือกเจ้าของ</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-              <label className="mt-4 block text-sm font-medium text-slate-700">สถานะ<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as 'active' | 'inactive' })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base"><option value="active">ใช้งานอยู่</option><option value="inactive">ไม่ใช้งาน</option></select></label>
-              <button type="submit" className="mt-6 h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
+              <label className="block text-sm font-medium text-slate-700">ชื่อทรัพย์สิน<input required disabled={isSaving} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-base outline-none focus:border-emerald-600" /></label>
+              <label className="mt-4 block text-sm font-medium text-slate-700">เจ้าของ<select required disabled={isSaving} value={form.ownerPersonId} onChange={(event) => setForm({ ...form, ownerPersonId: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base"><option value="">เลือกเจ้าของ</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+              <label className="mt-4 block text-sm font-medium text-slate-700">สถานะ<select disabled={isSaving} value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as 'active' | 'inactive' })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base"><option value="active">ใช้งานอยู่</option><option value="inactive">ไม่ใช้งาน</option></select></label>
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => setIsFormOpen(false)} disabled={isSaving} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 disabled:opacity-50">ยกเลิก</button>
+                <button type="submit" disabled={isSaving} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white disabled:opacity-50">
+                  {isSaving ? <><Loader2 size={18} className="animate-spin" /> {editingId ? 'กำลังบันทึก...' : 'กำลังเพิ่มทรัพย์สิน...'}</> : 'บันทึก'}
+                </button>
+              </div>
             </div>
           </form>
         </div>

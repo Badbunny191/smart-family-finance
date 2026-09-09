@@ -1,7 +1,7 @@
 'use client';
 
 import * as Dialog from '@radix-ui/react-dialog';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Loader2, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { CategoryIcon } from '@/components/category-icon';
 import { IconPicker } from '@/components/icon-picker';
@@ -152,7 +152,7 @@ export default function CategoriesPage() {
                 ยกเลิก
               </button>
               <button type="button" onClick={deactivateCategory} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 font-semibold text-white" disabled={isDeleting}>
-                {isDeleting ? 'กำลังลบ...' : 'ลบ'}
+                {isDeleting ? <><Loader2 size={16} className="animate-spin" /> กำลังลบ...</> : 'ลบ'}
               </button>
             </div>
           </Dialog.Content>
@@ -216,8 +216,8 @@ export default function CategoriesPage() {
 
               {errorMessage && <p className="mt-4 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
 
-              <button type="submit" className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white" disabled={isSaving}>
-                {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+              <button type="submit" className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white disabled:opacity-50" disabled={isSaving}>
+                {isSaving ? <><Loader2 size={18} className="animate-spin" /> {editingId ? 'กำลังบันทึก...' : 'กำลังเพิ่มหมวดหมู่...'}</> : 'บันทึก'}
               </button>
             </div>
           </form>

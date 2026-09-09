@@ -1,8 +1,9 @@
 'use client';
 
-import { Banknote, Pencil, Plus, Trash2, WalletCards, X } from 'lucide-react';
+import { Banknote, Pencil, Plus, Trash2, WalletCards, X, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
+import { useToast } from '@/components/ui/toast';
 
 type Person = { id: string; name: string };
 type Property = { id: string; name: string };
@@ -18,6 +19,9 @@ export default function AccountsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadData = async () => { 
@@ -56,33 +60,44 @@ export default function AccountsPage() {
     setIsFormOpen(true); 
   };
 
-  const saveAccount = async (event: React.FormEvent<HTMLFormElement>) => { 
-    event.preventDefault(); 
-    setErrorMessage(null); 
-    const response = await fetch(editingId ? `/api/accounts/${editingId}` : '/api/accounts', { 
-      method: editingId ? 'PATCH' : 'POST', 
-      headers: { 'content-type': 'application/json' }, 
-      body: JSON.stringify({ 
-        ...form, 
-        accountAlias: form.accountAlias || null, 
-        bankName: form.bankName || null, 
-        accountNumber: form.accountNumber || null, 
-        propertyId: form.propertyId || null, 
-        openingBalance: Number(form.openingBalance), 
-        currentBalance: Number(form.currentBalance) 
-      }) 
-    }); 
-    const payload = (await response.json()) as { error?: string }; 
-    if (!response.ok) return setErrorMessage(payload.error || 'บันทึกไม่สำเร็จ'); 
-    await loadData(); 
-    setIsFormOpen(false); 
+  const saveAccount = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSaving(true);
+    const response = await fetch(editingId ? `/api/accounts/${editingId}` : '/api/accounts', {
+      method: editingId ? 'PATCH' : 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...form,
+        accountAlias: form.accountAlias || null,
+        bankName: form.bankName || null,
+        accountNumber: form.accountNumber || null,
+        propertyId: form.propertyId || null,
+        openingBalance: Number(form.openingBalance),
+        currentBalance: Number(form.currentBalance)
+      })
+    });
+    setIsSaving(false);
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+      return;
+    }
+    showToast(editingId ? 'บันทึกข้อมูลสำเร็จ' : 'เพิ่มข้อมูลสำเร็จ', 'success');
+    await loadData();
+    setIsFormOpen(false);
   };
 
-  const deleteAccount = async (id: string) => { 
-    if (!window.confirm('ต้องการลบบัญชีนี้หรือไม่')) return; 
-    const response = await fetch(`/api/accounts/${id}`, { method: 'DELETE' }); 
-    if (!response.ok) return setErrorMessage('ลบข้อมูลไม่สำเร็จ'); 
-    await loadData(); 
+  const deleteAccount = async (id: string) => {
+    if (!window.confirm('ต้องการลบบัญชีนี้หรือไม่')) return;
+    setIsDeleting(id);
+    const response = await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
+    setIsDeleting(null);
+    if (!response.ok) {
+      showToast('ไม่สามารถลบข้อมูลได้', 'error');
+      return;
+    }
+    showToast('ลบข้อมูลสำเร็จ', 'success');
+    await loadData();
   };
 
   return (
@@ -131,8 +146,8 @@ export default function AccountsPage() {
                   <button type="button" onClick={() => openEdit(account)} aria-label={`แก้ไข ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
                     <Pencil size={18} />
                   </button>
-                  <button type="button" onClick={() => deleteAccount(account.id)} aria-label={`ลบ ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600">
-                    <Trash2 size={18} />
+                  <button type="button" onClick={() => deleteAccount(account.id)} disabled={isDeleting === account.id} aria-label={`ลบ ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+                    {isDeleting === account.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
                   </button>
                 </div>
               </div>
@@ -142,14 +157,15 @@ export default function AccountsPage() {
       </section>
 
       {isFormOpen && (
-        <AccountFormDialog 
-          form={form} 
-          setForm={setForm} 
-          people={people} 
-          properties={properties} 
-          editing={Boolean(editingId)} 
-          onClose={() => setIsFormOpen(false)} 
-          onSubmit={saveAccount} 
+        <AccountFormDialog
+          form={form}
+          setForm={setForm}
+          people={people}
+          properties={properties}
+          editing={Boolean(editingId)}
+          onClose={() => setIsFormOpen(false)}
+          onSubmit={saveAccount}
+          isSaving={isSaving}
         />
       )}
 
@@ -158,7 +174,7 @@ export default function AccountsPage() {
   );
 }
 
-function AccountFormDialog({ form, setForm, people, properties, editing, onClose, onSubmit }: { form: AccountForm; setForm: (form: AccountForm) => void; people: Person[]; properties: Property[]; editing: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void> }) { 
+function AccountFormDialog({ form, setForm, people, properties, editing, onClose, onSubmit, isSaving }: { form: AccountForm; setForm: (form: AccountForm) => void; people: Person[]; properties: Property[]; editing: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>; isSaving: boolean }) { 
   const update = (values: Partial<AccountForm>) => setForm({ ...form, ...values }); 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-0 backdrop-blur-sm sm:p-4">
@@ -241,15 +257,17 @@ function AccountFormDialog({ form, setForm, people, properties, editing, onClose
             <button 
               type="button" 
               onClick={onClose} 
-              className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              disabled={isSaving}
+              className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
             >
               ยกเลิก
             </button>
             <button 
               type="submit" 
-              className="h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20"
+              disabled={isSaving}
+              className="h-12 w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-600/20 disabled:opacity-50"
             >
-              บันทึก
+              {isSaving ? <><Loader2 size={18} className="animate-spin" /> {editing ? 'กำลังบันทึก...' : 'กำลังเพิ่มบัญชี...'}</> : 'บันทึก'}
             </button>
           </div>
         </footer>

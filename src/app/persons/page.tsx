@@ -1,8 +1,9 @@
 'use client';
 
-import { Pencil, Plus, Trash2, Users, X } from 'lucide-react';
+import { Pencil, Plus, Trash2, Users, X, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
+import { useToast } from '@/components/ui/toast';
 
 type Person = {
   id: string;
@@ -18,6 +19,9 @@ export default function PersonsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadPeople = async () => {
@@ -46,28 +50,33 @@ export default function PersonsPage() {
 
   const savePerson = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setErrorMessage(null);
+    setIsSaving(true);
     const response = await fetch(editingId ? `/api/persons/${editingId}` : '/api/persons', {
       method: editingId ? 'PATCH' : 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(form),
     });
+    setIsSaving(false);
     const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setErrorMessage(payload.error || 'บันทึกไม่สำเร็จ');
+      showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
       return;
     }
+    showToast(editingId ? 'บันทึกข้อมูลสำเร็จ' : 'เพิ่มข้อมูลสำเร็จ', 'success');
     await loadPeople();
     setIsFormOpen(false);
   };
 
   const deletePerson = async (id: string) => {
     if (!window.confirm('ต้องการลบบุคคลนี้หรือไม่')) return;
+    setIsDeleting(id);
     const response = await fetch(`/api/persons/${id}`, { method: 'DELETE' });
+    setIsDeleting(null);
     if (!response.ok) {
-      setErrorMessage('ลบข้อมูลไม่สำเร็จ');
+      showToast('ไม่สามารถลบข้อมูลได้', 'error');
       return;
     }
+    showToast('ลบข้อมูลสำเร็จ', 'success');
     await loadPeople();
   };
 
@@ -111,8 +120,8 @@ export default function PersonsPage() {
                   <button type="button" onClick={() => openEdit(person)} aria-label={`แก้ไข ${person.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
                     <Pencil size={18} aria-hidden="true" />
                   </button>
-                  <button type="button" onClick={() => deletePerson(person.id)} aria-label={`ลบ ${person.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600">
-                    <Trash2 size={18} aria-hidden="true" />
+                  <button type="button" onClick={() => deletePerson(person.id)} disabled={isDeleting === person.id} aria-label={`ลบ ${person.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+                    {isDeleting === person.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
                   </button>
                 </div>
               </div>
@@ -133,13 +142,18 @@ export default function PersonsPage() {
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <label className="block text-sm font-medium text-slate-700">
                 ชื่อบุคคล
-                <input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-base outline-none focus:border-emerald-600" />
+                <input required disabled={isSaving} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-base outline-none focus:border-emerald-600" />
               </label>
               <label className="mt-4 flex min-h-11 items-center gap-3 text-sm font-medium text-slate-700">
-                <input type="checkbox" checked={form.isDaughter} onChange={(event) => setForm({ ...form, isDaughter: event.target.checked })} className="h-5 w-5 accent-emerald-600" />
+                <input type="checkbox" disabled={isSaving} checked={form.isDaughter} onChange={(event) => setForm({ ...form, isDaughter: event.target.checked })} className="h-5 w-5 accent-emerald-600" />
                 เป็นบุตรสาว
               </label>
-              <button type="submit" className="mt-6 h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => setIsFormOpen(false)} disabled={isSaving} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 disabled:opacity-50">ยกเลิก</button>
+                <button type="submit" disabled={isSaving} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white disabled:opacity-50">
+                  {isSaving ? <><Loader2 size={18} className="animate-spin" /> {editingId ? 'กำลังบันทึก...' : 'กำลังเพิ่มบุคคล...'}</> : 'บันทึก'}
+                </button>
+              </div>
             </div>
           </form>
         </div>
