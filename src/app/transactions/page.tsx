@@ -285,12 +285,12 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
   return (
     <article className="surface-card overflow-hidden p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1 overflow-hidden">
           <div className="flex items-center gap-2">
-            <span className={`grid min-h-10 min-w-10 place-items-center rounded-2xl ${color}`}>{icon}</span>
-            <div>
+            <span className={`grid min-h-10 min-w-10 shrink-0 place-items-center rounded-2xl ${color}`}>{icon}</span>
+            <div className="min-w-0 flex-1 overflow-hidden">
               <h2 className="truncate font-semibold text-slate-900">{transaction.title}</h2>
-              <p className="text-xs text-slate-500">{new Date(transaction.date).toLocaleDateString('th-TH')}</p>
+              <p className="truncate text-xs text-slate-500">{new Date(transaction.date).toLocaleDateString('th-TH')}</p>
             </div>
           </div>
 
