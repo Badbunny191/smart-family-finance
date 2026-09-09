@@ -15,7 +15,7 @@ export function MobileNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200/80 bg-white/90 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(31,42,68,0.08)] backdrop-blur-xl sm:absolute">
+    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200/80 bg-white/90 px-2 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(31,42,68,0.08)] backdrop-blur-xl md:hidden">
       <div className="mx-auto grid h-[4.5rem] max-w-md grid-cols-4">
         {items.map(({ href, label, icon: Icon }) => {
           const active = href === '/more' ? pathname.startsWith('/more') || pathname === '/persons' || pathname === '/properties' || pathname === '/categories' || pathname === '/settings' : pathname === href;

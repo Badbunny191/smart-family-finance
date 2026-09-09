@@ -86,7 +86,7 @@ export default function AccountsPage() {
   };
 
   return (
-    <main className="app-shell min-h-screen pb-24">
+    <main className="app-shell min-h-screen pb-24 md:pb-0">
       <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/90 px-5 pb-5 pt-6 backdrop-blur-xl">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -123,9 +123,9 @@ export default function AccountsPage() {
                       <p className="mt-1 text-xs text-slate-500">{account.bankName || (account.accountType === 'bank' ? 'ธนาคาร' : 'เงินสด')}</p>
                     </div>
                   </div>
-                  {account.accountNumber && <p className="mt-3 text-xs text-slate-500">เลขบัญชี {account.accountNumber}</p>}
-                  <p className="mt-2 text-xs text-slate-500">เจ้าของบัญชี: {account.personName}</p>
-                  <p className="mt-5 text-2xl font-bold tracking-tight text-slate-900">{account.currentBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-sm font-medium text-slate-500">บาท</span></p>
+                  {account.accountNumber && <p className="mt-3 truncate text-xs text-slate-500">เลขบัญชี {account.accountNumber}</p>}
+                  <p className="mt-2 truncate text-xs text-slate-500">เจ้าของบัญชี: {account.personName}</p>
+                  <p className="mt-5 truncate text-2xl font-bold tracking-tight text-slate-900">{account.currentBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-sm font-medium text-slate-500">บาท</span></p>
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => openEdit(account)} aria-label={`แก้ไข ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">

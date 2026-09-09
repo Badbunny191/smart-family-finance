@@ -182,7 +182,7 @@ export default function TransactionsPage() {
   const availableCategories = categories.filter((category) => category.type === form.type && category.isActive);
 
   return (
-    <main className="app-shell min-h-screen pb-24">
+    <main className="app-shell min-h-screen pb-24 md:pb-0">
       <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/90 px-5 pb-5 pt-6 backdrop-blur-xl">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -283,7 +283,7 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
   const badgeClass = transaction.businessStatus === 'pending_payment' ? 'bg-amber-50 text-amber-700' : transaction.businessStatus === 'customer_paid' ? 'bg-sky-50 text-sky-700' : transaction.businessStatus === 'awaiting_business_transfer' ? 'bg-violet-50 text-violet-700' : transaction.businessStatus === 'business_received' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600';
 
   return (
-    <article className="surface-card p-4">
+    <article className="surface-card overflow-hidden p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -294,11 +294,11 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
             </div>
           </div>
 
-          <p className={`mt-3 text-xl font-bold tracking-tight ${transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700'}`}>
+          <p className={`mt-3 truncate text-xl font-bold tracking-tight ${transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700'}`}>
             {transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
           </p>
 
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 truncate text-xs text-slate-500">
             {transaction.type === 'transfer'
               ? `${getAccountLabel(transaction.sourceAccountId)} → ${getAccountLabel(transaction.destinationAccountId)}`
               : transaction.type === 'income'
@@ -307,7 +307,7 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
           </p>
 
           <div className="mt-2 flex flex-wrap gap-2">
-            {transaction.categoryName && <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">🏷️ {transaction.categoryName}</span>}
+            {transaction.categoryName && <span className="max-w-full truncate rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">🏷️ {transaction.categoryName}</span>}
             {transaction.businessStatus && (
               <span className={`rounded-full px-2 py-1 text-xs font-medium ${badgeClass}`}>
                 {businessStatusLabels[transaction.businessStatus]}
