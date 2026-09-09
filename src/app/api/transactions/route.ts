@@ -51,6 +51,7 @@ export async function POST(request: NextRequest) {
     }
 
     const input = parsed.data;
+    console.log('[POST /api/transactions] Input:', parsed.data);
 
     if (input.propertyId) {
       const property = await db
@@ -105,12 +106,24 @@ export async function POST(request: NextRequest) {
       deletedAt: null,
     };
 
+    console.log('[POST /api/transactions] Transaction:', transaction);
+
     await db.batch([
       db.insert(transactions).values(transaction),
       ...balanceStatements(db, input.type, input.amount, input.sourceAccountId, input.destinationAccountId),
     ]);
     return NextResponse.json(transaction, { status: 201 });
   } catch (error) {
+    console.error(
+      '[POST /api/transactions] ERROR',
+      error instanceof Error
+        ? {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+          }
+        : error
+    );
     return handleApiError(error);
   }
 }

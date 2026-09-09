@@ -197,6 +197,8 @@ export const transactions = sqliteTable(
       ],
     }),
     note: text('note'),
+    ownerPersonId: text('owner_person_id').references(() => persons.id),
+    payerPersonId: text('payer_person_id').references(() => persons.id),
     createdByUserId: text('created_by_user_id')
       .notNull()
       .references(() => users.id),

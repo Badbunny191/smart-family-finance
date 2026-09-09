@@ -35,8 +35,31 @@ const ICON_MAP: Record<string, LucideIcon> = {
 
 const FALLBACK_ICON = ReceiptText;
 
+// Legacy emoji icons (stored in DB before icon migration)
+const LEGACY_EMOJI_MAP: Record<string, string> = {
+  '💰': 'Banknote',
+  '🛒': 'ShoppingCart',
+  '🏠': 'House',
+  '🚗': 'Car',
+  '💧': 'Droplets',
+  '⚡': 'Zap',
+  '🔧': 'Wrench',
+  '📦': 'Package',
+  '🏢': 'Building2',
+  '➕': 'CirclePlus',
+};
+
 export function CategoryIcon({ name, size = 20, className = '' }: { name: string | null; size?: number; className?: string }) {
-  const Icon = name ? ICON_MAP[name] : FALLBACK_ICON;
+  // Handle null/undefined
+  if (!name) return <FALLBACK_ICON size={size} className={className} />;
+
+  // Normalize legacy emoji to icon name
+  const normalizedName = LEGACY_EMOJI_MAP[name] ?? name;
+
+  // Look up in icon map
+  const Icon = ICON_MAP[normalizedName];
+  if (!Icon) return <FALLBACK_ICON size={size} className={className} />;
+
   return <Icon size={size} className={className} />;
 }
 
