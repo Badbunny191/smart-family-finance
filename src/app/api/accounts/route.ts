@@ -50,7 +50,15 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
-    const account = { id: crypto.randomUUID(), ...parsed.data, createdAt: now, updatedAt: now };
+    const account = { 
+      id: crypto.randomUUID(), 
+      ...parsed.data, 
+      currentBalance: parsed.data.currentBalance === 0 
+        ? parsed.data.openingBalance 
+        : parsed.data.currentBalance,
+      createdAt: now, 
+      updatedAt: now 
+    };
     await db.insert(accounts).values(account);
     return NextResponse.json(account, { status: 201 });
   } catch (error) {

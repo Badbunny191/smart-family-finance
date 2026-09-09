@@ -346,7 +346,9 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
           </p>
 
           <div className="mt-2 flex flex-wrap gap-2">
-            {transaction.categoryName && <span className="max-w-full truncate rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">🏷️ {transaction.categoryName}</span>}
+            <span className="max-w-full truncate rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+              🏷️ {transaction.categoryName ?? '(หมวดหมู่ถูกลบ)'}
+            </span>
             {transaction.businessStatus && (
               <span className={`rounded-full px-2 py-1 text-xs font-medium ${badgeClass}`}>
                 {businessStatusLabels[transaction.businessStatus]}

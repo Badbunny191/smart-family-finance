@@ -21,7 +21,9 @@ export default function CategoriesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [deleteWarning, setDeleteWarning] = useState<{ count: number } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { showToast } = useToast();
@@ -77,6 +79,23 @@ export default function CategoriesPage() {
     setIsFormOpen(false);
   };
 
+  // เช็คการใช้งานก่อนแสดง dialog
+  const handleDeleteClick = async (category: Category) => {
+    setIsChecking(true);
+    
+    const response = await fetch(`/api/categories/${category.id}/usage`);
+    const data = (await response.json()) as { count: number };
+    
+    setIsChecking(false);
+    
+    if (data.count > 0) {
+      setDeleteWarning({ count: data.count });
+    } else {
+      setDeleteWarning(null);
+    }
+    setDeleteTarget(category);
+  };
+
   const deactivateCategory = async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
@@ -84,6 +103,7 @@ export default function CategoriesPage() {
     const response = await fetch(`/api/categories/${deleteTarget.id}`, { method: 'DELETE' });
     setIsDeleting(false);
     setDeleteTarget(null);
+    setDeleteWarning(null);
 
     if (!response.ok) {
       showToast('ไม่สามารถลบข้อมูลได้', 'error');
@@ -132,7 +152,9 @@ export default function CategoriesPage() {
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => openEdit(category)} aria-label={`แก้ไข ${category.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"><Pencil size={18} aria-hidden="true" /></button>
-                  <button type="button" onClick={() => setDeleteTarget(category)} aria-label={`ลบ ${category.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600"><Trash2 size={18} aria-hidden="true" /></button>
+                  <button type="button" onClick={() => void handleDeleteClick(category)} disabled={isChecking} aria-label={`ลบ ${category.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+                    {isChecking ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} aria-hidden="true" />}
+                  </button>
                 </div>
               </div>
             </article>
@@ -141,14 +163,30 @@ export default function CategoriesPage() {
       </section>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog.Root open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog.Root open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteWarning(null); } }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/30 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-40px)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
-            <Dialog.Title className="text-lg font-bold text-slate-900">ลบหมวดหมู่</Dialog.Title>
-            <Dialog.Description className="mt-2 text-sm text-slate-600">ต้องการลบหมวดหมู่นี้หรือไม่?</Dialog.Description>
+            {deleteWarning ? (
+              <>
+                <Dialog.Title className="text-lg font-bold text-slate-900">⚠️ หมวดหมู่นี้ถูกใช้งานใน {deleteWarning.count} รายการ</Dialog.Title>
+                <Dialog.Description className="mt-3 space-y-2 text-sm text-slate-600">
+                  <p>หากลบ:</p>
+                  <ul className="list-inside list-disc space-y-1">
+                    <li>รายการเดิมจะยังอยู่</li>
+                    <li>หมวดหมู่ในประวัติรายการจะไม่แสดงชื่ออีกต่อไป</li>
+                  </ul>
+                </Dialog.Description>
+                <p className="mt-4 font-medium text-slate-900">ต้องการลบหรือไม่?</p>
+              </>
+            ) : (
+              <>
+                <Dialog.Title className="text-lg font-bold text-slate-900">ลบหมวดหมู่</Dialog.Title>
+                <Dialog.Description className="mt-2 text-sm text-slate-600">ต้องการลบหมวดหมู่นี้หรือไม่?</Dialog.Description>
+              </>
+            )}
             <div className="mt-6 flex gap-3">
-              <button type="button" onClick={() => setDeleteTarget(null)} className="flex-1 h-11 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700" disabled={isDeleting}>
+              <button type="button" onClick={() => { setDeleteTarget(null); setDeleteWarning(null); }} className="flex-1 h-11 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700" disabled={isDeleting}>
                 ยกเลิก
               </button>
               <button type="button" onClick={deactivateCategory} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 font-semibold text-white" disabled={isDeleting}>

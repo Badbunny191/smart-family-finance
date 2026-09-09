@@ -211,9 +211,11 @@ function AccountFormDialog({ form, setForm, people, properties, editing, onClose
           <Label text="ชื่อเรียกบัญชี">
             <input value={form.accountAlias} onChange={(event) => update({ accountAlias: event.target.value })} className="form-input" />
           </Label>
-          <Label text="ธนาคาร">
-            <input value={form.bankName} onChange={(event) => update({ bankName: event.target.value })} className="form-input" />
-          </Label>
+          {form.accountType === 'bank' && (
+            <Label text="ธนาคาร">
+              <input value={form.bankName} onChange={(event) => update({ bankName: event.target.value })} className="form-input" />
+            </Label>
+          )}
           {form.accountType === 'bank' && (
             <Label text="เลขบัญชี">
               <input
@@ -256,14 +258,26 @@ function AccountFormDialog({ form, setForm, people, properties, editing, onClose
             </div>
           </fieldset>
 
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            <Label text="ยอดเริ่มต้น">
-              <input type="number" step="0.01" value={form.openingBalance} onChange={(event) => update({ openingBalance: event.target.value })} className="form-input" />
-            </Label>
-            <Label text="ยอดปัจจุบัน">
-              <input type="number" step="0.01" value={form.currentBalance} onChange={(event) => update({ currentBalance: event.target.value })} className="form-input" />
-            </Label>
-          </div>
+          {editing ? (
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <Label text="ยอดเริ่มต้น">
+                <input type="number" step="0.01" value={form.openingBalance} onChange={(event) => update({ openingBalance: event.target.value })} className="form-input" />
+              </Label>
+              <div>
+                <label className="block text-sm font-medium text-slate-700">ยอดปัจจุบัน</label>
+                <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700">
+                  {Number(form.currentBalance).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+                </div>
+                <p className="mt-1.5 text-xs text-slate-500">คำนวณอัตโนมัติจากรายการรายรับ รายจ่าย และการโอนเงิน</p>
+              </div>
+            </div>
+          ) : (
+            <div className="pt-1">
+              <Label text="ยอดเริ่มต้น">
+                <input type="number" step="0.01" value={form.openingBalance} onChange={(event) => update({ openingBalance: event.target.value })} className="form-input" />
+              </Label>
+            </div>
+          )}
         </div>
 
         {/* Footer: ตรึงติดขอบล่างเสมอ มีระยะปลอดภัย */}
