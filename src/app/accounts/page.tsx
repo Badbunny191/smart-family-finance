@@ -174,8 +174,16 @@ export default function AccountsPage() {
   );
 }
 
-function AccountFormDialog({ form, setForm, people, properties, editing, onClose, onSubmit, isSaving }: { form: AccountForm; setForm: (form: AccountForm) => void; people: Person[]; properties: Property[]; editing: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>; isSaving: boolean }) { 
-  const update = (values: Partial<AccountForm>) => setForm({ ...form, ...values }); 
+function AccountFormDialog({ form, setForm, people, properties, editing, onClose, onSubmit, isSaving }: { form: AccountForm; setForm: (form: AccountForm) => void; people: Person[]; properties: Property[]; editing: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>; isSaving: boolean }) {
+  const update = (values: Partial<AccountForm>) => setForm({ ...form, ...values });
+
+  const handleAccountTypeChange = (type: 'bank' | 'cash') => {
+    if (type === 'cash') {
+      setForm({ ...form, accountType: type, accountNumber: '' });
+    } else {
+      setForm({ ...form, accountType: type });
+    }
+  }; 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-0 backdrop-blur-sm sm:p-4">
       <form 
@@ -206,9 +214,16 @@ function AccountFormDialog({ form, setForm, people, properties, editing, onClose
           <Label text="ธนาคาร">
             <input value={form.bankName} onChange={(event) => update({ bankName: event.target.value })} className="form-input" />
           </Label>
-          <Label text="เลขบัญชี">
-            <input value={form.accountNumber} onChange={(event) => update({ accountNumber: event.target.value })} className="form-input" />
-          </Label>
+          {form.accountType === 'bank' && (
+            <Label text="เลขบัญชี">
+              <input
+                value={form.accountNumber}
+                onChange={(event) => update({ accountNumber: event.target.value })}
+                placeholder="123-4-56789-0"
+                className="form-input"
+              />
+            </Label>
+          )}
           <Label text="ชื่อบัญชี">
             <input required value={form.name} onChange={(event) => update({ name: event.target.value })} className="form-input" />
           </Label>
@@ -226,13 +241,13 @@ function AccountFormDialog({ form, setForm, people, properties, editing, onClose
           </Label>
           
           <fieldset className="pt-1">
-            <legend className="text-sm font-medium text-slate-700 mb-2">ประเภทบัญชี</legend>
+            <legend className="mb-2 text-sm font-medium text-slate-700">ประเภทบัญชี</legend>
             <div className="grid grid-cols-2 gap-2">
               {(['bank', 'cash'] as const).map((type) => (
-                <button 
-                  key={type} 
-                  type="button" 
-                  onClick={() => update({ accountType: type })} 
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => handleAccountTypeChange(type)}
                   className={`touch-button rounded-xl border py-2.5 text-sm font-semibold transition-all ${form.accountType === type ? 'border-emerald-600 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                 >
                   {type === 'bank' ? 'ธนาคาร' : 'เงินสด'}
