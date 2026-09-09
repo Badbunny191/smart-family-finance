@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ArrowDownLeft, ArrowLeftRight, ArrowRightLeft, ArrowUpRight, CircleMinus, CirclePlus, Pencil, Trash2 } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight,ArrowRightLeft, CircleMinus, CirclePlus, Pencil, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
 
@@ -346,86 +346,100 @@ function TransactionForm({ form, setForm, properties, accounts, categories, onCl
 
   return (
     <div className="fixed inset-0 z-30 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5">
-      <form onSubmit={onSubmit} className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-w-md sm:rounded-2xl">
-        <div className="mb-5 flex items-center justify-between">
-          <button type="button" onClick={onClose} className="min-h-11 rounded-xl border border-slate-200 px-3 text-sm font-medium text-slate-600">กลับ</button>
+      <form onSubmit={onSubmit} className="flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-white shadow-xl sm:max-h-[90vh] sm:max-w-md sm:rounded-2xl">
+        
+        {/* Header with X Close Button Only */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="w-11" />
           <h2 className="text-lg font-bold text-slate-900">{form.type === 'income' ? 'เพิ่มรายรับ' : form.type === 'expense' ? 'เพิ่มรายจ่าย' : 'เพิ่มรายการโอน'}</h2>
-          <div className="w-16" />
+          <button type="button" onClick={onClose} aria-label="ปิดฟอร์ม" className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
+            <X size={20} />
+          </button>
         </div>
 
-        <FormLabel label="หัวข้อ">
-          <input required value={form.title} onChange={(event) => update({ title: event.target.value })} className="form-input" />
-        </FormLabel>
-
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <FormLabel label="จำนวนเงิน">
-            <input required min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => update({ amount: event.target.value })} className="form-input" />
+        {/* Scrollable Content Area */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <FormLabel label="หัวข้อ">
+            <input required value={form.title} onChange={(event) => update({ title: event.target.value })} className="form-input" />
           </FormLabel>
-          <FormLabel label="วันที่">
-            <input required type="date" value={form.date} onChange={(event) => update({ date: event.target.value })} className="form-input" />
-          </FormLabel>
-        </div>
 
-        {!isTransfer && (
-          <FormLabel label="หมวดหมู่">
-            <select required value={form.categoryId} onChange={(event) => update({ categoryId: event.target.value })} className="form-input">
-              <option value="">เลือกหมวดหมู่</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>{category.name}</option>
-              ))}
-            </select>
-          </FormLabel>
-        )}
-
-        {form.type === 'income' && (
-          <FormLabel label="สถานะ">
-            <BusinessStatusSelect value={form.businessStatus} onChange={(value) => update({ businessStatus: value })} />
-          </FormLabel>
-        )}
-
-        {form.type === 'income' && (
-          <FormLabel label="บัญชีปลายทาง">
-            <AccountSelect value={form.destinationAccountId} accounts={accounts} onChange={(value) => update({ destinationAccountId: value })} />
-          </FormLabel>
-        )}
-
-        {form.type === 'expense' && (
-          <FormLabel label="บัญชีต้นทาง">
-            <AccountSelect value={form.sourceAccountId} accounts={accounts} onChange={(value) => update({ sourceAccountId: value })} />
-          </FormLabel>
-        )}
-
-        {isTransfer && (
-          <>
-            <FormLabel label="จากบัญชี">
-              <AccountSelect value={form.sourceAccountId} accounts={accounts} onChange={(value) => update({ sourceAccountId: value })} />
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <FormLabel label="จำนวนเงิน">
+              <input required min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => update({ amount: event.target.value })} className="form-input" />
             </FormLabel>
-            <FormLabel label="ไปยังบัญชี">
+            <FormLabel label="วันที่">
+              <input required type="date" value={form.date} onChange={(event) => update({ date: event.target.value })} className="form-input" />
+            </FormLabel>
+          </div>
+
+          {!isTransfer && (
+            <FormLabel label="หมวดหมู่">
+              <select required value={form.categoryId} onChange={(event) => update({ categoryId: event.target.value })} className="form-input">
+                <option value="">เลือกหมวดหมู่</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
+            </FormLabel>
+          )}
+
+          {form.type === 'income' && (
+            <FormLabel label="สถานะ">
+              <BusinessStatusSelect value={form.businessStatus} onChange={(value) => update({ businessStatus: value })} />
+            </FormLabel>
+          )}
+
+          {form.type === 'income' && (
+            <FormLabel label="บัญชีปลายทาง">
               <AccountSelect value={form.destinationAccountId} accounts={accounts} onChange={(value) => update({ destinationAccountId: value })} />
             </FormLabel>
-          </>
-        )}
+          )}
 
-        {!isTransfer && (
-          <FormLabel label="ทรัพย์สินที่เกี่ยวข้อง (ถ้ามี)">
-            <PropertySelect value={form.propertyId} properties={properties} onChange={(value) => update({ propertyId: value })} />
+          {form.type === 'expense' && (
+            <FormLabel label="บัญชีต้นทาง">
+              <AccountSelect value={form.sourceAccountId} accounts={accounts} onChange={(value) => update({ sourceAccountId: value })} />
+            </FormLabel>
+          )}
+
+          {isTransfer && (
+            <>
+              <FormLabel label="จากบัญชี">
+                <AccountSelect value={form.sourceAccountId} accounts={accounts} onChange={(value) => update({ sourceAccountId: value })} />
+              </FormLabel>
+              <FormLabel label="ไปยังบัญชี">
+                <AccountSelect value={form.destinationAccountId} accounts={accounts} onChange={(value) => update({ destinationAccountId: value })} />
+              </FormLabel>
+            </>
+          )}
+
+          {!isTransfer && (
+            <FormLabel label="ทรัพย์สินที่เกี่ยวข้อง (ถ้ามี)">
+              <PropertySelect value={form.propertyId} properties={properties} onChange={(value) => update({ propertyId: value })} />
+            </FormLabel>
+          )}
+
+          <FormLabel label="หมายเหตุ">
+            <textarea value={form.note} onChange={(event) => update({ note: event.target.value })} className="form-input min-h-24 resize-none" />
           </FormLabel>
-        )}
 
-        <FormLabel label="หมายเหตุ">
-          <textarea value={form.note} onChange={(event) => update({ note: event.target.value })} className="form-input min-h-24 resize-none" />
-        </FormLabel>
+          {sameAccountSelected && <p className="mt-3 text-sm text-rose-600">บัญชีต้นทางและปลายทางต้องไม่ใช่บัญชีเดียวกัน</p>}
+        </div>
 
-        {sameAccountSelected && <p className="mt-3 text-sm text-rose-600">บัญชีต้นทางและปลายทางต้องไม่ใช่บัญชีเดียวกัน</p>}
+        {/* Sticky Footer with Cancel and Save Buttons */}
+        <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" onClick={onClose} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700">ยกเลิก</button>
+            <button type="submit" className="h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
+          </div>
+        </div>
 
-        <button type="submit" className="mt-6 h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
       </form>
     </div>
   );
 }
 
 function FormLabel({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="mt-4 block text-sm font-medium text-slate-700">{label}{children}</label>;
+  return <label className="mt-4 block text-sm font-medium text-slate-700 first:mt-0">{label}{children}</label>;
 }
 
 function PropertySelect({ value, properties, onChange }: { value: string; properties: Property[]; onChange: (value: string) => void }) {
@@ -472,30 +486,39 @@ function TransactionMetadataForm({ transaction, categories, onClose, onSubmit }:
           event.preventDefault();
           void onSubmit(categoryId, businessStatus);
         }}
-        className="w-full rounded-t-3xl bg-white p-5 pb-8 shadow-xl sm:max-w-md sm:rounded-2xl"
+        className="flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-white shadow-xl sm:max-w-md sm:rounded-2xl"
       >
-        <div className="mb-5 flex items-center justify-between">
-          <button type="button" onClick={onClose} className="min-h-11 px-2 text-sm text-slate-500">ยกเลิก</button>
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="w-11" />
           <h2 className="text-lg font-bold text-slate-900">หมวดหมู่และสถานะ</h2>
-          <div className="w-16" />
+          <button type="button" onClick={onClose} aria-label="ปิดฟอร์ม" className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
+            <X size={20} />
+          </button>
         </div>
 
-        {transaction.type !== 'transfer' && (
-          <FormLabel label="หมวดหมู่">
-            <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} className="form-input">
-              <option value="">ไม่ระบุ</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>{category.name}</option>
-              ))}
-            </select>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {transaction.type !== 'transfer' && (
+            <FormLabel label="หมวดหมู่">
+              <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} className="form-input">
+                <option value="">ไม่ระบุ</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
+            </FormLabel>
+          )}
+
+          <FormLabel label="สถานะ">
+            <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} />
           </FormLabel>
-        )}
+        </div>
 
-        <FormLabel label="สถานะ">
-          <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} />
-        </FormLabel>
-
-        <button type="submit" className="mt-6 h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
+        <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" onClick={onClose} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700">ยกเลิก</button>
+            <button type="submit" className="h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
+          </div>
+        </div>
       </form>
     </div>
   );
