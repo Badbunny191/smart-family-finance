@@ -26,9 +26,16 @@ export async function POST(request: NextRequest) {
 
     const now = new Date();
     const category = { id: crypto.randomUUID(), ...parsed.data, createdAt: now, updatedAt: now };
-    await db.insert(categories).values(category);
+    console.log('[POST /api/categories] Inserting:', JSON.stringify(category));
+    try {
+      await db.insert(categories).values(category);
+    } catch (dbError) {
+      console.error('[POST /api/categories] DB error:', dbError);
+      throw dbError;
+    }
     return NextResponse.json(category, { status: 201 });
   } catch (error) {
+    console.error('[POST /api/categories] Final catch:', error);
     return handleApiError(error);
   }
 }

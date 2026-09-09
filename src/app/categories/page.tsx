@@ -1,13 +1,17 @@
 'use client';
 
+import * as Dialog from '@radix-ui/react-dialog';
 import { Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { CategoryIcon } from '@/components/category-icon';
+import { IconPicker } from '@/components/icon-picker';
 import { MobileNav } from '@/components/mobile-nav';
+import { useToast } from '@/components/ui/toast';
 
-type Category = { id: string; name: string; type: 'income' | 'expense'; icon: string | null; color: string | null; isActive: boolean; };
-type CategoryForm = { name: string; type: 'income' | 'expense'; icon: string; color: string; isActive: boolean; };
+type Category = { id: string; name: string; type: 'income' | 'expense'; icon: string | null; color: string | null; isActive: boolean };
+type CategoryForm = { name: string; type: 'income' | 'expense'; icon: string; color: string; isActive: boolean };
 
-const emptyForm: CategoryForm = { name: '', type: 'income', icon: '💰', color: '#10b981', isActive: true };
+const emptyForm: CategoryForm = { name: '', type: 'income', icon: 'ReceiptText', color: '#10b981', isActive: true };
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -15,7 +19,12 @@ export default function CategoriesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showIconPicker, setShowIconPicker] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const loadData = async () => {
     const response = await fetch('/api/categories');
@@ -31,19 +40,22 @@ export default function CategoriesPage() {
     setEditingId(null);
     setForm(emptyForm);
     setErrorMessage(null);
+    setShowIconPicker(false);
     setIsFormOpen(true);
   };
 
   const openEdit = (category: Category) => {
     setEditingId(category.id);
-    setForm({ name: category.name, type: category.type, icon: category.icon || '💰', color: category.color || '#10b981', isActive: category.isActive });
+    setForm({ name: category.name, type: category.type, icon: category.icon || 'ReceiptText', color: category.color || '#10b981', isActive: category.isActive });
     setErrorMessage(null);
+    setShowIconPicker(false);
     setIsFormOpen(true);
   };
 
   const saveCategory = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErrorMessage(null);
+    setIsSaving(true);
 
     const response = await fetch(editingId ? `/api/categories/${editingId}` : '/api/categories', {
       method: editingId ? 'PATCH' : 'POST',
@@ -51,24 +63,34 @@ export default function CategoriesPage() {
       body: JSON.stringify({ ...form, icon: form.icon || null, color: form.color || null }),
     });
 
-    const payload = (await response.json()) as { error?: string };
+    setIsSaving(false);
+
     if (!response.ok) {
-      setErrorMessage(payload.error || 'บันทึกไม่สำเร็จ');
+      const payload = (await response.json()) as { error?: string };
+      setErrorMessage(payload.error || 'ไม่สามารถบันทึกข้อมูลได้');
+      showToast('ไม่สามารถบันทึกข้อมูลได้', 'error');
       return;
     }
 
+    showToast(editingId ? 'แก้ไขหมวดหมู่สำเร็จ' : 'เพิ่มหมวดหมู่สำเร็จ', 'success');
     await loadData();
     setIsFormOpen(false);
   };
 
-  const deactivateCategory = async (id: string) => {
-    if (!window.confirm('ต้องการปิดใช้งานหมวดหมู่นี้หรือไม่')) return;
-    const response = await fetch(`/api/categories/${id}`, { method: 'DELETE' });
+  const deactivateCategory = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+
+    const response = await fetch(`/api/categories/${deleteTarget.id}`, { method: 'DELETE' });
+    setIsDeleting(false);
+    setDeleteTarget(null);
+
     if (!response.ok) {
-      setErrorMessage('ปิดใช้งานไม่สำเร็จ');
+      showToast('ไม่สามารถลบข้อมูลได้', 'error');
       return;
     }
 
+    showToast('ลบหมวดหมู่สำเร็จ', 'success');
     await loadData();
   };
 
@@ -99,8 +121,8 @@ export default function CategoriesPage() {
             <article key={category.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="grid h-11 w-11 place-items-center rounded-2xl text-lg" style={{ backgroundColor: `${category.color || '#10b981'}22`, color: category.color || '#10b981' }}>
-                    {category.icon || '💰'}
+                  <span className="grid h-11 w-11 place-items-center rounded-2xl" style={{ backgroundColor: `${category.color || '#10b981'}22`, color: category.color || '#10b981' }}>
+                    <CategoryIcon name={category.icon} size={20} />
                   </span>
                   <div className="min-w-0 overflow-hidden">
                     <h2 className="truncate font-semibold text-slate-900">{category.name}</h2>
@@ -110,7 +132,7 @@ export default function CategoriesPage() {
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => openEdit(category)} aria-label={`แก้ไข ${category.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"><Pencil size={18} aria-hidden="true" /></button>
-                  <button type="button" onClick={() => deactivateCategory(category.id)} aria-label={`ปิดใช้งาน ${category.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600"><Trash2 size={18} aria-hidden="true" /></button>
+                  <button type="button" onClick={() => setDeleteTarget(category)} aria-label={`ลบ ${category.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600"><Trash2 size={18} aria-hidden="true" /></button>
                 </div>
               </div>
             </article>
@@ -118,6 +140,26 @@ export default function CategoriesPage() {
         )}
       </section>
 
+      {/* Delete Confirmation Dialog */}
+      <Dialog.Root open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/30 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-40px)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+            <Dialog.Title className="text-lg font-bold text-slate-900">ลบหมวดหมู่</Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-slate-600">ต้องการลบหมวดหมู่นี้หรือไม่?</Dialog.Description>
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={() => setDeleteTarget(null)} className="flex-1 h-11 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700" disabled={isDeleting}>
+                ยกเลิก
+              </button>
+              <button type="button" onClick={deactivateCategory} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 font-semibold text-white" disabled={isDeleting}>
+                {isDeleting ? 'กำลังลบ...' : 'ลบ'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Create / Edit Form Dialog */}
       {isFormOpen && (
         <div className="fixed inset-0 z-30 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5" onClick={() => setIsFormOpen(false)}>
           <form onClick={(event) => event.stopPropagation()} onSubmit={saveCategory} className="flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-white shadow-xl sm:max-h-[90vh] sm:max-w-md sm:rounded-2xl">
@@ -128,16 +170,55 @@ export default function CategoriesPage() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
-            <label className="block text-sm font-medium text-slate-700">ชื่อหมวดหมู่<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-base" /></label>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <label className="block text-sm font-medium text-slate-700">ประเภท<select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as 'income' | 'expense' })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base"><option value="income">รายรับ</option><option value="expense">รายจ่าย</option></select></label>
-              <label className="block text-sm font-medium text-slate-700">สถานะ<select value={String(form.isActive)} onChange={(event) => setForm({ ...form, isActive: event.target.value === 'true' })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base"><option value="true">ใช้งาน</option><option value="false">ปิดใช้งาน</option></select></label>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <label className="block text-sm font-medium text-slate-700">ไอคอน<input value={form.icon} onChange={(event) => setForm({ ...form, icon: event.target.value.slice(0, 2) || '💰' })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-base" /></label>
-              <label className="block text-sm font-medium text-slate-700">สี<input type="color" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-2" /></label>
-            </div>
-            <button type="submit" className="mt-6 h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white">บันทึก</button>
+              <label className="block text-sm font-medium text-slate-700">
+                ชื่อหมวดหมู่
+                <input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-base" />
+              </label>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <label className="block text-sm font-medium text-slate-700">
+                  ประเภท
+                  <select value={form.type} onChange={(event) => setForm({ ...form, type: event.target.value as 'income' | 'expense' })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base">
+                    <option value="income">รายรับ</option>
+                    <option value="expense">รายจ่าย</option>
+                  </select>
+                </label>
+                <label className="block text-sm font-medium text-slate-700">
+                  สถานะ
+                  <select value={String(form.isActive)} onChange={(event) => setForm({ ...form, isActive: event.target.value === 'true' })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base">
+                    <option value="true">ใช้งาน</option>
+                    <option value="false">ปิดใช้งาน</option>
+                  </select>
+                </label>
+              </div>
+
+              {/* Icon & Color Row */}
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="block text-sm font-medium text-slate-700">
+                  ไอคอน
+                  <div className="mt-2">
+                    {showIconPicker ? (
+                      <IconPicker value={form.icon} onChange={(icon) => setForm({ ...form, icon })} onClose={() => setShowIconPicker(false)} />
+                    ) : (
+                      <button type="button" onClick={() => setShowIconPicker(true)} className="flex h-12 w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 shadow-sm ring-1 ring-slate-200">
+                          <CategoryIcon name={form.icon} size={18} />
+                        </span>
+                        <span className="flex-1 text-left text-base text-slate-500">เลือกไอคอน</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <label className="block text-sm font-medium text-slate-700">
+                  สี
+                  <input type="color" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-2" />
+                </label>
+              </div>
+
+              {errorMessage && <p className="mt-4 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
+
+              <button type="submit" className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white" disabled={isSaving}>
+                {isSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
             </div>
           </form>
         </div>
