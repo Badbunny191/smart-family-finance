@@ -1,6 +1,7 @@
 'use client';
 
 import { Banknote, Pencil, Plus, Trash2, WalletCards, X, Loader2 } from 'lucide-react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
@@ -9,6 +10,7 @@ type Person = { id: string; name: string };
 type Property = { id: string; name: string };
 type Account = { id: string; name: string; accountAlias: string | null; bankName: string | null; accountNumber: string | null; personId: string; personName: string; propertyId: string | null; propertyName: string | null; accountType: 'bank' | 'cash'; openingBalance: number; currentBalance: number };
 type AccountForm = { name: string; accountAlias: string; bankName: string; accountNumber: string; personId: string; propertyId: string; accountType: 'bank' | 'cash'; openingBalance: string; currentBalance: string };
+type AccountUsage = { transactionCount: number };
 const emptyForm: AccountForm = { name: '', accountAlias: '', bankName: '', accountNumber: '', personId: '', propertyId: '', accountType: 'bank', openingBalance: '0', currentBalance: '0' };
 
 export default function AccountsPage() {
@@ -20,7 +22,10 @@ export default function AccountsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
+  const [deleteWarning, setDeleteWarning] = useState<AccountUsage | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -88,16 +93,35 @@ export default function AccountsPage() {
   };
 
   const deleteAccount = async (id: string) => {
-    if (!window.confirm('ต้องการลบบัญชีนี้หรือไม่')) return;
-    setIsDeleting(id);
+    setIsDeleting(true);
     const response = await fetch(`/api/accounts/${id}`, { method: 'DELETE' });
-    setIsDeleting(null);
+    setIsDeleting(false);
     if (!response.ok) {
       showToast('ไม่สามารถลบข้อมูลได้', 'error');
       return;
     }
     showToast('ลบข้อมูลสำเร็จ', 'success');
     await loadData();
+  };
+
+  const handleDeleteClick = async (account: Account) => {
+    setIsChecking(true);
+    const response = await fetch(`/api/accounts/${account.id}/usage`);
+    const data = (await response.json()) as AccountUsage;
+    setIsChecking(false);
+    if (data.transactionCount > 0) {
+      setDeleteWarning(data);
+    } else {
+      setDeleteWarning(null);
+    }
+    setDeleteTarget(account);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    await deleteAccount(deleteTarget.id);
+    setDeleteTarget(null);
+    setDeleteWarning(null);
   };
 
   return (
@@ -146,8 +170,8 @@ export default function AccountsPage() {
                   <button type="button" onClick={() => openEdit(account)} aria-label={`แก้ไข ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
                     <Pencil size={18} />
                   </button>
-                  <button type="button" onClick={() => deleteAccount(account.id)} disabled={isDeleting === account.id} aria-label={`ลบ ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
-                    {isDeleting === account.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                  <button type="button" onClick={() => void handleDeleteClick(account)} disabled={isChecking} aria-label={`ลบ ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+                    {isChecking ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
                   </button>
                 </div>
               </div>
@@ -168,6 +192,36 @@ export default function AccountsPage() {
           isSaving={isSaving}
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog.Root open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteWarning(null); } }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/30 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-40px)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+            {deleteWarning ? (
+              <>
+                <Dialog.Title className="text-lg font-bold text-slate-900">⚠️ บัญชีนี้ถูกใช้งานอยู่ใน {deleteWarning.transactionCount} รายการทางการเงิน</Dialog.Title>
+                <Dialog.Description className="mt-3 text-sm text-slate-600">
+                  <p>ไม่สามารถลบได้</p>
+                </Dialog.Description>
+              </>
+            ) : (
+              <>
+                <Dialog.Title className="text-lg font-bold text-slate-900">ลบบัญชี</Dialog.Title>
+                <Dialog.Description className="mt-2 text-sm text-slate-600">ต้องการลบบัญชีนี้หรือไม่?</Dialog.Description>
+              </>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={() => { setDeleteTarget(null); setDeleteWarning(null); }} className="flex-1 h-11 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700" disabled={isDeleting}>
+                ยกเลิก
+              </button>
+              <button type="button" onClick={confirmDelete} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 font-semibold text-white" disabled={isDeleting || !!deleteWarning}>
+                {isDeleting ? <><Loader2 size={16} className="animate-spin" /> กำลังลบ...</> : 'ลบ'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <MobileNav />
     </main>

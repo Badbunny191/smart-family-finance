@@ -1,6 +1,7 @@
 'use client';
 
 import { Building2, Pencil, Plus, Trash2, X, Loader2 } from 'lucide-react';
+import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
@@ -8,6 +9,7 @@ import { useToast } from '@/components/ui/toast';
 type Person = { id: string; name: string };
 type Property = { id: string; name: string; ownerPersonId: string; ownerName: string; status: 'active' | 'inactive' };
 type PropertyForm = { name: string; ownerPersonId: string; status: 'active' | 'inactive' };
+type PropertyUsage = { accountCount: number };
 
 const emptyForm: PropertyForm = { name: '', ownerPersonId: '', status: 'active' };
 
@@ -19,7 +21,10 @@ export default function PropertiesPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Property | null>(null);
+  const [deleteWarning, setDeleteWarning] = useState<PropertyUsage | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -68,16 +73,35 @@ export default function PropertiesPage() {
   };
 
   const deleteProperty = async (id: string) => {
-    if (!window.confirm('ต้องการลบทรัพย์สินนี้หรือไม่')) return;
-    setIsDeleting(id);
+    setIsDeleting(true);
     const response = await fetch(`/api/properties/${id}`, { method: 'DELETE' });
-    setIsDeleting(null);
+    setIsDeleting(false);
     if (!response.ok) {
       showToast('ไม่สามารถลบข้อมูลได้', 'error');
       return;
     }
     showToast('ลบข้อมูลสำเร็จ', 'success');
     await loadData();
+  };
+
+  const handleDeleteClick = async (property: Property) => {
+    setIsChecking(true);
+    const response = await fetch(`/api/properties/${property.id}/usage`);
+    const data = (await response.json()) as PropertyUsage;
+    setIsChecking(false);
+    if (data.accountCount > 0) {
+      setDeleteWarning(data);
+    } else {
+      setDeleteWarning(null);
+    }
+    setDeleteTarget(property);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    await deleteProperty(deleteTarget.id);
+    setDeleteTarget(null);
+    setDeleteWarning(null);
   };
 
   return (
@@ -117,8 +141,8 @@ export default function PropertiesPage() {
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => openEdit(property)} aria-label={`แก้ไข ${property.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"><Pencil size={18} aria-hidden="true" /></button>
-                  <button type="button" onClick={() => deleteProperty(property.id)} disabled={isDeleting === property.id} aria-label={`ลบ ${property.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
-                    {isDeleting === property.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} aria-hidden="true" />}
+                  <button type="button" onClick={() => void handleDeleteClick(property)} disabled={isChecking} aria-label={`ลบ ${property.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+                    {isChecking ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} aria-hidden="true" />}
                   </button>
                 </div>
               </div>
@@ -150,6 +174,37 @@ export default function PropertiesPage() {
           </form>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog.Root open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteWarning(null); } }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/30 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100vw-40px)] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-6 shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]">
+            {deleteWarning ? (
+              <>
+                <Dialog.Title className="text-lg font-bold text-slate-900">⚠️ ทรัพย์สินนี้ถูกใช้งานอยู่ใน {deleteWarning.accountCount} บัญชี</Dialog.Title>
+                <Dialog.Description className="mt-3 text-sm text-slate-600">
+                  <p>ไม่สามารถลบได้</p>
+                </Dialog.Description>
+              </>
+            ) : (
+              <>
+                <Dialog.Title className="text-lg font-bold text-slate-900">ลบทรัพย์สิน</Dialog.Title>
+                <Dialog.Description className="mt-2 text-sm text-slate-600">ต้องการลบทรัพย์สินนี้หรือไม่?</Dialog.Description>
+              </>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={() => { setDeleteTarget(null); setDeleteWarning(null); }} className="flex-1 h-11 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700" disabled={isDeleting}>
+                ยกเลิก
+              </button>
+              <button type="button" onClick={confirmDelete} className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-rose-600 font-semibold text-white" disabled={isDeleting || !!deleteWarning}>
+                {isDeleting ? <><Loader2 size={16} className="animate-spin" /> กำลังลบ...</> : 'ลบ'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       <MobileNav />
     </main>
   );
