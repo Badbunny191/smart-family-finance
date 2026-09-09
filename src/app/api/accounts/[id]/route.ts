@@ -1,7 +1,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { accounts, persons, properties } from '@/db/schema';
-import { getRequestContext, serverErrorResponse, unauthorizedResponse } from '@/lib/api-auth';
+import { getRequestContext, handleApiError } from '@/lib/api-auth';
 import { accountInputSchema, validationError } from '@/lib/validation';
 
 export const runtime = 'nodejs';
@@ -36,9 +36,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       ? NextResponse.json(updated[0])
       : NextResponse.json({ error: 'ไม่พบบัญชี' }, { status: 404 });
   } catch (error) {
-    return error instanceof Error && error.message === 'UNAUTHORIZED'
-      ? unauthorizedResponse()
-      : serverErrorResponse();
+    return handleApiError(error);
   }
 }
 
@@ -55,9 +53,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       ? NextResponse.json({ success: true })
       : NextResponse.json({ error: 'ไม่พบบัญชี' }, { status: 404 });
   } catch (error) {
-    return error instanceof Error && error.message === 'UNAUTHORIZED'
-      ? unauthorizedResponse()
-      : serverErrorResponse();
+    return handleApiError(error);
   }
 }
 

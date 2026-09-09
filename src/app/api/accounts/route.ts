@@ -1,7 +1,7 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { accounts, persons, properties } from '@/db/schema';
-import { getRequestContext, serverErrorResponse, unauthorizedResponse } from '@/lib/api-auth';
+import { getRequestContext, handleApiError } from '@/lib/api-auth';
 import { accountInputSchema, validationError } from '@/lib/validation';
 
 export const runtime = 'nodejs';
@@ -33,9 +33,7 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(accounts.createdAt));
     return NextResponse.json(rows);
   } catch (error) {
-    return error instanceof Error && error.message === 'UNAUTHORIZED'
-      ? unauthorizedResponse()
-      : serverErrorResponse();
+    return handleApiError(error);
   }
 }
 
@@ -56,9 +54,7 @@ export async function POST(request: NextRequest) {
     await db.insert(accounts).values(account);
     return NextResponse.json(account, { status: 201 });
   } catch (error) {
-    return error instanceof Error && error.message === 'UNAUTHORIZED'
-      ? unauthorizedResponse()
-      : serverErrorResponse();
+    return handleApiError(error);
   }
 }
 

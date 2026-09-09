@@ -1,27 +1,22 @@
-// Load env file for local development (Windows compatibility)
+// Wrapper to run seed-admin.mjs with proper env loading for Windows
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const envPath = resolve(__dirname, '../.env.local');
-
-try {
-  const envContent = readFileSync(envPath, 'utf-8');
-  for (const line of envContent.split('\n')) {
-    const match = line.match(/^([^#=]+)=(.*)$/);
-    if (match) {
-      const [, key, value] = match;
-      if (!process.env[key.trim()]) {
-        process.env[key.trim()] = value.trim();
-      }
-    }
+// Load .env.local
+const envPath = resolve(process.cwd(), '.env.local');
+const envContent = readFileSync(envPath, 'utf-8');
+for (const line of envContent.split('\n')) {
+  const match = line.match(/^([^#=]+)=(.*)$/);
+  if (match) {
+    process.env[match[1].trim()] = match[2].trim();
   }
-} catch (e) {
-  // .env.local not found, will use existing env vars
 }
 
-const appUrl = process.env.APP_URL || 'http://localhost:3000';
+// Set APP_URL for local
+process.env.APP_URL = 'http://localhost:8787';
+
+// Now import and run the actual seed script
 const setupToken = process.env.ADMIN_SETUP_TOKEN;
 const name = process.env.ADMIN_NAME || 'Family Admin';
 const email = process.env.ADMIN_EMAIL;
@@ -31,7 +26,7 @@ if (!setupToken || !email || !password) {
   throw new Error('ADMIN_SETUP_TOKEN, ADMIN_EMAIL and ADMIN_PASSWORD are required.');
 }
 
-const response = await fetch(`${appUrl}/api/setup/admin`, {
+const response = await fetch(`${process.env.APP_URL}/api/setup/admin`, {
   method: 'POST',
   headers: {
     'content-type': 'application/json',
@@ -46,3 +41,5 @@ if (!response.ok) {
 }
 
 console.log(`Admin user created: ${payload.email}`);
+console.log(`Email: ${email}`);
+console.log(`Password: [hidden]`);

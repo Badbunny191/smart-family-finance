@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { accounts, categories, transactions } from '@/db/schema';
-import { getRequestContext, serverErrorResponse, unauthorizedResponse } from '@/lib/api-auth';
+import { getRequestContext, handleApiError } from '@/lib/api-auth';
 import { transactionMetadataSchema, validationError } from '@/lib/validation';
 
 export const runtime = 'nodejs';
@@ -25,7 +25,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const updated = await db.update(transactions).set({ ...parsed.data, updatedAt: new Date() }).where(eq(transactions.id, id)).returning();
     return NextResponse.json(updated[0]);
   } catch (error) {
-    return error instanceof Error && error.message === 'UNAUTHORIZED' ? unauthorizedResponse() : serverErrorResponse();
+    return handleApiError(error);
   }
 }
 
@@ -47,9 +47,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     ]);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return error instanceof Error && error.message === 'UNAUTHORIZED'
-      ? unauthorizedResponse()
-      : serverErrorResponse();
+    return handleApiError(error);
   }
 }
 

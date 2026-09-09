@@ -36,6 +36,13 @@ export function createAuth(d1: D1Database) {
       modelName: 'authSession',
       expiresIn: 60 * 60 * 24 * 30, // 30 Days
       updateAge: 60 * 60 * 24, // 1 Day
+      cookie: {
+        name: 'better-auth.session_token',
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+      },
     },
     account: {
       modelName: 'authAccount',
