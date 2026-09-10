@@ -1,6 +1,7 @@
 'use client';
 
-import { Building2, Pencil, Plus, Trash2, X, Loader2 } from 'lucide-react';
+import { ArrowLeft, Building2, Pencil, Plus, Trash2, X, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
@@ -107,7 +108,10 @@ export default function PropertiesPage() {
   return (
     <main className="min-h-screen pb-24 md:pb-0">
       <header className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 px-5 pb-4 pt-6 backdrop-blur">
-        <div className="flex items-center justify-between gap-4">
+        <Link href="/more" className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
+          <ArrowLeft size={18} /> กลับ
+        </Link>
+        <div className="mt-4 flex items-center justify-between gap-4">
           <div>
             <p className="text-sm text-slate-500">ทรัพย์สินในครอบครัว</p>
             <h1 className="mt-1 text-[1.65rem] font-bold tracking-tight text-slate-900">ทรัพย์สิน</h1>
