@@ -81,3 +81,22 @@ Verified:
 ### Current Tag
 
 v1.4.0
+
+## 2026-09-10
+
+### Completed
+
+- Added person relationship support
+- Migrated person model from isDaughter to relationship
+- Added relationship options:
+  - พ่อ
+  - แม่
+  - ลูกชาย
+  - ลูกสาว
+  - อื่นๆ
+- D1 schema migration completed
+- Production deployment completed
+
+### Current Tag
+
+v1.4.2
