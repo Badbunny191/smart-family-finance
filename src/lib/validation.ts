@@ -4,7 +4,7 @@ const requiredName = z.string().trim().min(1, 'กรุณาระบุชื
 
 export const personInputSchema = z.object({
   name: requiredName,
-  isDaughter: z.boolean().default(false),
+  relationship: z.enum(['father', 'mother', 'son', 'daughter', 'other']).nullable().optional(),
 });
 
 export const propertyInputSchema = z.object({

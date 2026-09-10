@@ -10,7 +10,7 @@ import { useToast } from '@/components/ui/toast';
 type Person = {
   id: string;
   name: string;
-  isDaughter: boolean;
+  relationship: string | null;
 };
 
 type PersonUsage = {
@@ -18,7 +18,7 @@ type PersonUsage = {
   propertyCount: number;
 };
 
-const emptyForm = { name: '', isDaughter: false };
+const emptyForm = { name: '', relationship: null as string | null };
 
 export default function PersonsPage() {
   const [people, setPeople] = useState<Person[]>([]);
@@ -53,7 +53,7 @@ export default function PersonsPage() {
 
   const openEdit = (person: Person) => {
     setEditingId(person.id);
-    setForm({ name: person.name, isDaughter: person.isDaughter });
+    setForm({ name: person.name, relationship: person.relationship ?? null });
     setErrorMessage(null);
     setIsFormOpen(true);
   };
@@ -146,7 +146,11 @@ export default function PersonsPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 overflow-hidden">
                   <h2 className="truncate font-semibold text-slate-900">{person.name}</h2>
-                  <p className="mt-1 text-sm text-slate-500">{person.isDaughter ? 'บุตรสาว' : 'สมาชิกครอบครัว'}</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {person.relationship
+                      ? { father: 'พ่อ', mother: 'แม่', son: 'ลูกชาย', daughter: 'ลูกสาว', other: 'อื่นๆ' }[person.relationship] ?? 'สมาชิกครอบครัว'
+                      : 'สมาชิกครอบครัว'}
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <button type="button" onClick={() => openEdit(person)} aria-label={`แก้ไข ${person.name}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
@@ -176,9 +180,21 @@ export default function PersonsPage() {
                 ชื่อบุคคล
                 <input required disabled={isSaving} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-4 text-base outline-none focus:border-emerald-600" />
               </label>
-              <label className="mt-4 flex min-h-11 items-center gap-3 text-sm font-medium text-slate-700">
-                <input type="checkbox" disabled={isSaving} checked={form.isDaughter} onChange={(event) => setForm({ ...form, isDaughter: event.target.checked })} className="h-5 w-5 accent-emerald-600" />
-                เป็นบุตรสาว
+              <label className="mt-4 block text-sm font-medium text-slate-700">
+                ความสัมพันธ์
+                <select
+                  disabled={isSaving}
+                  value={form.relationship ?? ''}
+                  onChange={(event) => setForm({ ...form, relationship: event.target.value || null })}
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base"
+                >
+                  <option value="">เลือกความสัมพันธ์</option>
+                  <option value="father">พ่อ</option>
+                  <option value="mother">แม่</option>
+                  <option value="son">ลูกชาย</option>
+                  <option value="daughter">ลูกสาว</option>
+                  <option value="other">อื่นๆ</option>
+                </select>
               </label>
               <div className="mt-6 grid grid-cols-2 gap-3">
                 <button type="button" onClick={() => setIsFormOpen(false)} disabled={isSaving} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 disabled:opacity-50">ยกเลิก</button>

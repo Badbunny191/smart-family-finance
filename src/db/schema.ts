@@ -76,7 +76,7 @@ export const persons = sqliteTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
-    isDaughter: integer('is_daughter', { mode: 'boolean' }).notNull().default(false),
+    relationship: text('relationship', { enum: ['father', 'mother', 'son', 'daughter', 'other'] }),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
     deletedAt: integer('deleted_at', { mode: 'timestamp' }),
