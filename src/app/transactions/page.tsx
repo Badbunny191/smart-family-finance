@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight,ArrowRightLeft, CircleMinus, CirclePlus, Loader2, Pencil, Trash2, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight,ArrowRightLeft, CircleMinus, CirclePlus, Loader2, Pencil, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
@@ -69,6 +69,7 @@ export default function TransactionsPage() {
   const [selectedType, setSelectedType] = useState<'all' | TransactionType>('all');
   const [selectedBusinessStatus, setSelectedBusinessStatus] = useState<'all' | BusinessStatus>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -209,11 +210,15 @@ export default function TransactionsPage() {
     return `${account.name}${account.accountNumber ? ` (${account.accountNumber})` : ''}`;
   };
 
+  const normalizedSearch = searchQuery.trim().toLowerCase();
   const visibleTransactions = transactions.filter(
     (transaction) =>
       (selectedType === 'all' || transaction.type === selectedType) &&
       (selectedBusinessStatus === 'all' || transaction.businessStatus === selectedBusinessStatus) &&
-      (selectedCategory === 'all' || transaction.categoryId === selectedCategory)
+      (selectedCategory === 'all' || transaction.categoryId === selectedCategory) &&
+      (normalizedSearch === '' ||
+        transaction.title.toLowerCase().includes(normalizedSearch) ||
+        (transaction.note?.toLowerCase().includes(normalizedSearch) ?? false))
   );
 
   const availableCategories = categories.filter((category) => category.type === form.type && category.isActive);
@@ -259,6 +264,17 @@ export default function TransactionsPage() {
               <option key={category.id} value={category.id}>{category.name}</option>
             ))}
           </select>
+        </div>
+
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="🔍 ค้นหารายการ..."
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-600"
+          />
         </div>
 
         {isLoading ? (

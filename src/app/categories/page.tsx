@@ -3,7 +3,7 @@
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Pencil, Plus, Loader2, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Loader2, Search, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { CategoryIcon } from '@/components/category-icon';
 import { IconPicker } from '@/components/icon-picker';
@@ -29,6 +29,7 @@ export default function CategoriesPage() {
   const [isChecking, setIsChecking] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const { showToast } = useToast();
 
   const loadData = async () => {
@@ -136,14 +137,38 @@ export default function CategoriesPage() {
 
       <section className="space-y-3 px-5 py-5">
         {errorMessage && <p className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
+        {!isLoading && categories.length > 0 && (
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="🔍 ค้นหาหมวดหมู่..."
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-600"
+            />
+          </div>
+        )}
         {isLoading ? (
           <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
         ) : categories.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-12 text-center">
             <p className="mt-3 font-medium text-slate-700">ยังไม่มีหมวดหมู่</p>
           </div>
-        ) : (
-          categories.map((category) => (
+        ) : (() => {
+          const normalizedSearch = searchQuery.trim().toLowerCase();
+          const filteredCategories = normalizedSearch === ''
+            ? categories
+            : categories.filter((category) => category.name.toLowerCase().includes(normalizedSearch));
+          if (filteredCategories.length === 0) {
+            return (
+              <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-12 text-center">
+                <p className="font-medium text-slate-700">ไม่พบหมวดหมู่ที่ค้นหา</p>
+                <p className="mt-1 text-sm text-slate-500">ลองเปลี่ยนคำค้นหา</p>
+              </div>
+            );
+          }
+          return filteredCategories.map((category) => (
             <article key={category.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
@@ -164,8 +189,8 @@ export default function CategoriesPage() {
                 </div>
               </div>
             </article>
-          ))
-        )}
+          ));
+        })()}
       </section>
 
       {/* Delete Confirmation Dialog */}

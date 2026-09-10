@@ -100,3 +100,27 @@ v1.4.0
 ### Current Tag
 
 v1.4.2
+
+
+## 2026-09-10
+
+### Completed
+
+- Added person relationship support
+- Migrated from isDaughter to relationship model
+- Added relationship options:
+  - พ่อ
+  - แม่
+  - ลูกชาย
+  - ลูกสาว
+  - อื่นๆ
+
+- Improved category icon picker
+- Added more category icons
+- Improved icon selection state
+- Fixed icon picker layout
+- Production deployment completed
+
+### Current Tag
+
+v1.4.3

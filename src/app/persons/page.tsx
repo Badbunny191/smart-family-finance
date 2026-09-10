@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Pencil, Plus, Trash2, Users, X, Loader2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Plus, Search, Trash2, Users, X, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
@@ -33,6 +33,7 @@ export default function PersonsPage() {
   const [isChecking, setIsChecking] = useState(false);
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const loadPeople = async () => {
     const response = await fetch('/api/persons');
@@ -132,6 +133,18 @@ export default function PersonsPage() {
 
       <section className="space-y-3 px-5 py-5">
         {errorMessage && <p className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
+        {!isLoading && people.length > 0 && (
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="🔍 ค้นหาบุคคล..."
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-600"
+            />
+          </div>
+        )}
         {isLoading ? (
           <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
         ) : people.length === 0 ? (
@@ -140,8 +153,20 @@ export default function PersonsPage() {
             <p className="mt-3 font-medium text-slate-700">ยังไม่มีข้อมูลบุคคล</p>
             <p className="mt-1 text-sm text-slate-500">เพิ่มบุคคลแรกเพื่อใช้เชื่อมกับทรัพย์สินและบัญชี</p>
           </div>
-        ) : (
-          people.map((person) => (
+        ) : (() => {
+          const normalizedSearch = searchQuery.trim().toLowerCase();
+          const filteredPeople = normalizedSearch === ''
+            ? people
+            : people.filter((person) => person.name.toLowerCase().includes(normalizedSearch));
+          if (filteredPeople.length === 0) {
+            return (
+              <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-12 text-center">
+                <p className="font-medium text-slate-700">ไม่พบบุคคลที่ค้นหา</p>
+                <p className="mt-1 text-sm text-slate-500">ลองเปลี่ยนคำค้นหา</p>
+              </div>
+            );
+          }
+          return filteredPeople.map((person) => (
             <article key={person.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 overflow-hidden">
@@ -162,8 +187,8 @@ export default function PersonsPage() {
                 </div>
               </div>
             </article>
-          ))
-        )}
+          ));
+        })()}
       </section>
 
       {isFormOpen && (

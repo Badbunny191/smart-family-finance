@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Building2, Pencil, Plus, Trash2, X, Loader2 } from 'lucide-react';
+import { ArrowLeft, Building2, Pencil, Plus, Search, Trash2, X, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
@@ -28,6 +28,7 @@ export default function PropertiesPage() {
   const [isChecking, setIsChecking] = useState(false);
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const loadData = async () => {
     const [propertiesResponse, peopleResponse] = await Promise.all([fetch('/api/properties'), fetch('/api/persons')]);
@@ -124,6 +125,18 @@ export default function PropertiesPage() {
 
       <section className="space-y-3 px-5 py-5">
         {errorMessage && <p className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
+        {!isLoading && properties.length > 0 && (
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="🔍 ค้นหาทรัพย์สิน..."
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-600"
+            />
+          </div>
+        )}
         {isLoading ? (
           <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
         ) : properties.length === 0 ? (
@@ -132,8 +145,20 @@ export default function PropertiesPage() {
             <p className="mt-3 font-medium text-slate-700">ยังไม่มีทรัพย์สิน</p>
             <p className="mt-1 text-sm text-slate-500">ต้องเพิ่มบุคคลก่อนจึงจะสร้างทรัพย์สินได้</p>
           </div>
-        ) : (
-          properties.map((property) => (
+        ) : (() => {
+          const normalizedSearch = searchQuery.trim().toLowerCase();
+          const filteredProperties = normalizedSearch === ''
+            ? properties
+            : properties.filter((property) => property.name.toLowerCase().includes(normalizedSearch));
+          if (filteredProperties.length === 0) {
+            return (
+              <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-12 text-center">
+                <p className="font-medium text-slate-700">ไม่พบทรัพย์สินที่ค้นหา</p>
+                <p className="mt-1 text-sm text-slate-500">ลองเปลี่ยนคำค้นหา</p>
+              </div>
+            );
+          }
+          return filteredProperties.map((property) => (
             <article key={property.id} className="overflow-hidden rounded-2xl border border-slate-200 p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 overflow-hidden">
@@ -151,8 +176,8 @@ export default function PropertiesPage() {
                 </div>
               </div>
             </article>
-          ))
-        )}
+          ));
+        })()}
       </section>
 
       {isFormOpen && (

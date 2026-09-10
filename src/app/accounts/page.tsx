@@ -1,6 +1,6 @@
 'use client';
 
-import { Banknote, Pencil, Plus, Trash2, WalletCards, X, Loader2 } from 'lucide-react';
+import { Banknote, Pencil, Plus, Search, Trash2, WalletCards, X, Loader2 } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
@@ -28,6 +28,7 @@ export default function AccountsPage() {
   const [isChecking, setIsChecking] = useState(false);
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const loadData = async () => { 
     const [accountResponse, personResponse, propertyResponse] = await Promise.all([fetch('/api/accounts'), fetch('/api/persons'), fetch('/api/properties')]); 
@@ -140,6 +141,18 @@ export default function AccountsPage() {
 
       <section className="space-y-3 px-5 py-5">
         {errorMessage && <p className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
+        {!isLoading && accounts.length > 0 && (
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="🔍 ค้นหาบัญชี..."
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-600"
+            />
+          </div>
+        )}
         {isLoading ? (
           <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
         ) : accounts.length === 0 ? (
@@ -148,8 +161,23 @@ export default function AccountsPage() {
             <p className="mt-3 font-medium text-slate-700">ยังไม่มีบัญชี</p>
             <p className="mt-1 text-sm text-slate-500">เพิ่มบุคคลก่อนเพื่อสร้างบัญชีแรก</p>
           </div>
-        ) : (
-          accounts.map((account) => (
+        ) : (() => {
+          const normalizedSearch = searchQuery.trim().toLowerCase();
+          const filteredAccounts = normalizedSearch === ''
+            ? accounts
+            : accounts.filter((account) => {
+                const haystack = `${account.name} ${account.accountAlias ?? ''} ${account.bankName ?? ''} ${account.accountNumber ?? ''}`.toLowerCase();
+                return haystack.includes(normalizedSearch);
+              });
+          if (filteredAccounts.length === 0) {
+            return (
+              <div className="surface-card border-dashed px-5 py-12 text-center">
+                <p className="font-medium text-slate-700">ไม่พบบัญชีที่ค้นหา</p>
+                <p className="mt-1 text-sm text-slate-500">ลองเปลี่ยนคำค้นหา</p>
+              </div>
+            );
+          }
+          return filteredAccounts.map((account) => (
             <article key={account.id} className="surface-card p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -176,8 +204,8 @@ export default function AccountsPage() {
                 </div>
               </div>
             </article>
-          ))
-        )}
+          ));
+        })()}
       </section>
 
       {isFormOpen && (
