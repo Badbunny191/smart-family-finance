@@ -21,6 +21,7 @@ export const accountInputSchema = z.object({
   personId: z.string().trim().min(1, 'กรุณาเลือกบุคคล'),
   propertyId: z.string().trim().min(1).nullable().optional(),
   accountType: z.enum(['bank', 'cash']),
+  isBusinessAccount: z.boolean().default(false),
   openingBalance: z.number().finite().default(0),
   currentBalance: z.number().finite().default(0),
 });
@@ -49,7 +50,7 @@ export const transactionInputSchema = z
     propertyId: z.string().trim().min(1).nullable().optional(),
     categoryId: z.string().trim().min(1).nullable().optional(),
     businessStatus: z
-      .enum(['pending_payment', 'customer_paid', 'awaiting_business_transfer', 'business_received', 'closed'])
+      .enum(['pending', 'received'])
       .nullable()
       .optional(),
     sourceAccountId: z.string().trim().min(1).nullable().optional(),
@@ -77,7 +78,7 @@ export const transactionInputSchema = z
 export const transactionMetadataSchema = z.object({
   categoryId: z.string().trim().min(1).nullable().optional(),
   businessStatus: z
-    .enum(['pending_payment', 'customer_paid', 'awaiting_business_transfer', 'business_received', 'closed'])
+    .enum(['pending', 'received'])
     .nullable()
     .optional(),
 });

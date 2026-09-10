@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
         propertyId: accounts.propertyId,
         propertyName: properties.name,
         accountType: accounts.accountType,
+        isBusinessAccount: accounts.isBusinessAccount,
         openingBalance: accounts.openingBalance,
         currentBalance: accounts.currentBalance,
         createdAt: accounts.createdAt,
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
     const account = { 
       id: crypto.randomUUID(), 
       ...parsed.data, 
+      isBusinessAccount: parsed.data.isBusinessAccount ?? false,
       currentBalance: parsed.data.currentBalance === 0 
         ? parsed.data.openingBalance 
         : parsed.data.currentBalance,

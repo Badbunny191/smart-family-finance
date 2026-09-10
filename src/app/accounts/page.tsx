@@ -8,10 +8,10 @@ import { useToast } from '@/components/ui/toast';
 
 type Person = { id: string; name: string };
 type Property = { id: string; name: string };
-type Account = { id: string; name: string; accountAlias: string | null; bankName: string | null; accountNumber: string | null; personId: string; personName: string; propertyId: string | null; propertyName: string | null; accountType: 'bank' | 'cash'; openingBalance: number; currentBalance: number };
-type AccountForm = { name: string; accountAlias: string; bankName: string; accountNumber: string; personId: string; propertyId: string; accountType: 'bank' | 'cash'; openingBalance: string; currentBalance: string };
+type Account = { id: string; name: string; accountAlias: string | null; bankName: string | null; accountNumber: string | null; personId: string; personName: string; propertyId: string | null; propertyName: string | null; accountType: 'bank' | 'cash'; isBusinessAccount: boolean; openingBalance: number; currentBalance: number };
+type AccountForm = { name: string; accountAlias: string; bankName: string; accountNumber: string; personId: string; propertyId: string; accountType: 'bank' | 'cash'; isBusinessAccount: boolean; openingBalance: string; currentBalance: string };
 type AccountUsage = { transactionCount: number };
-const emptyForm: AccountForm = { name: '', accountAlias: '', bankName: '', accountNumber: '', personId: '', propertyId: '', accountType: 'bank', openingBalance: '0', currentBalance: '0' };
+const emptyForm: AccountForm = { name: '', accountAlias: '', bankName: '', accountNumber: '', personId: '', propertyId: '', accountType: 'bank', isBusinessAccount: false, openingBalance: '0', currentBalance: '0' };
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -59,6 +59,7 @@ export default function AccountsPage() {
       personId: account.personId, 
       propertyId: account.propertyId || '', 
       accountType: account.accountType, 
+      isBusinessAccount: account.isBusinessAccount, 
       openingBalance: String(account.openingBalance), 
       currentBalance: String(account.currentBalance) 
     }); 
@@ -78,6 +79,7 @@ export default function AccountsPage() {
         bankName: form.bankName || null,
         accountNumber: form.accountNumber || null,
         propertyId: form.propertyId || null,
+        isBusinessAccount: form.isBusinessAccount,
         openingBalance: Number(form.openingBalance),
         currentBalance: Number(form.currentBalance)
       })
@@ -186,7 +188,14 @@ export default function AccountsPage() {
                       {account.accountType === 'bank' ? <WalletCards size={21} /> : <Banknote size={21} />}
                     </div>
                     <div className="min-w-0">
-                      <h2 className="truncate font-semibold text-slate-900">{account.accountAlias || account.name}</h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="truncate font-semibold text-slate-900">{account.accountAlias || account.name}</h2>
+                        {account.isBusinessAccount ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">ธุรกิจ</span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">ส่วนตัว</span>
+                        )}
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">{account.bankName || (account.accountType === 'bank' ? 'ธนาคาร' : 'เงินสด')}</p>
                     </div>
                   </div>
@@ -213,7 +222,6 @@ export default function AccountsPage() {
           form={form}
           setForm={setForm}
           people={people}
-          properties={properties}
           editing={Boolean(editingId)}
           onClose={() => setIsFormOpen(false)}
           onSubmit={saveAccount}
@@ -256,7 +264,7 @@ export default function AccountsPage() {
   );
 }
 
-function AccountFormDialog({ form, setForm, people, properties, editing, onClose, onSubmit, isSaving }: { form: AccountForm; setForm: (form: AccountForm) => void; people: Person[]; properties: Property[]; editing: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>; isSaving: boolean }) {
+function AccountFormDialog({ form, setForm, people, editing, onClose, onSubmit, isSaving }: { form: AccountForm; setForm: (form: AccountForm) => void; people: Person[]; editing: boolean; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>; isSaving: boolean }) {
   const update = (values: Partial<AccountForm>) => setForm({ ...form, ...values });
 
   const handleAccountTypeChange = (type: 'bank' | 'cash') => {
@@ -290,38 +298,8 @@ function AccountFormDialog({ form, setForm, people, properties, editing, onClose
 
         {/* Content: ส่วนเดียวที่เลื่อนดูข้อมูลได้ */}
         <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 space-y-4">
-          <Label text="ชื่อเรียกบัญชี">
-            <input value={form.accountAlias} onChange={(event) => update({ accountAlias: event.target.value })} className="form-input" />
-          </Label>
-          {form.accountType === 'bank' && (
-            <Label text="ธนาคาร">
-              <input value={form.bankName} onChange={(event) => update({ bankName: event.target.value })} className="form-input" />
-            </Label>
-          )}
-          {form.accountType === 'bank' && (
-            <Label text="เลขบัญชี">
-              <input
-                value={form.accountNumber}
-                onChange={(event) => update({ accountNumber: event.target.value })}
-                placeholder="123-4-56789-0"
-                className="form-input"
-              />
-            </Label>
-          )}
-          <Label text="ชื่อบัญชี">
-            <input required value={form.name} onChange={(event) => update({ name: event.target.value })} className="form-input" />
-          </Label>
-          <Label text="เจ้าของ">
-            <select required value={form.personId} onChange={(event) => update({ personId: event.target.value })} className="form-input">
-              <option value="">เลือกบุคคล</option>
-              {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-            </select>
-          </Label>
-          <Label text="ทรัพย์สิน (ไม่บังคับ)">
-            <select value={form.propertyId} onChange={(event) => update({ propertyId: event.target.value })} className="form-input">
-              <option value="">ไม่ผูกกับทรัพย์สิน</option>
-              {properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-            </select>
+          <Label text="ชื่อที่แสดง">
+            <input required value={form.name} onChange={(event) => update({ name: event.target.value })} placeholder="เช่น กรรณจมณ, เงินสดร้าน" className="form-input" />
           </Label>
           
           <fieldset className="pt-1">
@@ -334,9 +312,52 @@ function AccountFormDialog({ form, setForm, people, properties, editing, onClose
                   onClick={() => handleAccountTypeChange(type)}
                   className={`touch-button rounded-xl border py-2.5 text-sm font-semibold transition-all ${form.accountType === type ? 'border-emerald-600 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                 >
-                  {type === 'bank' ? 'ธนาคาร' : 'เงินสด'}
+                  {type === 'bank' ? '🏦 ธนาคาร' : '💵 เงินสด'}
                 </button>
               ))}
+            </div>
+          </fieldset>
+
+          {form.accountType === 'bank' && (
+            <>
+              <Label text="ชื่อธนาคาร">
+                <input value={form.bankName} onChange={(event) => update({ bankName: event.target.value })} placeholder="เช่น กรุงเทพ, กสิกรไทย" className="form-input" />
+              </Label>
+              <Label text="เลขบัญชี (ไม่บังคับ)">
+                <input
+                  value={form.accountNumber}
+                  onChange={(event) => update({ accountNumber: event.target.value })}
+                  placeholder="123-4-56789-0"
+                  className="form-input"
+                />
+              </Label>
+            </>
+          )}
+
+          <Label text="เจ้าของ">
+            <select required value={form.personId} onChange={(event) => update({ personId: event.target.value })} className="form-input">
+              <option value="">เลือกบุคคล</option>
+              {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+            </select>
+          </Label>
+
+          <fieldset className="pt-1">
+            <legend className="mb-2 text-sm font-medium text-slate-700">ประเภทการใช้งาน</legend>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => update({ isBusinessAccount: false })}
+                className={`touch-button rounded-xl border py-2.5 text-sm font-semibold transition-all ${form.isBusinessAccount === false ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              >
+                👤 ส่วนตัว
+              </button>
+              <button
+                type="button"
+                onClick={() => update({ isBusinessAccount: true })}
+                className={`touch-button rounded-xl border py-2.5 text-sm font-semibold transition-all ${form.isBusinessAccount === true ? 'border-emerald-600 bg-emerald-50 text-emerald-700 shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              >
+                🏢 ธุรกิจ
+              </button>
             </div>
           </fieldset>
 

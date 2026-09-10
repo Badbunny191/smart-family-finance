@@ -6,9 +6,9 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 
 type TransactionType = 'income' | 'expense' | 'transfer';
-type BusinessStatus = 'pending_payment' | 'customer_paid' | 'awaiting_business_transfer' | 'business_received' | 'closed';
+type BusinessStatus = 'pending' | 'received';
 type Property = { id: string; name: string };
-type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number };
+type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean };
 type Category = { id: string; name: string; type: 'income' | 'expense'; isActive: boolean };
 type Transaction = {
   id: string;
@@ -45,18 +45,15 @@ const emptyForm: FormState = {
   title: '',
   propertyId: '',
   categoryId: '',
-  businessStatus: 'pending_payment',
+  businessStatus: '',
   sourceAccountId: '',
   destinationAccountId: '',
   note: '',
 };
 
 const businessStatusLabels: Record<BusinessStatus, string> = {
-  pending_payment: 'รอชำระ',
-  customer_paid: 'รับเงินแล้ว',
-  awaiting_business_transfer: 'รอโอนเข้าธุรกิจ',
-  business_received: 'โอนเข้าธุรกิจแล้ว',
-  closed: 'ปิดรายการแล้ว',
+  pending: 'รอชำระ',
+  received: 'รับชำระแล้ว',
 };
 
 export default function TransactionsPage() {
@@ -106,7 +103,7 @@ export default function TransactionsPage() {
       ...emptyForm,
       type,
       date: today(),
-      businessStatus: type === 'income' ? 'pending_payment' : '',
+      businessStatus: '',
     });
     setErrorMessage(null);
     setIsFormOpen(true);
@@ -344,7 +341,7 @@ function ActionCard({ label, description, icon, color, disabled, onClick }: { la
 function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onDelete, isDeleting, isMarkingReceived }: { transaction: Transaction; getAccountLabel: (accountId: string | null) => string; onEdit: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean }) {
   const icon = transaction.type === 'income' ? <ArrowDownLeft size={18} /> : transaction.type === 'expense' ? <ArrowUpRight size={18} /> : <ArrowLeftRight size={18} />;
   const color = transaction.type === 'income' ? 'bg-emerald-50 text-emerald-700' : transaction.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700';
-  const badgeClass = transaction.businessStatus === 'pending_payment' ? 'bg-amber-50 text-amber-700' : transaction.businessStatus === 'customer_paid' ? 'bg-sky-50 text-sky-700' : transaction.businessStatus === 'awaiting_business_transfer' ? 'bg-violet-50 text-violet-700' : transaction.businessStatus === 'business_received' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600';
+  const badgeClass = transaction.businessStatus === 'pending' ? 'bg-amber-50 text-amber-700' : transaction.businessStatus === 'received' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600';
 
   return (
     <article className="surface-card overflow-hidden p-4">
@@ -381,9 +378,9 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
             )}
           </div>
 
-          {transaction.businessStatus === 'customer_paid' && (
-            <button type="button" onClick={() => void onReceived(transaction.id)} disabled={isMarkingReceived} className="touch-button mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-sm font-semibold text-white disabled:opacity-50">
-              {isMarkingReceived ? <><Loader2 size={16} className="animate-spin" /> กำลังอัปเดตสถานะ...</> : 'โอนเข้าธุรกิจแล้ว'}
+          {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
+            <button type="button" onClick={() => void onReceived(transaction.id)} disabled={isMarkingReceived} className="touch-button mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+              {isMarkingReceived ? <><Loader2 size={16} className="animate-spin" /> กำลังอัปเดต...</> : 'รับชำระแล้ว'}
             </button>
           )}
         </div>
@@ -529,12 +526,26 @@ function PropertySelect({ value, properties, onChange }: { value: string; proper
 }
 
 function AccountSelect({ value, accounts, onChange }: { value: string; accounts: Account[]; onChange: (value: string) => void }) {
+  const businessAccounts = accounts.filter(a => a.isBusinessAccount);
+  const personalAccounts = accounts.filter(a => !a.isBusinessAccount);
+
   return (
     <select required value={value} onChange={(event) => onChange(event.target.value)} className="form-input">
       <option value="">เลือกบัญชี</option>
-      {accounts.map((account) => (
-        <option key={account.id} value={account.id}>{account.name}{account.accountNumber ? ` · ${account.accountNumber}` : ''}</option>
-      ))}
+      {businessAccounts.length > 0 && (
+        <optgroup label="🏢 บัญชีธุรกิจ">
+          {businessAccounts.map((account) => (
+            <option key={account.id} value={account.id}>{account.name}</option>
+          ))}
+        </optgroup>
+      )}
+      {personalAccounts.length > 0 && (
+        <optgroup label="👤 บัญชีส่วนตัว">
+          {personalAccounts.map((account) => (
+            <option key={account.id} value={account.id}>{account.name}</option>
+          ))}
+        </optgroup>
+      )}
     </select>
   );
 }

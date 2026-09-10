@@ -1,0 +1,3 @@
+-- Migration: Skip 0006_add_relationship (already applied on production)
+-- Date: 2026-09-10
+-- Purpose: Mark this migration as applied without re-running

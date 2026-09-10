@@ -122,6 +122,7 @@ export const accounts = sqliteTable(
       .references(() => persons.id),
     propertyId: text('property_id').references(() => properties.id),
     accountType: text('account_type', { enum: ['bank', 'cash'] }).notNull(),
+    isBusinessAccount: integer('is_business_account', { mode: 'boolean' }).notNull().default(false),
     openingBalance: real('opening_balance').notNull().default(0),
     currentBalance: real('current_balance').notNull().default(0),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -188,14 +189,8 @@ export const transactions = sqliteTable(
       .notNull()
       .default('completed'),
     businessStatus: text('business_status', {
-      enum: [
-        'pending_payment',
-        'customer_paid',
-        'awaiting_business_transfer',
-        'business_received',
-        'closed',
-      ],
-    }),
+      enum: ['pending', 'received'],
+    }).$type<'pending' | 'received' | null>(),
     note: text('note'),
     ownerPersonId: text('owner_person_id').references(() => persons.id),
     payerPersonId: text('payer_person_id').references(() => persons.id),

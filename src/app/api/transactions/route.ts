@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const categoryId = searchParams.get('categoryId');
     const filters = [isNull(transactions.deletedAt)];
     if (type === 'income' || type === 'expense' || type === 'transfer') filters.push(eq(transactions.type, type));
-    if (businessStatus === 'customer_paid' || businessStatus === 'business_received' || businessStatus === 'closed') filters.push(eq(transactions.businessStatus, businessStatus));
+    if (businessStatus === 'pending' || businessStatus === 'received') filters.push(eq(transactions.businessStatus, businessStatus));
     if (categoryId) filters.push(eq(transactions.categoryId, categoryId));
     const rows = await db
       .select({
