@@ -7,6 +7,7 @@ import { Pencil, Plus, Loader2, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { CategoryIcon } from '@/components/category-icon';
 import { IconPicker } from '@/components/icon-picker';
+import { ColorPicker } from '@/components/color-picker';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 
@@ -235,26 +236,27 @@ export default function CategoriesPage() {
               </div>
 
               {/* Icon & Color Row */}
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="block text-sm font-medium text-slate-700">
-                  ไอคอน
-                  <div className="mt-2">
-                    {showIconPicker ? (
-                      <IconPicker value={form.icon} onChange={(icon) => setForm({ ...form, icon })} onClose={() => setShowIconPicker(false)} />
-                    ) : (
-                      <button type="button" onClick={() => setShowIconPicker(true)} className="flex h-12 w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4">
-                        <span className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 shadow-sm ring-1 ring-slate-200">
-                          <CategoryIcon name={form.icon} size={18} />
-                        </span>
-                        <span className="flex-1 text-left text-base text-slate-500">เลือกไอคอน</span>
-                      </button>
-                    )}
+              <div className="mt-4 space-y-3">
+                <div className="flex gap-3">
+                  <div className="flex-1 block text-sm font-medium text-slate-700">
+                    ไอคอน
+                    <div className="mt-2">
+                      {showIconPicker ? (
+                        <IconPicker value={form.icon} onChange={(icon) => setForm({ ...form, icon })} onClose={() => setShowIconPicker(false)} />
+                      ) : (
+                        <button type="button" onClick={() => setShowIconPicker(true)} className="flex h-12 w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 shadow-sm ring-1 ring-slate-200">
+                            <CategoryIcon name={form.icon} size={18} />
+                          </span>
+                          <span className="flex-1 text-left text-base text-slate-500">เลือกไอคอน</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-40">
+                    <ColorPicker value={form.color} onChange={(color) => setForm({ ...form, color })} />
                   </div>
                 </div>
-                <label className="block text-sm font-medium text-slate-700">
-                  สี
-                  <input type="color" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-2" />
-                </label>
               </div>
 
               {errorMessage && <p className="mt-4 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
