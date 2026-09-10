@@ -68,6 +68,7 @@ export default function TransactionsPage() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [selectedType, setSelectedType] = useState<'all' | TransactionType>('all');
   const [selectedBusinessStatus, setSelectedBusinessStatus] = useState<'all' | BusinessStatus>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -211,7 +212,8 @@ export default function TransactionsPage() {
   const visibleTransactions = transactions.filter(
     (transaction) =>
       (selectedType === 'all' || transaction.type === selectedType) &&
-      (selectedBusinessStatus === 'all' || transaction.businessStatus === selectedBusinessStatus)
+      (selectedBusinessStatus === 'all' || transaction.businessStatus === selectedBusinessStatus) &&
+      (selectedCategory === 'all' || transaction.categoryId === selectedCategory)
   );
 
   const availableCategories = categories.filter((category) => category.type === form.type && category.isActive);
@@ -236,7 +238,7 @@ export default function TransactionsPage() {
       <section className="space-y-3 px-5 py-5">
         {errorMessage && <p className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <select value={selectedType} onChange={(event) => setSelectedType(event.target.value as 'all' | TransactionType)} className="h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm">
             <option value="all">ทุกประเภท</option>
             <option value="income">รายรับ</option>
@@ -248,6 +250,13 @@ export default function TransactionsPage() {
             <option value="all">ทุกสถานะ</option>
             {Object.entries(businessStatusLabels).map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+
+          <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} className="h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm">
+            <option value="all">ทุกหมวดหมู่</option>
+            {categories.filter((c) => c.isActive).map((category) => (
+              <option key={category.id} value={category.id}>{category.name}</option>
             ))}
           </select>
         </div>
@@ -404,13 +413,20 @@ function TransactionForm({ form, setForm, properties, accounts, categories, onCl
             <input required value={form.title} onChange={(event) => update({ title: event.target.value })} className="form-input" />
           </FormLabel>
 
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <FormLabel label="จำนวนเงิน">
-              <input required min="0.01" step="0.01" type="number" value={form.amount} onChange={(event) => update({ amount: event.target.value })} className="form-input" />
-            </FormLabel>
-            <FormLabel label="วันที่">
-              <input required type="date" value={form.date} onChange={(event) => update({ date: event.target.value })} className="form-input" />
-            </FormLabel>
+          <div className="mt-4 grid gap-3 sm:grid-cols-5">
+            <div className="sm:col-span-3">
+              <FormLabel label="จำนวนเงิน">
+                <div className="relative">
+                  <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm font-medium text-slate-500">฿</span>
+                  <input required min="0.01" step="0.01" type="number" inputMode="decimal" placeholder="0.00" value={form.amount} onChange={(event) => update({ amount: event.target.value })} className="form-input w-full pl-8 pr-3" />
+                </div>
+              </FormLabel>
+            </div>
+            <div className="sm:col-span-2">
+              <FormLabel label="วันที่">
+                <input required type="date" value={form.date} onChange={(event) => update({ date: event.target.value })} className="form-input w-full" />
+              </FormLabel>
+            </div>
           </div>
 
           {!isTransfer && (
