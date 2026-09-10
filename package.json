@@ -13,7 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply smart-family-finance-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply smart-family-finance-db --remote",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "deploy": "echo '⚠️ NEXT+CF ONLY: Using opennextjs-cloudflare pipeline' && opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
