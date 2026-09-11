@@ -49,7 +49,7 @@ export async function getRequestContext(request: NextRequest): Promise<{
  * Check if user has admin role
  */
 export function isAdmin(session: Awaited<ReturnType<typeof getRequestContext>>['session']): boolean {
-  return session.user.role === 'admin';
+  return (session.user as { role?: string }).role === 'admin';
 }
 
 /**

@@ -3,10 +3,18 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { getDb } from '@/db/client';
 import * as schema from '@/db/schema';
 
+// Singleton auth instance - initialized once per worker cold start
+let authInstance: ReturnType<typeof betterAuth> | null = null;
+
 export function createAuth(d1: D1Database) {
+  // Fast path: return cached instance
+  if (authInstance) {
+    return authInstance;
+  }
+
   const db = getDb(d1);
 
-  return betterAuth({
+  authInstance = betterAuth({
     database: drizzleAdapter(db, {
       provider: 'sqlite',
       schema: {
@@ -51,4 +59,10 @@ export function createAuth(d1: D1Database) {
       modelName: 'authVerification',
     },
   });
+
+  return authInstance;
+}
+
+export function invalidateAuthCache(): void {
+  authInstance = null;
 }
