@@ -1,8 +1,8 @@
-import { AlertTriangle, Building2, CircleDollarSign, PiggyBank, Wallet } from 'lucide-react';
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, CircleDollarSign, PiggyBank, Wallet } from 'lucide-react';
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { MobileNav } from '@/components/mobile-nav';
 import { SignOutButton } from '@/components/sign-out-button';
 import { accounts, persons, transactions } from '@/db/schema';
@@ -22,7 +22,57 @@ export default async function DashboardPage() {
 
   const db = getDb(d1);
 
-  // 1. รอชำระ (pending income)
+  // วันที่ของเดือนปัจจุบัน
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+
+  // 1. ยอดเงินคงเหลือรวม (cash + bank accounts only)
+  const balanceResult = await db
+    .select({ total: sql<number>`COALESCE(SUM(${accounts.currentBalance}), 0)` })
+    .from(accounts)
+    .where(and(
+      inArray(accounts.accountType, ['cash', 'bank']),
+      isNull(accounts.deletedAt)
+    ));
+
+  // 2. รายรับเดือนนี้
+  const incomeResult = await db
+    .select({ total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
+    .from(transactions)
+    .where(and(
+      eq(transactions.type, 'income'),
+      eq(transactions.status, 'completed'),
+      gte(transactions.date, monthStart),
+      lt(transactions.date, nextMonthStart),
+      isNull(transactions.deletedAt)
+    ));
+
+  // 3. รายจ่ายเดือนนี้
+  const expenseResult = await db
+    .select({ total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)` })
+    .from(transactions)
+    .where(and(
+      eq(transactions.type, 'expense'),
+      eq(transactions.status, 'completed'),
+      gte(transactions.date, monthStart),
+      lt(transactions.date, nextMonthStart),
+      isNull(transactions.deletedAt)
+    ));
+
+  // 4. รายการล่าสุด (income + expense เท่านั้น, ไม่รวม transfer)
+  const recentRows = await db
+    .select()
+    .from(transactions)
+    .where(and(
+      or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
+      eq(transactions.status, 'completed'),
+      isNull(transactions.deletedAt)
+    ))
+    .orderBy(desc(transactions.date), desc(transactions.createdAt))
+    .limit(10);
+
+  // 5. รอชำระ (pending income)
   const pendingResult = await db
     .select({
       total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
@@ -35,7 +85,7 @@ export default async function DashboardPage() {
       isNull(transactions.deletedAt)
     ));
 
-  // 2. บัญชีธุรกิจ
+  // 6. บัญชีธุรกิจ
   const businessAccounts = await db
     .select({
       personId: persons.id,
@@ -77,10 +127,26 @@ export default async function DashboardPage() {
     ))
     .groupBy(persons.id, persons.name);
 
+  // Recent Transactions: ดึงชื่อบัญชี
+  const recentWithAccountNames = await Promise.all(
+    recentRows.map(async (tx) => {
+      const accountName = tx.sourceAccountId
+        ? (await db.select({ name: accounts.name }).from(accounts).where(eq(accounts.id, tx.sourceAccountId)))[0]?.name
+        : null;
+      return { ...tx, accountName };
+    })
+  );
+
   const data = {
-    pending: { 
-      total: Number(pendingResult[0]?.total) || 0, 
-      count: Number(pendingResult[0]?.count) || 0 
+    // Overview
+    totalBalance: Number(balanceResult[0]?.total) || 0,
+    monthlyIncome: Number(incomeResult[0]?.total) || 0,
+    monthlyExpense: Number(expenseResult[0]?.total) || 0,
+    recentTransactions: recentWithAccountNames,
+    // Action Center
+    pending: {
+      total: Number(pendingResult[0]?.total) || 0,
+      count: Number(pendingResult[0]?.count) || 0
     },
     businessAccounts: businessAccounts as { personId: string; personName: string; balance: number; accountName: string }[],
     businessCashTotal: Number(businessCashResult[0]?.balance) || 0,
@@ -88,6 +154,7 @@ export default async function DashboardPage() {
   };
 
   const businessTotal = data.businessAccounts.reduce((sum, acc) => sum + acc.balance, 0);
+  const netBalance = data.monthlyIncome - data.monthlyExpense;
 
   return (
     <main className="app-shell min-h-screen pb-24 md:pb-0">
@@ -103,8 +170,65 @@ export default async function DashboardPage() {
       </header>
 
       <div className="mx-auto max-w-5xl space-y-6 px-5 py-6">
-        {/* Action Center Grid */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        {/* ========================================
+            OVERVIEW SECTION — ภาพรวมการเงิน
+            ======================================== */}
+
+        {/* ยอดเงินคงเหลือรวม */}
+        <Link 
+          href="/accounts"
+          className="surface-card block overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-700 to-teal-800 p-5 text-white transition-transform active:scale-[0.98]"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm font-medium text-emerald-100">ยอดเงินคงเหลือรวม</p>
+              <p className="mt-2 text-[2rem] font-bold tracking-tight">
+                {formatCurrency(data.totalBalance)}
+              </p>
+            </div>
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-white/15">
+              <CircleDollarSign size={22} />
+            </div>
+          </div>
+        </Link>
+
+        {/* KPI เดือนนี้: รายรับ | รายจ่าย | คงเหลือสุทธิ */}
+        <div className="grid grid-cols-3 gap-3">
+          <Link 
+            href="/transactions?type=income"
+            className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
+          >
+            <p className="text-xs font-medium text-slate-500">รายรับเดือนนี้</p>
+            <p className="mt-1 truncate text-lg font-bold tracking-tight text-emerald-700">
+              {formatCurrency(data.monthlyIncome)}
+            </p>
+          </Link>
+          <Link 
+            href="/transactions?type=expense"
+            className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
+          >
+            <p className="text-xs font-medium text-slate-500">รายจ่ายเดือนนี้</p>
+            <p className="mt-1 truncate text-lg font-bold tracking-tight text-rose-700">
+              {formatCurrency(data.monthlyExpense)}
+            </p>
+          </Link>
+          <Link 
+            href="/transactions"
+            className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
+          >
+            <p className="text-xs font-medium text-slate-500">คงเหลือสุทธิ</p>
+            <p className={`mt-1 truncate text-lg font-bold tracking-tight ${netBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {formatCurrency(netBalance)}
+            </p>
+          </Link>
+        </div>
+
+        {/* ========================================
+            ACTION CENTER SECTION
+            ======================================== */}
+        <section>
+          <h2 className="mb-3 text-base font-bold text-slate-900">Action Center</h2>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
           {/* รอชำระ */}
           <Link 
             href="/transactions?type=income&businessStatus=pending"
@@ -167,7 +291,7 @@ export default async function DashboardPage() {
 
           {/* เงินส่วนตัวแยกตามบุคคล */}
           {data.personalByPerson.map((person) => (
-            <Link 
+            <Link
               key={person.personId}
               href="/accounts"
               className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
@@ -184,6 +308,7 @@ export default async function DashboardPage() {
             </Link>
           ))}
         </div>
+        </section>
 
         {/* Quick Links */}
         <section className="mt-8">
@@ -212,6 +337,56 @@ export default async function DashboardPage() {
               <p className="mt-2 text-sm font-medium text-slate-700">โอนเงิน</p>
             </Link>
           </div>
+        </section>
+
+        {/* ========================================
+            RECENT TRANSACTIONS — รายการล่าสุด
+            ======================================== */}
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-base font-bold text-slate-900">รายการล่าสุด</h2>
+            <Link href="/transactions" className="touch-button px-1 text-sm font-semibold text-emerald-700">
+              ดูทั้งหมด
+            </Link>
+          </div>
+          {data.recentTransactions.length === 0 ? (
+            <div className="surface-card flex flex-col items-center justify-center gap-2 py-10 text-center">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <p className="text-sm text-slate-500">ยังไม่มีรายการรายรับหรือรายจ่าย</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {data.recentTransactions.map((tx) => (
+                <article key={tx.id} className="surface-card flex items-start gap-3 overflow-hidden p-4">
+                  <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-2xl ${tx.type === 'income' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                    {tx.type === 'income' ? <ArrowDownLeft size={19} /> : <ArrowUpRight size={19} />}
+                  </div>
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate font-semibold text-slate-900">{tx.title}</h3>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {tx.type === 'income' ? 'รายรับ' : 'รายจ่าย'} · {new Date(tx.date).toLocaleDateString('th-TH')}
+                        </p>
+                      </div>
+                      <p className={`shrink-0 font-bold ${tx.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
+                      </p>
+                    </div>
+                    {tx.accountName && (
+                      <p className="mt-1 truncate text-xs text-slate-400">
+                        {tx.accountName}
+                      </p>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       </div>
       <MobileNav />
