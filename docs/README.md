@@ -213,3 +213,17 @@ received
 ✅ OpenNext Deployment Fixed
 
 ✅ Deploy Process Documented
+
+
+
+Lesson Learned
+
+หาก production พังหลังจากแก้โค้ด
+
+และยังไม่ได้ commit
+
+ให้ restore กลับก่อน
+
+อย่าเพิ่ง optimize
+อย่าเพิ่ง refactor
+อย่าเพิ่งวิเคราะห์ performance
