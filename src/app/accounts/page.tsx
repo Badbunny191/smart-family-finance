@@ -2,7 +2,9 @@
 
 import { Banknote, Pencil, Plus, Search, Trash2, WalletCards, X, Loader2 } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 
@@ -14,6 +16,37 @@ type AccountUsage = { transactionCount: number };
 const emptyForm: AccountForm = { name: '', accountAlias: '', bankName: '', accountNumber: '', personId: '', propertyId: '', accountType: 'bank', isBusinessAccount: false, openingBalance: '0', currentBalance: '0' };
 
 export default function AccountsPage() {
+  return (
+    <Suspense fallback={<AccountsLoading />}>
+      <AccountsContent />
+    </Suspense>
+  );
+}
+
+function AccountsLoading() {
+  return (
+    <main className="app-shell min-h-screen pb-24 md:pb-0">
+      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/90 px-5 pb-5 pt-6 backdrop-blur-xl">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="section-label">แหล่งเงินของครอบครัว</p>
+            <h1 className="mt-2 text-[1.65rem] font-bold tracking-tight text-slate-900">บัญชี</h1>
+          </div>
+          <button type="button" disabled className="touch-button flex items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(22,134,107,0.2)] opacity-50">
+            <Plus size={18} /> เพิ่ม
+          </button>
+        </div>
+      </header>
+      <section className="space-y-3 px-5 py-5">
+        <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
+      </section>
+      <MobileNav />
+    </main>
+  );
+}
+
+function AccountsContent() {
+  const searchParams = useSearchParams();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
@@ -29,6 +62,18 @@ export default function AccountsPage() {
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Initialize type filter from URL params
+  const urlType = searchParams.get('type');
+  const [selectedType, setSelectedType] = useState<'all' | 'business' | 'personal'>(
+    urlType === 'business' || urlType === 'personal' ? urlType : 'all'
+  );
+
+  // Sync selectedType with URL changes
+  useEffect(() => {
+    const newType = urlType === 'business' || urlType === 'personal' ? urlType : 'all';
+    setSelectedType(newType);
+  }, [urlType]);
 
   const loadData = async () => { 
     const [accountResponse, personResponse, propertyResponse] = await Promise.all([fetch('/api/accounts'), fetch('/api/persons'), fetch('/api/properties')]); 
@@ -155,6 +200,20 @@ export default function AccountsPage() {
             />
           </div>
         )}
+
+        {/* Filter Banner - shown when filtered by type from URL */}
+        {selectedType !== 'all' && !isLoading && (
+          <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 p-3 rounded-xl">
+            <span className="text-sm">
+              {selectedType === 'business' ? '🏢' : '👤'}{' '}
+              กำลังแสดง: {selectedType === 'business' ? 'บัญชีธุรกิจ' : 'บัญชีส่วนตัว'}
+            </span>
+            <Link href="/accounts" className="text-sm font-medium text-emerald-700 underline">
+              ล้างตัวกรอง
+            </Link>
+          </div>
+        )}
+
         {isLoading ? (
           <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
         ) : accounts.length === 0 ? (
@@ -165,12 +224,18 @@ export default function AccountsPage() {
           </div>
         ) : (() => {
           const normalizedSearch = searchQuery.trim().toLowerCase();
-          const filteredAccounts = normalizedSearch === ''
-            ? accounts
-            : accounts.filter((account) => {
-                const haystack = `${account.name} ${account.accountAlias ?? ''} ${account.bankName ?? ''} ${account.accountNumber ?? ''}`.toLowerCase();
-                return haystack.includes(normalizedSearch);
-              });
+          const filteredAccounts = accounts.filter((account) => {
+            // Type filter
+            if (selectedType !== 'all' && account.isBusinessAccount !== (selectedType === 'business')) {
+              return false;
+            }
+            // Search filter
+            if (normalizedSearch !== '') {
+              const haystack = `${account.name} ${account.accountAlias ?? ''} ${account.bankName ?? ''} ${account.accountNumber ?? ''}`.toLowerCase();
+              if (!haystack.includes(normalizedSearch)) return false;
+            }
+            return true;
+          });
           if (filteredAccounts.length === 0) {
             return (
               <div className="surface-card border-dashed px-5 py-12 text-center">

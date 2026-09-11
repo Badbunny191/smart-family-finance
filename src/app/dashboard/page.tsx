@@ -250,7 +250,7 @@ export default async function DashboardPage() {
         {data.businessTotal > 0 && data.businessAccounts.length > 0 && (
           <section>
             <Link
-              href="/accounts"
+              href="/accounts?type=business"
               prefetch={false}
               className="surface-card block overflow-hidden transition-transform active:scale-[0.99]"
             >
@@ -284,7 +284,7 @@ export default async function DashboardPage() {
         {data.personalTotal > 0 && (
           <section>
             <Link
-              href="/accounts"
+              href="/accounts?type=personal"
               prefetch={false}
               className="surface-card block overflow-hidden transition-transform active:scale-[0.99]"
             >

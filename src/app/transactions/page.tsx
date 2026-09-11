@@ -1,7 +1,8 @@
 ﻿'use client';
 
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight,ArrowRightLeft, CircleMinus, CirclePlus, Loader2, Pencil, Search, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 
@@ -57,14 +58,81 @@ const businessStatusLabels: Record<BusinessStatus, string> = {
 };
 
 export default function TransactionsPage() {
+  return (
+    <Suspense fallback={<TransactionsLoading />}>
+      <TransactionsContent />
+    </Suspense>
+  );
+}
+
+function TransactionsLoading() {
+  return (
+    <main className="app-shell min-h-screen pb-24 md:pb-0">
+      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/90 px-5 pb-5 pt-6 backdrop-blur-xl">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="section-label">เงินเข้า เงินออก และการโอน</p>
+            <h1 className="mt-2 text-[1.65rem] font-bold tracking-tight text-slate-900">รายการเงิน</h1>
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <div className="flex min-h-32 flex-col items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 px-2 text-center opacity-45">
+            <span><CirclePlus size={27} /></span>
+            <span className="mt-2 text-sm font-bold text-emerald-700">รายรับ</span>
+            <span className="mt-1 text-[10px] leading-tight text-slate-500">รับเงินลูกค้า</span>
+          </div>
+          <div className="flex min-h-32 flex-col items-center justify-center rounded-2xl border border-rose-100 bg-rose-50 px-2 text-center opacity-45">
+            <span><CircleMinus size={27} /></span>
+            <span className="mt-2 text-sm font-bold text-rose-700">รายจ่าย</span>
+            <span className="mt-1 text-[10px] leading-tight text-slate-500">ต้นทุนและค่าใช้จ่าย</span>
+          </div>
+          <div className="flex min-h-32 flex-col items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 px-2 text-center opacity-45">
+            <span><ArrowRightLeft size={27} /></span>
+            <span className="mt-2 text-sm font-bold text-indigo-700">โอนเงิน</span>
+            <span className="mt-1 text-[10px] leading-tight text-slate-500">ย้ายระหว่างบัญชี</span>
+          </div>
+        </div>
+      </header>
+      <section className="space-y-3 px-5 py-5">
+        <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
+      </section>
+      <MobileNav />
+    </main>
+  );
+}
+
+function TransactionsContent() {
+  const searchParams = useSearchParams();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [selectedType, setSelectedType] = useState<'all' | TransactionType>('all');
-  const [selectedBusinessStatus, setSelectedBusinessStatus] = useState<'all' | BusinessStatus>('all');
+
+  // Initialize filters from URL params
+  const urlType = searchParams.get('type');
+  const urlBusinessStatus = searchParams.get('businessStatus');
+  const validTypes: TransactionType[] = ['income', 'expense', 'transfer'];
+  const validStatuses: BusinessStatus[] = ['pending', 'received'];
+
+  const [selectedType, setSelectedType] = useState<'all' | TransactionType>(
+    urlType && validTypes.includes(urlType as TransactionType) ? urlType as TransactionType : 'all'
+  );
+  const [selectedBusinessStatus, setSelectedBusinessStatus] = useState<'all' | BusinessStatus>(
+    urlBusinessStatus && validStatuses.includes(urlBusinessStatus as BusinessStatus) ? urlBusinessStatus as BusinessStatus : 'all'
+  );
+
+  // Sync filters with URL changes
+  useEffect(() => {
+    const newType = urlType && validTypes.includes(urlType as TransactionType) ? urlType as TransactionType : 'all';
+    setSelectedType(newType);
+  }, [urlType]);
+
+  useEffect(() => {
+    const newStatus = urlBusinessStatus && validStatuses.includes(urlBusinessStatus as BusinessStatus) ? urlBusinessStatus as BusinessStatus : 'all';
+    setSelectedBusinessStatus(newStatus);
+  }, [urlBusinessStatus]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isFormOpen, setIsFormOpen] = useState(false);
