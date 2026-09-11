@@ -18,11 +18,18 @@ type Transaction = {
   date: string;
   title: string;
   propertyId: string | null;
+  propertyName: string | null;
   categoryId: string | null;
   categoryName: string | null;
   businessStatus: BusinessStatus | null;
   sourceAccountId: string | null;
+  sourceAccountName: string | null;
+  sourceAccountBank: string | null;
+  sourceAccountNumber: string | null;
   destinationAccountId: string | null;
+  destinationAccountName: string | null;
+  destinationAccountBank: string | null;
+  destinationAccountNumber: string | null;
   note: string | null;
 };
 type FormState = {
@@ -109,6 +116,7 @@ function TransactionsContent() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
 
   // Initialize filters from URL params
   const urlType = searchParams.get('type');
@@ -353,6 +361,7 @@ function TransactionsContent() {
               transaction={transaction}
               getAccountLabel={getAccountLabel}
               onEdit={setEditingTransaction}
+              onView={setViewingTransaction}
               onReceived={markBusinessReceived}
               onDelete={deleteTransaction}
               isDeleting={isDeleting === transaction.id}
@@ -385,6 +394,13 @@ function TransactionsContent() {
         />
       )}
 
+      {viewingTransaction && (
+        <TransactionDetailModal
+          transaction={viewingTransaction}
+          onClose={() => setViewingTransaction(null)}
+        />
+      )}
+
       <MobileNav />
     </main>
   );
@@ -406,7 +422,7 @@ function ActionCard({ label, description, icon, color, disabled, onClick }: { la
   );
 }
 
-function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onDelete, isDeleting, isMarkingReceived }: { transaction: Transaction; getAccountLabel: (accountId: string | null) => string; onEdit: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean }) {
+function TransactionCard({ transaction, getAccountLabel, onEdit, onView, onReceived, onDelete, isDeleting, isMarkingReceived }: { transaction: Transaction; getAccountLabel: (accountId: string | null) => string; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean }) {
   const icon = transaction.type === 'income' ? <ArrowDownLeft size={18} /> : transaction.type === 'expense' ? <ArrowUpRight size={18} /> : <ArrowLeftRight size={18} />;
   const color = transaction.type === 'income' ? 'bg-emerald-50 text-emerald-700' : transaction.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700';
   const badgeClass = transaction.businessStatus === 'pending' ? 'bg-amber-50 text-amber-700' : transaction.businessStatus === 'received' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600';
@@ -415,13 +431,13 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onReceived, onD
     <article className="surface-card overflow-hidden p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="flex items-center gap-2">
+          <button type="button" onClick={() => onView(transaction)} className="flex w-full items-start gap-2 text-left">
             <span className={`grid min-h-10 min-w-10 shrink-0 place-items-center rounded-2xl ${color}`}>{icon}</span>
             <div className="min-w-0 flex-1 overflow-hidden">
               <h2 className="truncate font-semibold text-slate-900">{transaction.title}</h2>
               <p className="truncate text-xs text-slate-500">{new Date(transaction.date).toLocaleDateString('th-TH')}</p>
             </div>
-          </div>
+          </button>
 
           <p className={`mt-3 truncate text-xl font-bold tracking-tight ${transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700'}`}>
             {transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
@@ -686,6 +702,137 @@ function EmptyState() {
       <ArrowLeftRight className="mx-auto text-slate-400" size={30} />
       <p className="mt-3 font-medium text-slate-700">ยังไม่มีรายการที่ตรงกัน</p>
       <p className="mt-1 text-sm text-slate-500">เพิ่มรายรับ รายจ่าย หรือรายการโอนได้จากปุ่มด้านบน</p>
+    </div>
+  );
+}
+
+function TransactionDetailModal({ transaction, onClose }: { transaction: Transaction; onClose: () => void }) {
+  const typeLabels: Record<TransactionType, string> = {
+    income: 'รายรับ',
+    expense: 'รายจ่าย',
+    transfer: 'โอนเงิน',
+  };
+  const typeColors: Record<TransactionType, string> = {
+    income: 'text-emerald-700',
+    expense: 'text-rose-700',
+    transfer: 'text-indigo-700',
+  };
+  const statusColors: Record<BusinessStatus, string> = {
+    pending: 'bg-amber-50 text-amber-700',
+    received: 'bg-emerald-50 text-emerald-700',
+  };
+
+  const formatAccount = (name: string | null, bank: string | null, number: string | null) => {
+    if (!name) return 'ไม่ระบุบัญชี';
+    const parts = [name];
+    if (bank) parts.push(bank);
+    if (number) parts.push(`เลขบัญชี: ${number}`);
+    return parts.join(' • ');
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5" onClick={onClose}>
+      <div className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="w-11" />
+          <h2 className="text-lg font-bold text-slate-900">รายละเอียดรายการ</h2>
+          <button type="button" onClick={onClose} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {/* Title & Amount */}
+          <div className="text-center">
+            <span className={`text-sm font-medium ${typeColors[transaction.type]}`}>{typeLabels[transaction.type]}</span>
+            <p className={`mt-1 text-3xl font-bold ${typeColors[transaction.type]}`}>
+              {transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+            </p>
+            <h3 className="mt-2 text-lg font-semibold text-slate-900">{transaction.title}</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {new Date(transaction.date).toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+            {transaction.businessStatus && (
+              <span className={`mt-2 inline-block rounded-full px-3 py-1 text-sm font-medium ${statusColors[transaction.businessStatus]}`}>
+                {businessStatusLabels[transaction.businessStatus]}
+              </span>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="my-5 border-t border-slate-100" />
+
+          {/* Details */}
+          <div className="space-y-4">
+            {/* Category */}
+            {transaction.categoryName && (
+              <DetailRow label="หมวดหมู่" value={transaction.categoryName} icon="🏷️" />
+            )}
+
+            {/* Accounts */}
+            {transaction.type === 'transfer' && (
+              <>
+                <DetailRow
+                  label="จากบัญชี"
+                  value={formatAccount(transaction.sourceAccountName, transaction.sourceAccountBank, transaction.sourceAccountNumber)}
+                  icon="📤"
+                />
+                <DetailRow
+                  label="ไปยังบัญชี"
+                  value={formatAccount(transaction.destinationAccountName, transaction.destinationAccountBank, transaction.destinationAccountNumber)}
+                  icon="📥"
+                />
+              </>
+            )}
+            {transaction.type === 'income' && (
+              <DetailRow
+                label="เข้าบัญชี"
+                value={formatAccount(transaction.destinationAccountName, transaction.destinationAccountBank, transaction.destinationAccountNumber)}
+                icon="📥"
+              />
+            )}
+            {transaction.type === 'expense' && (
+              <DetailRow
+                label="จากบัญชี"
+                value={formatAccount(transaction.sourceAccountName, transaction.sourceAccountBank, transaction.sourceAccountNumber)}
+                icon="📤"
+              />
+            )}
+
+            {/* Property */}
+            {transaction.propertyName && (
+              <DetailRow label="ทรัพย์สิน" value={transaction.propertyName} icon="🏠" />
+            )}
+
+            {/* Note */}
+            {transaction.note && (
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">หมายเหตุ</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{transaction.note}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-100 px-5 py-4 pb-6">
+          <button type="button" onClick={onClose} className="h-12 w-full rounded-xl bg-slate-100 font-semibold text-slate-700">ปิด</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value, icon }: { label: string; value: string; icon: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 text-lg">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="mt-0.5 text-sm font-medium text-slate-900">{value}</p>
+      </div>
     </div>
   );
 }

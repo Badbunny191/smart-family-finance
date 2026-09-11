@@ -281,7 +281,7 @@ export default async function DashboardPage() {
         {/* ========================================
             PERSONAL ACCOUNTS - Full Width
             ======================================== */}
-        {data.personalTotal > 0 && (
+        {(data.personalTotal >= 0 || data.personalByPerson.length > 0) && (
           <section>
             <Link
               href="/accounts?type=personal"

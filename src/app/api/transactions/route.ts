@@ -3,8 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { accounts, categories, persons, properties, transactions } from '@/db/schema';
 import { getRequestContext, handleApiError } from '@/lib/api-auth';
 import { transactionInputSchema, validationError } from '@/lib/validation';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 export const runtime = 'nodejs';
+
+const sourceAcc = alias(accounts, 'source_account');
+const destAcc = alias(accounts, 'destination_account');
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,15 +29,25 @@ export async function GET(request: NextRequest) {
         date: transactions.date,
         title: transactions.title,
         propertyId: transactions.propertyId,
+        propertyName: properties.name,
         categoryId: transactions.categoryId,
         categoryName: categories.name,
         businessStatus: transactions.businessStatus,
         sourceAccountId: transactions.sourceAccountId,
+        sourceAccountName: sourceAcc.name,
+        sourceAccountBank: sourceAcc.bankName,
+        sourceAccountNumber: sourceAcc.accountNumber,
         destinationAccountId: transactions.destinationAccountId,
+        destinationAccountName: destAcc.name,
+        destinationAccountBank: destAcc.bankName,
+        destinationAccountNumber: destAcc.accountNumber,
         note: transactions.note,
       })
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .leftJoin(properties, eq(transactions.propertyId, properties.id))
+      .leftJoin(sourceAcc, eq(transactions.sourceAccountId, sourceAcc.id))
+      .leftJoin(destAcc, eq(transactions.destinationAccountId, destAcc.id))
       .where(and(...filters))
       .orderBy(desc(transactions.date), desc(transactions.createdAt));
     return NextResponse.json(rows);
@@ -96,7 +110,7 @@ export async function POST(request: NextRequest) {
       categoryId: input.categoryId || null,
       sourceAccountId: input.sourceAccountId || null,
       destinationAccountId: input.destinationAccountId || null,
-      status: 'completed' as const,
+      status: (input.businessStatus === 'pending' ? 'pending' : 'completed') as 'pending' | 'completed',
       businessStatus: input.businessStatus || null,
       note: input.note || null,
       createdByUserId: session.user.id,
@@ -110,7 +124,7 @@ export async function POST(request: NextRequest) {
 
     await db.batch([
       db.insert(transactions).values(transaction),
-      ...balanceStatements(db, input.type, input.amount, input.sourceAccountId, input.destinationAccountId),
+      ...balanceStatements(db, input.type, input.amount, input.sourceAccountId, input.destinationAccountId, input.businessStatus),
     ]);
     return NextResponse.json(transaction, { status: 201 });
   } catch (error) {
@@ -133,18 +147,25 @@ function balanceStatements(
   type: 'income' | 'expense' | 'transfer',
   amount: number,
   sourceAccountId: string | null | undefined,
-  destinationAccountId: string | null | undefined
+  destinationAccountId: string | null | undefined,
+  businessStatus?: string | null
 ) {
   const statements = [];
-  if ((type === 'expense' || type === 'transfer') && sourceAccountId) {
-    statements.push(
-      db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
-    );
-  }
-  if ((type === 'income' || type === 'transfer') && destinationAccountId) {
-    statements.push(
-      db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
-    );
+  
+  // Only update balance when businessStatus is NOT 'pending'
+  const shouldUpdateBalance = businessStatus !== 'pending';
+  
+  if (shouldUpdateBalance) {
+    if ((type === 'expense' || type === 'transfer') && sourceAccountId) {
+      statements.push(
+        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+      );
+    }
+    if ((type === 'income' || type === 'transfer') && destinationAccountId) {
+      statements.push(
+        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
+      );
+    }
   }
   return statements;
 }
