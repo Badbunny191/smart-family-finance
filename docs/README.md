@@ -227,3 +227,11 @@ Lesson Learned
 อย่าเพิ่ง optimize
 อย่าเพิ่ง refactor
 อย่าเพิ่งวิเคราะห์ performance
+
+
+Known issue:
+- Intermittent ExceededCpu under rapid refresh.
+- Affects multiple SSR pages.
+- N+1 fixed.
+- Partial optimization deployed.
+- Root cause likely shared

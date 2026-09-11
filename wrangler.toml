@@ -3,6 +3,11 @@ compatibility_date = "2026-09-01"
 compatibility_flags = [ "nodejs_compat" ]
 main = ".open-next/worker.js"
 
+# CPU time limit - increase from default 50ms to handle cold starts
+# Free tier: max 50ms, Paid Bundled: max 30s
+# Set to match your Workers plan limits
+limits = { cpu_ms = 150 }
+
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
