@@ -13,21 +13,30 @@ import { formatCurrency } from '@/lib/utils';
 
 export const runtime = 'nodejs';
 
+// PERF: Mutable perf logger (avoids TSX parsing issues)
+const perf: string[] = [];
+
+function logPerf(label: string, ms: number) {
+  perf.push(`[PERF] ${label}=${ms}`);
+}
+
 export default async function DashboardPage() {
-  const perfStart = performance.now();
-  const requestHeaders = await headers();
+  const perfStart = Date.now();
 
-  // PERF: getCloudflareContext (inside getD1)
-  const perfD1Start = performance.now();
+  // 1. Get D1 binding
+  const d1Start = Date.now();
   const d1 = await getD1();
-  console.log('[PERF] getD1=', Math.round(performance.now() - perfD1Start), 'ms');
+  logPerf('getD1', Date.now() - d1Start);
 
-  // PERF: createAuth + getSession
-  const perfAuthStart = performance.now();
+  // 2. Auth session
+  const authStart = Date.now();
   const auth = createAuth(d1);
+  logPerf('createAuth', Date.now() - authStart);
+
+  const requestHeaders = await headers();
+  const sessionStart = Date.now();
   const session = await auth.api.getSession({ headers: requestHeaders });
-  console.log('[PERF] createAuth=', Math.round(performance.now() - perfAuthStart), 'ms');
-  console.log('[PERF] session=', Math.round(performance.now() - perfStart), 'ms');
+  logPerf('session', Date.now() - sessionStart);
 
   if (!session) redirect('/login');
 
@@ -38,14 +47,10 @@ export default async function DashboardPage() {
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
-  // OPTIMIZED: 6 queries instead of 8
-  // Key optimizations:
-  // 1. Accounts: 1 query with CASE WHEN instead of 3 separate queries
-  // 2. Transactions: 2 queries (monthly metrics + pending) instead of 3
-  // 3. Recent transactions: kept separate for ORDER BY
-  // 4. Business/Personal accounts: kept for person names
-  // QUERY 1: All account metrics in ONE query (was 3 queries)
-  const query1Start = performance.now();
+  // 4. Execute 6 queries sequentially (for accurate timing)
+  
+  // QUERY 1: All account metrics in ONE query
+  const q1Start = Date.now();
   const accountMetrics = await db
     .select({
       totalBalance: sql<number>`COALESCE(SUM(${accounts.currentBalance}), 0)`,
@@ -57,10 +62,10 @@ export default async function DashboardPage() {
       inArray(accounts.accountType, ['cash', 'bank']),
       isNull(accounts.deletedAt)
     ));
-  console.log('[PERF] query1=', Math.round(performance.now() - query1Start), 'ms');
+  logPerf('query1', Date.now() - q1Start);
 
-  // QUERY 2: Monthly income/expense with date filter (was 2 queries)
-  const query2Start = performance.now();
+  // QUERY 2: Monthly income/expense with date filter
+  const q2Start = Date.now();
   const monthlyMetrics = await db
     .select({
       type: transactions.type,
@@ -75,10 +80,10 @@ export default async function DashboardPage() {
       isNull(transactions.deletedAt)
     ))
     .groupBy(transactions.type);
-  console.log('[PERF] query2=', Math.round(performance.now() - query2Start), 'ms');
+  logPerf('query2', Date.now() - q2Start);
 
-  // QUERY 3: Pending income (no date filter - ALL pending regardless of when created)
-  const query3Start = performance.now();
+  // QUERY 3: Pending income
+  const q3Start = Date.now();
   const pendingResult = await db
     .select({
       total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
@@ -90,10 +95,10 @@ export default async function DashboardPage() {
       eq(transactions.businessStatus, 'pending'),
       isNull(transactions.deletedAt)
     ));
-  console.log('[PERF] query3=', Math.round(performance.now() - query3Start), 'ms');
+  logPerf('query3', Date.now() - q3Start);
 
-  // QUERY 4: Recent transactions (kept separate for ORDER BY)
-  const query4Start = performance.now();
+  // QUERY 4: Recent transactions
+  const q4Start = Date.now();
   const recentRows = await db
     .select({
       id: transactions.id,
@@ -117,10 +122,10 @@ export default async function DashboardPage() {
     ))
     .orderBy(desc(transactions.date), desc(transactions.createdAt))
     .limit(10);
-  console.log('[PERF] query4=', Math.round(performance.now() - query4Start), 'ms');
+  logPerf('query4', Date.now() - q4Start);
 
   // QUERY 5: Business accounts with person names
-  const query5Start = performance.now();
+  const q5Start = Date.now();
   const businessAccounts = await db
     .select({
       personId: persons.id,
@@ -134,10 +139,10 @@ export default async function DashboardPage() {
       eq(accounts.isBusinessAccount, true),
       isNull(accounts.deletedAt)
     ));
-  console.log('[PERF] query5=', Math.round(performance.now() - query5Start), 'ms');
+  logPerf('query5', Date.now() - q5Start);
 
   // QUERY 6: Personal accounts grouped by person
-  const query6Start = performance.now();
+  const q6Start = Date.now();
   const personalByPerson = await db
     .select({
       personId: persons.id,
@@ -151,7 +156,7 @@ export default async function DashboardPage() {
       isNull(accounts.deletedAt)
     ))
     .groupBy(persons.id, persons.name);
-  console.log('[PERF] query6=', Math.round(performance.now() - query6Start), 'ms');
+  logPerf('query6', Date.now() - q6Start);
 
   // Build query results array for downstream code compatibility
   const queryResults = [accountMetrics, monthlyMetrics, pendingResult, recentRows, businessAccounts, personalByPerson];
@@ -444,5 +449,9 @@ export default async function DashboardPage() {
       <MobileNav />
     </main>
   );
-  {typeof window === 'undefined' && console.log('[PERF] dashboard_total=', Math.round(performance.now() - perfStart), 'ms')}
+  // Log all perf entries
+  logPerf('total', Date.now() - perfStart);
+  for (const entry of perf) {
+    console.log(entry);
+  }
 }
