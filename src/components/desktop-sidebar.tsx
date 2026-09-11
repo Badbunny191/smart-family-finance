@@ -58,6 +58,7 @@ export function DesktopSidebar() {
               <Link
                 key={href}
                 href={href}
+                prefetch={false}
                 className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold transition-colors ${
                   active
                     ? 'bg-emerald-50 text-emerald-700'
@@ -81,6 +82,7 @@ export function DesktopSidebar() {
               <Link
                 key={href}
                 href={href}
+                prefetch={false}
                 className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold transition-colors ${
                   active
                     ? 'bg-emerald-50 text-emerald-700'

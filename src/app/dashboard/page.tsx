@@ -204,6 +204,7 @@ export default async function DashboardPage() {
         {/* ยอดเงินคงเหลือรวม */}
         <Link 
           href="/accounts"
+          prefetch={false}
           className="surface-card block overflow-hidden bg-gradient-to-br from-emerald-700 via-emerald-700 to-teal-800 p-5 text-white transition-transform active:scale-[0.98]"
         >
           <div className="flex items-start justify-between">
@@ -223,6 +224,7 @@ export default async function DashboardPage() {
         <div className="grid grid-cols-3 gap-3">
           <Link 
             href="/transactions?type=income"
+            prefetch={false}
             className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
           >
             <p className="text-xs font-medium text-slate-500">รายรับเดือนนี้</p>
@@ -232,6 +234,7 @@ export default async function DashboardPage() {
           </Link>
           <Link 
             href="/transactions?type=expense"
+            prefetch={false}
             className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
           >
             <p className="text-xs font-medium text-slate-500">รายจ่ายเดือนนี้</p>
@@ -241,6 +244,7 @@ export default async function DashboardPage() {
           </Link>
           <Link 
             href="/transactions"
+            prefetch={false}
             className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
           >
             <p className="text-xs font-medium text-slate-500">คงเหลือสุทธิ</p>
@@ -259,6 +263,7 @@ export default async function DashboardPage() {
             {/* รอชำระ */}
           <Link 
             href="/transactions?type=income&businessStatus=pending"
+            prefetch={false}
             className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
           >
             <div className="flex items-start justify-between">
@@ -278,6 +283,7 @@ export default async function DashboardPage() {
           {/* เงินในบัญชีธุรกิจ */}
           <Link 
             href="/accounts"
+            prefetch={false}
             className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
           >
             <div className="flex items-start justify-between">
@@ -303,6 +309,7 @@ export default async function DashboardPage() {
           {/* เงินสดธุรกิจ */}
           <Link 
             href="/accounts"
+            prefetch={false}
             className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
           >
             <div className="flex items-start justify-between">
@@ -321,6 +328,7 @@ export default async function DashboardPage() {
             <Link 
               key={person.personId}
               href="/accounts"
+              prefetch={false}
               className="surface-card block overflow-hidden p-4 transition-transform active:scale-[0.98]"
             >
               <div className="flex items-start justify-between">
@@ -341,13 +349,13 @@ export default async function DashboardPage() {
         <section className="mt-8">
           <h2 className="mb-3 text-base font-bold text-slate-900">ลัดเพียงการทำงาน</h2>
           <div className="grid grid-cols-3 gap-3">
-            <Link href="/transactions?type=income" className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
+            <Link href="/transactions?type=income" prefetch={false} className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
               <div className="mx-auto grid h-10 w-10 place-items-center rounded-2xl bg-emerald-50 text-emerald-700">
                 <CircleDollarSign size={20} />
               </div>
               <p className="mt-2 text-sm font-medium text-slate-700">รายรับใหม่</p>
             </Link>
-            <Link href="/transactions?type=expense" className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
+            <Link href="/transactions?type=expense" prefetch={false} className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
               <div className="mx-auto grid h-10 w-10 place-items-center rounded-2xl bg-rose-50 text-rose-700">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -355,7 +363,7 @@ export default async function DashboardPage() {
               </div>
               <p className="mt-2 text-sm font-medium text-slate-700">รายจ่ายใหม่</p>
             </Link>
-            <Link href="/transactions?type=transfer" className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
+            <Link href="/transactions?type=transfer" prefetch={false} className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
               <div className="mx-auto grid h-10 w-10 place-items-center rounded-2xl bg-indigo-50 text-indigo-700">
                 <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
@@ -372,7 +380,7 @@ export default async function DashboardPage() {
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-base font-bold text-slate-900">รายการล่าสุด</h2>
-            <Link href="/transactions" className="touch-button px-1 text-sm font-semibold text-emerald-700">
+            <Link href="/transactions" prefetch={false} className="touch-button px-1 text-sm font-semibold text-emerald-700">
               ดูทั้งหมด
             </Link>
           </div>
