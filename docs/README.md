@@ -227,3 +227,20 @@ Lesson Learned
 อย่าเพิ่ง optimize
 อย่าเพิ่ง refactor
 อย่าเพิ่งวิเคราะห์ performance
+
+
+Investigation Result
+
+Root cause:
+Next.js automatic route prefetching caused request fan-out.
+
+Fix:
+Disabled Link prefetch on dashboard, sidebar and mobile navigation.
+
+Result:
+Normal usage stable.
+Route fan-out removed.
+Worker CPU pressure reduced.
+
+Remaining issue:
+Extreme stress load (100 parallel requests) can still trigger Cloudflare CPU limits.

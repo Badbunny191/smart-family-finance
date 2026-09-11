@@ -13,6 +13,7 @@ export function createAuth(d1: D1Database) {
   }
 
   const db = getDb(d1);
+  const start = performance.now();
 
   authInstance = betterAuth({
     database: drizzleAdapter(db, {

@@ -14,9 +14,20 @@ import { formatCurrency } from '@/lib/utils';
 export const runtime = 'nodejs';
 
 export default async function DashboardPage() {
+  const perfStart = performance.now();
   const requestHeaders = await headers();
+
+  // PERF: getCloudflareContext (inside getD1)
+  const perfD1Start = performance.now();
   const d1 = await getD1();
-  const session = await createAuth(d1).api.getSession({ headers: requestHeaders });
+  console.log('[PERF] getD1=', Math.round(performance.now() - perfD1Start), 'ms');
+
+  // PERF: createAuth + getSession
+  const perfAuthStart = performance.now();
+  const auth = createAuth(d1);
+  const session = await auth.api.getSession({ headers: requestHeaders });
+  console.log('[PERF] createAuth=', Math.round(performance.now() - perfAuthStart), 'ms');
+  console.log('[PERF] session=', Math.round(performance.now() - perfStart), 'ms');
 
   if (!session) redirect('/login');
 
@@ -27,6 +38,23 @@ export default async function DashboardPage() {
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
+  // PERF: Track individual queries
+  const queryTimers: Record<string, number> = {
+    query1: 0,
+    query2: 0,
+    query3: 0,
+    query4: 0,
+    query5: 0,
+    query6: 0,
+  };
+
+  async function runQuery<T>(queryFn: () => Promise<T>, queryKey: string): Promise<T> {
+    const start = performance.now();
+    const result = await queryFn();
+    queryTimers[queryKey] = Math.round(performance.now() - start);
+    return result;
+  }
+
   // OPTIMIZED: 6 queries instead of 8
   // Key optimizations:
   // 1. Accounts: 1 query with CASE WHEN instead of 3 separate queries
@@ -35,101 +63,119 @@ export default async function DashboardPage() {
   // 4. Business/Personal accounts: kept for person names
   const queryResults = await Promise.allSettled([
     // QUERY 1: All account metrics in ONE query (was 3 queries)
-    db
-      .select({
-        totalBalance: sql<number>`COALESCE(SUM(${accounts.currentBalance}), 0)`,
-        businessTotal: sql<number>`COALESCE(SUM(CASE WHEN ${accounts.isBusinessAccount} = 1 THEN ${accounts.currentBalance} ELSE 0 END), 0)`,
-        businessCashTotal: sql<number>`COALESCE(SUM(CASE WHEN ${accounts.isBusinessAccount} = 1 AND ${accounts.accountType} = 'cash' THEN ${accounts.currentBalance} ELSE 0 END), 0)`,
-      })
-      .from(accounts)
-      .where(and(
-        inArray(accounts.accountType, ['cash', 'bank']),
-        isNull(accounts.deletedAt)
-      )),
+    runQuery(() =>
+      db
+        .select({
+          totalBalance: sql<number>`COALESCE(SUM(${accounts.currentBalance}), 0)`,
+          businessTotal: sql<number>`COALESCE(SUM(CASE WHEN ${accounts.isBusinessAccount} = 1 THEN ${accounts.currentBalance} ELSE 0 END), 0)`,
+          businessCashTotal: sql<number>`COALESCE(SUM(CASE WHEN ${accounts.isBusinessAccount} = 1 AND ${accounts.accountType} = 'cash' THEN ${accounts.currentBalance} ELSE 0 END), 0)`,
+        })
+        .from(accounts)
+        .where(and(
+          inArray(accounts.accountType, ['cash', 'bank']),
+          isNull(accounts.deletedAt)
+        )),
+      'query1'
+    ),
 
     // QUERY 2: Monthly income/expense with date filter (was 2 queries)
-    db
-      .select({
-        type: transactions.type,
-        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
-      })
-      .from(transactions)
-      .where(and(
-        eq(transactions.status, 'completed'),
-        gte(transactions.date, monthStart),
-        lt(transactions.date, nextMonthStart),
-        or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
-        isNull(transactions.deletedAt)
-      ))
-      .groupBy(transactions.type),
+    runQuery(() =>
+      db
+        .select({
+          type: transactions.type,
+          total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        })
+        .from(transactions)
+        .where(and(
+          eq(transactions.status, 'completed'),
+          gte(transactions.date, monthStart),
+          lt(transactions.date, nextMonthStart),
+          or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
+          isNull(transactions.deletedAt)
+        ))
+        .groupBy(transactions.type),
+      'query2'
+    ),
 
     // QUERY 3: Pending income (no date filter - ALL pending regardless of when created)
-    db
-      .select({
-        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
-        count: sql<number>`COUNT(*)`,
-      })
-      .from(transactions)
-      .where(and(
-        eq(transactions.type, 'income'),
-        eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt)
-      )),
+    runQuery(() =>
+      db
+        .select({
+          total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+          count: sql<number>`COUNT(*)`,
+        })
+        .from(transactions)
+        .where(and(
+          eq(transactions.type, 'income'),
+          eq(transactions.businessStatus, 'pending'),
+          isNull(transactions.deletedAt)
+        )),
+      'query3'
+    ),
 
     // QUERY 4: Recent transactions (kept separate for ORDER BY)
-    db
-      .select({
-        id: transactions.id,
-        type: transactions.type,
-        amount: transactions.amount,
-        date: transactions.date,
-        title: transactions.title,
-        status: transactions.status,
-        sourceAccountId: transactions.sourceAccountId,
-        destinationAccountId: transactions.destinationAccountId,
-        note: transactions.note,
-        createdAt: transactions.createdAt,
-        sourceAccountName: accounts.name,
-      })
-      .from(transactions)
-      .leftJoin(accounts, eq(transactions.sourceAccountId, accounts.id))
-      .where(and(
-        or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
-        eq(transactions.status, 'completed'),
-        isNull(transactions.deletedAt)
-      ))
-      .orderBy(desc(transactions.date), desc(transactions.createdAt))
-      .limit(10),
+    runQuery(() =>
+      db
+        .select({
+          id: transactions.id,
+          type: transactions.type,
+          amount: transactions.amount,
+          date: transactions.date,
+          title: transactions.title,
+          status: transactions.status,
+          sourceAccountId: transactions.sourceAccountId,
+          destinationAccountId: transactions.destinationAccountId,
+          note: transactions.note,
+          createdAt: transactions.createdAt,
+          sourceAccountName: accounts.name,
+        })
+        .from(transactions)
+        .leftJoin(accounts, eq(transactions.sourceAccountId, accounts.id))
+        .where(and(
+          or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
+          eq(transactions.status, 'completed'),
+          isNull(transactions.deletedAt)
+        ))
+        .orderBy(desc(transactions.date), desc(transactions.createdAt))
+        .limit(10),
+      'query4'
+    ),
 
     // QUERY 5: Business accounts with person names
-    db
-      .select({
-        personId: persons.id,
-        personName: persons.name,
-        balance: accounts.currentBalance,
-        accountName: accounts.name,
-      })
-      .from(accounts)
-      .innerJoin(persons, eq(accounts.personId, persons.id))
-      .where(and(
-        eq(accounts.isBusinessAccount, true),
-        isNull(accounts.deletedAt)
-      )),
+    runQuery(() =>
+      db
+        .select({
+          personId: persons.id,
+          personName: persons.name,
+          balance: accounts.currentBalance,
+          accountName: accounts.name,
+        })
+        .from(accounts)
+        .innerJoin(persons, eq(accounts.personId, persons.id))
+        .where(and(
+          eq(accounts.isBusinessAccount, true),
+          isNull(accounts.deletedAt)
+        )),
+      'query5'
+    ),
 
     // QUERY 6: Personal accounts grouped by person
-    db
-      .select({
-        personId: persons.id,
-        personName: persons.name,
-        balance: sql<number>`COALESCE(SUM(${accounts.currentBalance}), 0)`,
-      })
-      .from(accounts)
-      .innerJoin(persons, eq(accounts.personId, persons.id))
-      .where(and(
-        eq(accounts.isBusinessAccount, false),
-        isNull(accounts.deletedAt)
-      ))
-      .groupBy(persons.id, persons.name),
+    runQuery(() =>
+      db
+        .select({
+          personId: persons.id,
+          personName: persons.name,
+          balance: sql<number>`COALESCE(SUM(${accounts.currentBalance}), 0)`,
+        })
+        .from(accounts)
+        .innerJoin(persons, eq(accounts.personId, persons.id))
+        .where(and(
+          eq(accounts.isBusinessAccount, false),
+          isNull(accounts.deletedAt)
+        ))
+        .groupBy(persons.id, persons.name),
+      'query6'
+    ),
   ]);
 
   // Extract results with fallbacks
@@ -138,6 +184,14 @@ export default async function DashboardPage() {
     console.error(`[Dashboard] Query ${index + 1} failed:`, result.reason);
     return null;
   });
+
+  // PERF: Log query times
+  console.log('[PERF] query1=', queryTimers.query1, 'ms');
+  console.log('[PERF] query2=', queryTimers.query2, 'ms');
+  console.log('[PERF] query3=', queryTimers.query3, 'ms');
+  console.log('[PERF] query4=', queryTimers.query4, 'ms');
+  console.log('[PERF] query5=', queryTimers.query5, 'ms');
+  console.log('[PERF] query6=', queryTimers.query6, 'ms');
 
   // Type definitions for query results
   type AccountMetricsRow = { totalBalance: number; businessTotal: number; businessCashTotal: number } | null;
@@ -427,4 +481,6 @@ export default async function DashboardPage() {
       <MobileNav />
     </main>
   );
+  // PERF: Total render time
+  console.log('[PERF] dashboard_total=', Math.round(performance.now() - perfStart), 'ms');
 }
