@@ -428,6 +428,9 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onView, onRecei
   const color = transaction.type === 'income' ? 'bg-emerald-50 text-emerald-700' : transaction.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700';
   const badgeClass = transaction.businessStatus === 'pending' ? 'bg-amber-50 text-amber-700' : transaction.businessStatus === 'received' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600';
 
+  // Business Rule: categoryId=null means no category (e.g., transfer), categoryName=null with categoryId means deleted
+  const categoryDisplay = transaction.categoryName ?? (transaction.categoryId ? '(หมวดหมู่ถูกลบ)' : '—');
+
   return (
     <article className="surface-card overflow-hidden p-4">
       <div className="flex items-start justify-between gap-3">
@@ -454,7 +457,7 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onView, onRecei
 
           <div className="mt-2 flex flex-wrap gap-2">
             <span className="max-w-full truncate rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-              🏷️ {transaction.categoryName ?? '(หมวดหมู่ถูกลบ)'}
+              🏷️ {categoryDisplay}
             </span>
             {transaction.businessStatus && (
               <span className={`rounded-full px-2 py-1 text-xs font-medium ${badgeClass}`}>

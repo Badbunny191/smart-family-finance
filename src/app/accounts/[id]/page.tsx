@@ -25,6 +25,7 @@ type Transaction = {
   amount: number;
   date: string;
   title: string;
+  categoryId: string | null;
   categoryName: string | null;
   status: string;
   businessStatus: BusinessStatus | null;
