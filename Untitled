@@ -1,0 +1,3 @@
+git add .
+git commit -m "fix: dashboard data integrity and transaction status sync"
+git push

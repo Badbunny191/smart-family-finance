@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import { MobileNav } from '@/components/mobile-nav';
 import { SignOutButton } from '@/components/sign-out-button';
 import { accounts, persons, transactions } from '@/db/schema';
@@ -10,6 +11,10 @@ import { getDb } from '@/db/client';
 import { createAuth } from '@/lib/auth';
 import { getD1 } from '@/lib/cloudflare';
 import { formatCurrency } from '@/lib/utils';
+
+// Alias for self-join (source and destination accounts)
+const sourceAccountAlias = alias(accounts, 'source_account');
+const destinationAccountAlias = alias(accounts, 'destination_account');
 
 export const runtime = 'nodejs';
 
@@ -70,7 +75,7 @@ export default async function DashboardPage() {
         isNull(transactions.deletedAt)
       )),
 
-    // QUERY 4: Recent transactions
+    // QUERY 4: Recent transactions (include all types: income, expense, transfer)
     db
       .select({
         id: transactions.id,
@@ -83,12 +88,13 @@ export default async function DashboardPage() {
         destinationAccountId: transactions.destinationAccountId,
         note: transactions.note,
         createdAt: transactions.createdAt,
-        sourceAccountName: accounts.name,
+        sourceAccountName: sourceAccountAlias.name,
+        destinationAccountName: destinationAccountAlias.name,
       })
       .from(transactions)
-      .leftJoin(accounts, eq(transactions.sourceAccountId, accounts.id))
+      .leftJoin(sourceAccountAlias, eq(transactions.sourceAccountId, sourceAccountAlias.id))
+      .leftJoin(destinationAccountAlias, eq(transactions.destinationAccountId, destinationAccountAlias.id))
       .where(and(
-        or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
         eq(transactions.status, 'completed'),
         isNull(transactions.deletedAt)
       ))
@@ -188,7 +194,7 @@ export default async function DashboardPage() {
     totalBalance,
     monthlyIncome,
     monthlyExpense,
-    recentTransactions: (recentRows ?? []) as { id: string; type: 'income' | 'expense' | 'transfer'; amount: number; date: Date; title: string; status: string; sourceAccountId: string | null; destinationAccountId: string | null; note: string | null; createdAt: Date; sourceAccountName: string | null }[],
+    recentTransactions: (recentRows ?? []) as { id: string; type: 'income' | 'expense' | 'transfer'; amount: number; date: Date; title: string; status: string; sourceAccountId: string | null; destinationAccountId: string | null; note: string | null; createdAt: Date; sourceAccountName: string | null; destinationAccountName: string | null }[],
     pending: {
       total: Number(typedPendingResult?.[0]?.total) || 0,
       count: Number(typedPendingResult?.[0]?.count) || 0
@@ -445,35 +451,58 @@ export default async function DashboardPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>
               </div>
-              <p className="text-sm text-slate-500">ยังไม่มีรายการรายรับหรือรายจ่าย</p>
+              <p className="text-sm text-slate-500">ยังไม่มีรายการ</p>
             </div>
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
-              {data.recentTransactions.map((tx) => (
-                <article key={tx.id} className="surface-card flex items-start gap-3 overflow-hidden p-4">
-                  <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-2xl ${tx.type === 'income' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                    {tx.type === 'income' ? <ArrowDownLeft size={19} /> : <ArrowUpRight size={19} />}
-                  </div>
-                  <div className="min-w-0 flex-1 overflow-hidden">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate font-semibold text-slate-900">{tx.title}</h3>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {tx.type === 'income' ? 'รายรับ' : 'รายจ่าย'} · {new Date(tx.date).toLocaleDateString('th-TH')}
+              {data.recentTransactions.map((tx) => {
+                const iconBg = tx.type === 'income' ? 'bg-emerald-50 text-emerald-700' : tx.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700';
+                const amountColor = tx.type === 'income' ? 'text-emerald-700' : tx.type === 'expense' ? 'text-rose-700' : 'text-slate-700';
+                const typeLabel = tx.type === 'income' ? 'รายรับ' : tx.type === 'expense' ? 'รายจ่าย' : 'โอนเงิน';
+                const iconElement = tx.type === 'income' ? <ArrowDownLeft size={19} /> : tx.type === 'expense' ? <ArrowUpRight size={19} /> : (
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                );
+
+                // Account display based on transaction type
+                // Income: show destination account (where money goes in)
+                // Expense: show source account (where money goes out)
+                // Transfer: show source → destination
+                const accountDisplay = tx.type === 'transfer'
+                  ? (tx.sourceAccountName && tx.destinationAccountName
+                    ? `${tx.sourceAccountName} → ${tx.destinationAccountName}`
+                    : tx.sourceAccountName || tx.destinationAccountName || '')
+                  : tx.type === 'income'
+                    ? (tx.destinationAccountName || tx.sourceAccountName || '')
+                    : (tx.sourceAccountName || '');
+
+                return (
+                  <article key={tx.id} className="surface-card flex items-start gap-3 overflow-hidden p-4">
+                    <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-2xl ${iconBg}`}>
+                      {iconElement}
+                    </div>
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="truncate font-semibold text-slate-900">{tx.title}</h3>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {typeLabel} · {new Date(tx.date).toLocaleDateString('th-TH')}
+                          </p>
+                        </div>
+                        <p className={`shrink-0 font-bold ${amountColor}`}>
+                          {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}{formatCurrency(tx.amount)}
                         </p>
                       </div>
-                      <p className={`shrink-0 font-bold ${tx.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                        {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
-                      </p>
+                      {accountDisplay && (
+                        <p className="mt-1 truncate text-xs text-slate-400">
+                          {accountDisplay}
+                        </p>
+                      )}
                     </div>
-                    {tx.sourceAccountName && (
-                      <p className="mt-1 truncate text-xs text-slate-400">
-                        {tx.sourceAccountName}
-                      </p>
-                    )}
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
           )}
         </section>

@@ -26,10 +26,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'รายการนี้ไม่อยู่ในสถานะรอชำระ' }, { status: 409 });
     }
     
-    // อัพเดท businessStatus
+    // อัพเดท businessStatus และ status ให้สอดคล้องกัน
+    // businessStatus = received หมายถึง ได้รับเงินแล้ว → status ต้องเป็น completed
     const [updated] = await db
       .update(transactions)
-      .set({ businessStatus: 'received', updatedAt: new Date() })
+      .set({ 
+        businessStatus: 'received', 
+        status: 'completed',
+        updatedAt: new Date() 
+      })
       .where(and(
         eq(transactions.id, id),
         eq(transactions.businessStatus, 'pending'),
