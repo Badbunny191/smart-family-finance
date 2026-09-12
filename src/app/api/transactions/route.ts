@@ -38,10 +38,14 @@ export async function GET(request: NextRequest) {
         sourceAccountName: sourceAcc.name,
         sourceAccountBank: sourceAcc.bankName,
         sourceAccountNumber: sourceAcc.accountNumber,
+        sourceAccountType: sourceAcc.accountType,
+        sourceIsBusinessAccount: sourceAcc.isBusinessAccount,
         destinationAccountId: transactions.destinationAccountId,
         destinationAccountName: destAcc.name,
         destinationAccountBank: destAcc.bankName,
         destinationAccountNumber: destAcc.accountNumber,
+        destinationAccountType: destAcc.accountType,
+        destinationIsBusinessAccount: destAcc.isBusinessAccount,
         note: transactions.note,
       })
       .from(transactions)

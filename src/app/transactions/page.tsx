@@ -9,7 +9,7 @@ import { useToast } from '@/components/ui/toast';
 type TransactionType = 'income' | 'expense' | 'transfer';
 type BusinessStatus = 'pending' | 'received';
 type Property = { id: string; name: string };
-type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean };
+type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean; accountType: 'bank' | 'cash' };
 type Category = { id: string; name: string; type: 'income' | 'expense'; isActive: boolean };
 type Transaction = {
   id: string;
@@ -27,10 +27,14 @@ type Transaction = {
   sourceAccountName: string | null;
   sourceAccountBank: string | null;
   sourceAccountNumber: string | null;
+  sourceAccountType: 'bank' | 'cash' | null;
+  sourceIsBusinessAccount: boolean | null;
   destinationAccountId: string | null;
   destinationAccountName: string | null;
   destinationAccountBank: string | null;
   destinationAccountNumber: string | null;
+  destinationAccountType: 'bank' | 'cash' | null;
+  destinationIsBusinessAccount: boolean | null;
   note: string | null;
 };
 type FormState = {
@@ -360,7 +364,6 @@ function TransactionsContent() {
             <TransactionCard
               key={transaction.id}
               transaction={transaction}
-              getAccountLabel={getAccountLabel}
               onEdit={setEditingTransaction}
               onView={setViewingTransaction}
               onReceived={markBusinessReceived}
@@ -399,6 +402,11 @@ function TransactionsContent() {
         <TransactionDetailModal
           transaction={viewingTransaction}
           onClose={() => setViewingTransaction(null)}
+          onEdit={(tx) => {
+            setViewingTransaction(null);
+            setEditingTransaction(tx);
+          }}
+          onDelete={deleteTransaction}
         />
       )}
 
@@ -423,108 +431,151 @@ function ActionCard({ label, description, icon, color, disabled, onClick }: { la
   );
 }
 
-function TransactionCard({ transaction, getAccountLabel, onEdit, onView, onReceived, onDelete, isDeleting, isMarkingReceived }: { transaction: Transaction; getAccountLabel: (accountId: string | null) => string; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean }) {
-  const icon = transaction.type === 'income' ? <ArrowDownLeft size={18} /> : transaction.type === 'expense' ? <ArrowUpRight size={18} /> : <ArrowLeftRight size={18} />;
-  const color = transaction.type === 'income' ? 'bg-emerald-50 text-emerald-700' : transaction.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700';
-  const badgeClass = transaction.businessStatus === 'pending' ? 'bg-amber-50 text-amber-700' : transaction.businessStatus === 'received' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600';
+function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, isDeleting, isMarkingReceived }: { transaction: Transaction; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean }) {
+  const typeLabels: Record<TransactionType, string> = {
+    income: 'รายรับ',
+    expense: 'รายจ่าย',
+    transfer: 'โอนเงิน',
+  };
+
+  // Get account type label
+  const getAccountTypeLabel = (isBusiness: boolean | null, accountType: 'bank' | 'cash' | null) => {
+    if (isBusiness === true) return '🏢 บัญชีธุรกิจ';
+    if (accountType === 'cash') return '💵 เงินสด';
+    return '👤 บัญชีส่วนตัว';
+  };
+
+  // Get source/dest account info
+  const getAccountInfo = (account: typeof transaction) => {
+    const name = account.type === 'income' ? account.destinationAccountName : account.sourceAccountName;
+    const bank = account.type === 'income' ? account.destinationAccountBank : account.sourceAccountBank;
+    const number = account.type === 'income' ? account.destinationAccountNumber : account.sourceAccountNumber;
+    const isBusiness = account.type === 'income' ? account.destinationIsBusinessAccount : account.sourceIsBusinessAccount;
+    const accType = account.type === 'income' ? account.destinationAccountType : account.sourceAccountType;
+
+    if (!name) return null;
+    const typeLabel = getAccountTypeLabel(isBusiness, accType);
+    const accountDisplay = bank ? `${name} •••${number?.slice(-4) || '****'}` : name;
+    return { typeLabel, accountDisplay, icon: account.type === 'income' ? '📥' : '📤', label: account.type === 'income' ? 'เงินเข้า' : 'เงินออก' };
+  };
+
+  const accountInfo = getAccountInfo(transaction);
 
   // Business Rule: categoryId=null means no category (e.g., transfer), categoryName=null with categoryId means deleted
   const categoryDisplay = transaction.categoryName ?? (transaction.categoryId ? '(หมวดหมู่ถูกลบ)' : '—');
 
-  // Format account display with bank name and last 4 digits
-  const formatAccountCard = (accountName: string | null, bankName: string | null, accountNumber: string | null) => {
-    if (!accountName) return 'ไม่ระบุบัญชี';
-    const parts = [accountName];
-    if (bankName) parts.push(bankName);
-    if (accountNumber) parts.push(`••••${accountNumber.slice(-4)}`);
-    return parts.join(' ');
+  // Status label
+  const statusLabels: Record<BusinessStatus, string> = {
+    pending: 'รอชำระ',
+    received: 'รับชำระแล้ว',
   };
 
-  // Get account info for display
-  const sourceAccountDisplay = formatAccountCard(transaction.sourceAccountName, transaction.sourceAccountBank, transaction.sourceAccountNumber);
-  const destAccountDisplay = formatAccountCard(transaction.destinationAccountName, transaction.destinationAccountBank, transaction.destinationAccountNumber);
+  // Format date
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const amountColor = transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700';
+  const typeColor = transaction.type === 'expense' ? 'text-rose-600' : transaction.type === 'transfer' ? 'text-indigo-600' : 'text-emerald-600';
 
   return (
-    <article className="surface-card overflow-hidden p-4">
+    <article onClick={() => onView(transaction)} className="surface-card cursor-pointer overflow-hidden p-4">
+      {/* Type Label + Title */}
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <button type="button" onClick={() => onView(transaction)} className="flex w-full items-start gap-2 text-left">
-            <span className={`grid min-h-10 min-w-10 shrink-0 place-items-center rounded-2xl ${color}`}>{icon}</span>
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <h2 className="truncate font-semibold text-slate-900">{transaction.title}</h2>
-              <p className="truncate text-xs text-slate-500">{new Date(transaction.date).toLocaleDateString('th-TH')}</p>
-            </div>
-          </button>
-
-          <p className={`mt-3 truncate text-xl font-bold tracking-tight ${transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700'}`}>
-            {transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
-          </p>
-
-          {/* Account Information */}
-          <div className="mt-2 space-y-1">
-            {transaction.type === 'transfer' ? (
-              <>
-                <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
-                  <span className="text-rose-500">📤</span> {sourceAccountDisplay}
-                </p>
-                <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
-                  <span className="ml-2 text-slate-300">↓</span>
-                </p>
-                <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
-                  <span className="text-emerald-500">📥</span> {destAccountDisplay}
-                </p>
-              </>
-            ) : transaction.type === 'income' ? (
-              <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
-                <span className="text-emerald-500">📥</span> {destAccountDisplay}
-              </p>
-            ) : (
-              <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
-                <span className="text-rose-500">📤</span> {sourceAccountDisplay}
-              </p>
-            )}
-          </div>
-
-          {/* Category */}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {transaction.type !== 'transfer' && (
-              <span className="max-w-full truncate rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-                🏷️ {categoryDisplay}
-              </span>
-            )}
-          </div>
-
-          {/* Note - Show only when exists, truncate to one line */}
-          {transaction.note && (
-            <p className="mt-2 truncate text-xs italic text-slate-400">
-              📝 {transaction.note}
-            </p>
-          )}
-
-          {/* Business Status Badge */}
-          {transaction.businessStatus && (
-            <div className="mt-2">
-              <span className={`inline-block rounded-full px-2 py-1 text-xs font-medium ${badgeClass}`}>
-                {businessStatusLabels[transaction.businessStatus]}
-              </span>
-            </div>
-          )}
-
-          {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
-            <button type="button" onClick={() => void onReceived(transaction.id)} disabled={isMarkingReceived} className="touch-button mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-              {isMarkingReceived ? <><Loader2 size={16} className="animate-spin" /> กำลังอัปเดต...</> : 'รับชำระแล้ว'}
-            </button>
-          )}
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{typeLabels[transaction.type]}</p>
+          <h2 className="mt-0.5 truncate font-semibold text-slate-900">{transaction.title}</h2>
         </div>
-
-        <div className="flex gap-2">
-          <button type="button" onClick={() => onEdit(transaction)} aria-label={`แก้ไข ${transaction.title}`} className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
-            <Pencil size={18} />
+        <div className="flex gap-1">
+          <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(transaction); }} aria-label={`แก้ไข ${transaction.title}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+            <Pencil size={16} />
           </button>
-          <button type="button" onClick={() => void onDelete(transaction.id)} disabled={isDeleting} aria-label={`ลบ ${transaction.title}`} className="touch-button grid min-h-11 min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
-            {isDeleting ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+          <button type="button" onClick={(e) => { e.stopPropagation(); void onDelete(transaction.id); }} disabled={isDeleting} aria-label={`ลบ ${transaction.title}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-rose-500 hover:bg-rose-50 disabled:opacity-50">
+            {isDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
           </button>
         </div>
+      </div>
+
+      {/* Note - Show when exists */}
+      {transaction.note && (
+        <p className="mt-1.5 truncate text-sm italic text-slate-500">
+          📝 {transaction.note}
+        </p>
+      )}
+
+      {/* Amount - Large and prominent */}
+      <p className={`mt-3 text-2xl font-bold tracking-tight ${amountColor}`}>
+        {transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+      </p>
+
+      {/* Account Block - Income/Expense */}
+      {transaction.type !== 'transfer' && accountInfo && (
+        <div className="mt-3">
+          <p className={`text-xs font-medium ${typeColor}`}>{accountInfo.icon} {accountInfo.label}</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-700">{accountInfo.typeLabel}</p>
+          <p className="text-sm font-medium text-slate-900">{accountInfo.accountDisplay}</p>
+        </div>
+      )}
+
+      {/* Account Block - Transfer */}
+      {transaction.type === 'transfer' && (
+        <div className="mt-3 space-y-2">
+          {transaction.sourceAccountName && (
+            <div>
+              <p className="text-xs font-medium text-rose-600">📤 ต้นทาง</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-700">
+                {getAccountTypeLabel(transaction.sourceIsBusinessAccount, transaction.sourceAccountType)}
+              </p>
+              <p className="text-sm font-medium text-slate-900">
+                {transaction.sourceAccountName}
+                {transaction.sourceAccountBank && ` •••${transaction.sourceAccountNumber?.slice(-4) || '****'}`}
+              </p>
+            </div>
+          )}
+          <div className="flex items-center justify-center py-1">
+            <span className="text-xl text-slate-400">↓</span>
+          </div>
+          {transaction.destinationAccountName && (
+            <div>
+              <p className="text-xs font-medium text-emerald-600">📥 ปลายทาง</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-700">
+                {getAccountTypeLabel(transaction.destinationIsBusinessAccount, transaction.destinationAccountType)}
+              </p>
+              <p className="text-sm font-medium text-slate-900">
+                {transaction.destinationAccountName}
+                {transaction.destinationAccountBank && ` •••${transaction.destinationAccountNumber?.slice(-4) || '****'}`}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Category + Status on same line */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        {transaction.type !== 'transfer' && transaction.categoryName && (
+          <span className="text-sm font-medium text-slate-600">🏷️ {categoryDisplay}</span>
+        )}
+        {transaction.businessStatus && (
+          <span className={`text-sm font-medium ${transaction.businessStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'}`}>
+            {statusLabels[transaction.businessStatus]}
+          </span>
+        )}
+      </div>
+
+      {/* Date & Received Button */}
+      <div className="mt-3 flex items-center justify-between">
+        <p className="text-xs text-slate-400">{formatDate(transaction.date)}</p>
+        {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
+          <button
+            type="button"
+            onClick={() => void onReceived(transaction.id)}
+            disabled={isMarkingReceived}
+            className="touch-button rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {isMarkingReceived ? 'กำลังอัปเดต...' : 'รับชำระแล้ว'}
+          </button>
+        )}
       </div>
     </article>
   );
@@ -763,7 +814,7 @@ function EmptyState() {
   );
 }
 
-function TransactionDetailModal({ transaction, onClose }: { transaction: Transaction; onClose: () => void }) {
+function TransactionDetailModal({ transaction, onClose, onEdit, onDelete }: { transaction: Transaction; onClose: () => void; onEdit: (transaction: Transaction) => void; onDelete: (id: string) => Promise<void> }) {
   const typeLabels: Record<TransactionType, string> = {
     income: 'รายรับ',
     expense: 'รายจ่าย',
@@ -873,9 +924,32 @@ function TransactionDetailModal({ transaction, onClose }: { transaction: Transac
           </div>
         </div>
 
-        {/* Footer */}
+        {/* Footer - Action Buttons */}
         <div className="border-t border-slate-100 px-5 py-4 pb-6">
-          <button type="button" onClick={onClose} className="h-12 w-full rounded-xl bg-slate-100 font-semibold text-slate-700">ปิด</button>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => void onEdit(transaction)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 h-12 font-semibold text-white"
+            >
+              <Pencil size={18} />
+              แก้ไข
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('ต้องการลบรายการนี้หรือไม่')) {
+                  void onDelete(transaction.id);
+                  onClose();
+                }
+              }}
+              className="flex items-center justify-center gap-2 rounded-xl bg-rose-50 h-12 px-5 font-semibold text-rose-600"
+            >
+              <Trash2 size={18} />
+              ลบ
+            </button>
+          </div>
+          <button type="button" onClick={onClose} className="mt-3 h-11 w-full rounded-xl bg-slate-100 font-semibold text-slate-700">ปิด</button>
         </div>
       </div>
     </div>
