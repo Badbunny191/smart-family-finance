@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight,ArrowRightLeft, CircleMinus, CirclePlus, Loader2, Pencil, Search, Trash2, X } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ArrowRightLeft, CircleMinus, CirclePlus, Filter, Loader2, Pencil, Search, SlidersHorizontal, Trash2, X } from 'lucide-react';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
@@ -69,6 +69,16 @@ const businessStatusLabels: Record<BusinessStatus, string> = {
   received: 'รับชำระแล้ว',
 };
 
+// Date filter types
+type DateFilterOption = 'today' | '7days' | 'month' | 'all';
+
+const dateFilterLabels: Record<DateFilterOption, string> = {
+  today: 'วันนี้',
+  '7days': '7 วัน',
+  month: 'เดือนนี้',
+  all: 'ทั้งหมด',
+};
+
 export default function TransactionsPage() {
   return (
     <Suspense fallback={<TransactionsLoading />}>
@@ -80,32 +90,19 @@ export default function TransactionsPage() {
 function TransactionsLoading() {
   return (
     <main className="app-shell min-h-screen pb-24 md:pb-0">
-      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/90 px-5 pb-5 pt-6 backdrop-blur-xl">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="section-label">เงินเข้า เงินออก และการโอน</p>
-            <h1 className="mt-2 text-[1.65rem] font-bold tracking-tight text-slate-900">รายการเงิน</h1>
-          </div>
+      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/90 px-4 py-4 backdrop-blur-xl">
+        <div className="flex items-center gap-3">
+          <div className="h-11 flex-1 animate-pulse rounded-xl bg-slate-200" />
+          <div className="h-11 w-11 animate-pulse rounded-xl bg-slate-200" />
         </div>
-        <div className="mt-5 grid grid-cols-3 gap-2">
-          <div className="flex min-h-32 flex-col items-center justify-center rounded-2xl border border-emerald-100 bg-emerald-50 px-2 text-center opacity-45">
-            <span><CirclePlus size={27} /></span>
-            <span className="mt-2 text-sm font-bold text-emerald-700">รายรับ</span>
-            <span className="mt-1 text-[10px] leading-tight text-slate-500">รับเงินลูกค้า</span>
-          </div>
-          <div className="flex min-h-32 flex-col items-center justify-center rounded-2xl border border-rose-100 bg-rose-50 px-2 text-center opacity-45">
-            <span><CircleMinus size={27} /></span>
-            <span className="mt-2 text-sm font-bold text-rose-700">รายจ่าย</span>
-            <span className="mt-1 text-[10px] leading-tight text-slate-500">ต้นทุนและค่าใช้จ่าย</span>
-          </div>
-          <div className="flex min-h-32 flex-col items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 px-2 text-center opacity-45">
-            <span><ArrowRightLeft size={27} /></span>
-            <span className="mt-2 text-sm font-bold text-indigo-700">โอนเงิน</span>
-            <span className="mt-1 text-[10px] leading-tight text-slate-500">ย้ายระหว่างบัญชี</span>
-          </div>
+        <div className="mt-3 flex gap-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-10 w-20 animate-pulse rounded-full bg-slate-200" />
+          ))}
         </div>
+        <div className="mt-3 h-4 w-48 animate-pulse rounded bg-slate-200" />
       </header>
-      <section className="space-y-3 px-5 py-5">
+      <section className="space-y-3 px-4 py-4">
         <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
       </section>
       <MobileNav />
@@ -135,17 +132,6 @@ function TransactionsContent() {
   const [selectedBusinessStatus, setSelectedBusinessStatus] = useState<'all' | BusinessStatus>(
     urlBusinessStatus && validStatuses.includes(urlBusinessStatus as BusinessStatus) ? urlBusinessStatus as BusinessStatus : 'all'
   );
-
-  // Sync filters with URL changes
-  useEffect(() => {
-    const newType = urlType && validTypes.includes(urlType as TransactionType) ? urlType as TransactionType : 'all';
-    setSelectedType(newType);
-  }, [urlType]);
-
-  useEffect(() => {
-    const newStatus = urlBusinessStatus && validStatuses.includes(urlBusinessStatus as BusinessStatus) ? urlBusinessStatus as BusinessStatus : 'all';
-    setSelectedBusinessStatus(newStatus);
-  }, [urlBusinessStatus]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -154,8 +140,51 @@ function TransactionsContent() {
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isMarkingReceived, setIsMarkingReceived] = useState<string | null>(null);
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>('month');
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Date range calculation
+  const getDateRange = (filter: DateFilterOption): { start: Date; end: Date } => {
+    const now = new Date();
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    
+    switch (filter) {
+      case 'today':
+        // Same day
+        break;
+      case '7days':
+        start.setDate(start.getDate() - 6);
+        break;
+      case 'month':
+        start.setDate(1);
+        break;
+      case 'all':
+        start.setFullYear(2000, 0, 1); // Far past
+        break;
+    }
+    
+    return { start, end };
+  };
+
+  const { start: dateRangeStart, end: dateRangeEnd } = getDateRange(selectedDateFilter);
+
+  // Format date range for display
+  const formatDateRange = (start: Date, end: Date): string => {
+    const formatThai = (d: Date) => d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+    
+    // Check if same day
+    if (start.toDateString() === end.toDateString()) {
+      return formatThai(start);
+    }
+    
+    return `${formatThai(start)} - ${formatThai(end)}`;
+  };
 
   const loadData = async () => {
     const responses = await Promise.all([
@@ -288,79 +317,115 @@ function TransactionsContent() {
     return `${account.name}${account.accountNumber ? ` (${account.accountNumber})` : ''}`;
   };
 
+  // Filter transactions
   const normalizedSearch = searchQuery.trim().toLowerCase();
-  const visibleTransactions = transactions.filter(
-    (transaction) =>
-      (selectedType === 'all' || transaction.type === selectedType) &&
-      (selectedBusinessStatus === 'all' || transaction.businessStatus === selectedBusinessStatus) &&
-      (selectedCategory === 'all' || transaction.categoryId === selectedCategory) &&
-      (normalizedSearch === '' ||
-        transaction.title.toLowerCase().includes(normalizedSearch) ||
-        (transaction.note?.toLowerCase().includes(normalizedSearch) ?? false))
-  );
+  const visibleTransactions = transactions.filter((transaction) => {
+    // Date filter
+    const txDate = new Date(transaction.date);
+    const inDateRange = txDate >= dateRangeStart && txDate <= dateRangeEnd;
+    
+    // Type filter
+    const typeMatch = selectedType === 'all' || transaction.type === selectedType;
+    
+    // Status filter
+    const statusMatch = selectedBusinessStatus === 'all' || transaction.businessStatus === selectedBusinessStatus;
+    
+    // Category filter
+    const categoryMatch = selectedCategory === 'all' || transaction.categoryId === selectedCategory;
+    
+    // Search filter
+    const searchMatch = normalizedSearch === '' ||
+      transaction.title.toLowerCase().includes(normalizedSearch) ||
+      (transaction.note?.toLowerCase().includes(normalizedSearch) ?? false);
+    
+    return inDateRange && typeMatch && statusMatch && categoryMatch && searchMatch;
+  });
+
+  // Sort by date descending
+  const sortedTransactions = useMemo(() => {
+    return [...visibleTransactions].sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }, [visibleTransactions]);
 
   const availableCategories = categories.filter((category) => category.type === form.type && category.isActive);
 
+  // Count active filters
+  const activeFilterCount = 
+    (selectedType !== 'all' ? 1 : 0) +
+    (selectedBusinessStatus !== 'all' ? 1 : 0) +
+    (selectedCategory !== 'all' ? 1 : 0);
+
   return (
     <main className="app-shell min-h-screen pb-24 md:pb-0">
-      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/90 px-5 pb-5 pt-6 backdrop-blur-xl">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="section-label">เงินเข้า เงินออก และการโอน</p>
-            <h1 className="mt-2 text-[1.65rem] font-bold tracking-tight text-slate-900">รายการเงิน</h1>
+      {/* V4 Sticky Filter Bar */}
+      <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/95 px-4 backdrop-blur-xl">
+        {/* Row 1: Search + Filter Button */}
+        <div className="flex items-center gap-2 py-3">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="ค้นหารายการ..."
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            />
           </div>
+          <button
+            type="button"
+            onClick={() => setIsFilterSheetOpen(true)}
+            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 active:bg-slate-100"
+            aria-label="เปิดตัวกรอง"
+          >
+            <SlidersHorizontal size={20} />
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-3 gap-2">
-          <ActionCard label="รายรับ" description="รับเงินลูกค้า" icon={<CirclePlus size={27} />} color="emerald" disabled={accounts.length === 0} onClick={() => openCreate('income')} />
-          <ActionCard label="รายจ่าย" description="ต้นทุนและค่าใช้จ่าย" icon={<CircleMinus size={27} />} color="rose" disabled={accounts.length === 0} onClick={() => openCreate('expense')} />
-          <ActionCard label="โอนเงิน" description="ย้ายระหว่างบัญชี" icon={<ArrowRightLeft size={27} />} color="indigo" disabled={accounts.length < 2} onClick={() => openCreate('transfer')} />
+        {/* Row 2: Date Filter Pills */}
+        <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
+          {(Object.keys(dateFilterLabels) as DateFilterOption[]).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setSelectedDateFilter(option)}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedDateFilter === option
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {dateFilterLabels[option]}
+            </button>
+          ))}
+        </div>
+
+        {/* Row 3: Result Count */}
+        <div className="flex items-center gap-2 pb-2 text-sm text-slate-500">
+          <span className="flex items-center gap-1">
+            <span className="text-base">📅</span>
+            {formatDateRange(dateRangeStart, dateRangeEnd)}
+          </span>
+          <span>•</span>
+          <span>พบ {sortedTransactions.length} รายการ</span>
         </div>
       </header>
 
-      <section className="space-y-3 px-5 py-5">
-        {errorMessage && <p className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
-
-        <div className="grid grid-cols-3 gap-2">
-          <select value={selectedType} onChange={(event) => setSelectedType(event.target.value as 'all' | TransactionType)} className="h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm">
-            <option value="all">ทุกประเภท</option>
-            <option value="income">รายรับ</option>
-            <option value="expense">รายจ่าย</option>
-            <option value="transfer">โอนเงิน</option>
-          </select>
-
-          <select value={selectedBusinessStatus} onChange={(event) => setSelectedBusinessStatus(event.target.value as 'all' | BusinessStatus)} className="h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm">
-            <option value="all">ทุกสถานะ</option>
-            {Object.entries(businessStatusLabels).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-
-          <select value={selectedCategory} onChange={(event) => setSelectedCategory(event.target.value)} className="h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-3 text-sm">
-            <option value="all">ทุกหมวดหมู่</option>
-            {categories.filter((c) => c.isActive).map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="🔍 ค้นหารายการ..."
-            className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-600"
-          />
-        </div>
+      {/* Transaction List */}
+      <section className="space-y-3 px-4 py-4">
+        {errorMessage && <p className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{errorMessage}</p>}
 
         {isLoading ? (
           <p className="py-12 text-center text-sm text-slate-500">กำลังโหลด...</p>
-        ) : visibleTransactions.length === 0 ? (
+        ) : sortedTransactions.length === 0 ? (
           <EmptyState />
         ) : (
-          visibleTransactions.map((transaction) => (
+          sortedTransactions.map((transaction) => (
             <TransactionCard
               key={transaction.id}
               transaction={transaction}
@@ -375,6 +440,36 @@ function TransactionsContent() {
         )}
       </section>
 
+      {/* Floating Action Button */}
+      <button
+        type="button"
+        onClick={() => openCreate('expense')}
+        disabled={accounts.length === 0}
+        className="fixed bottom-24 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg transition-transform active:scale-95 disabled:opacity-50 md:bottom-6"
+        aria-label="เพิ่มรายการใหม่"
+      >
+        <span className="text-2xl">+</span>
+      </button>
+
+      {/* Filter Bottom Sheet */}
+      <FilterBottomSheet
+        isOpen={isFilterSheetOpen}
+        onClose={() => setIsFilterSheetOpen(false)}
+        selectedType={selectedType}
+        setSelectedType={setSelectedType}
+        selectedStatus={selectedBusinessStatus}
+        setSelectedStatus={setSelectedBusinessStatus}
+        selectedCategory={selectedCategory}
+        setSelectedCategory={setSelectedCategory}
+        categories={categories}
+        onClear={() => {
+          setSelectedType('all');
+          setSelectedBusinessStatus('all');
+          setSelectedCategory('all');
+        }}
+      />
+
+      {/* Transaction Form Modal */}
       {isFormOpen && (
         <TransactionForm
           form={form}
@@ -388,6 +483,7 @@ function TransactionsContent() {
         />
       )}
 
+      {/* Edit Metadata Modal */}
       {editingTransaction && (
         <TransactionMetadataForm
           transaction={editingTransaction}
@@ -398,6 +494,7 @@ function TransactionsContent() {
         />
       )}
 
+      {/* View Detail Modal */}
       {viewingTransaction && (
         <TransactionDetailModal
           transaction={viewingTransaction}
@@ -415,19 +512,168 @@ function TransactionsContent() {
   );
 }
 
-function ActionCard({ label, description, icon, color, disabled, onClick }: { label: string; description: string; icon: React.ReactNode; color: 'emerald' | 'rose' | 'indigo'; disabled: boolean; onClick: () => void }) {
-  const colors = {
-    emerald: 'border-emerald-100 bg-emerald-50 text-emerald-700',
-    rose: 'border-rose-100 bg-rose-50 text-rose-700',
-    indigo: 'border-indigo-100 bg-indigo-50 text-indigo-700',
-  };
+// Filter Bottom Sheet Component
+function FilterBottomSheet({
+  isOpen,
+  onClose,
+  selectedType,
+  setSelectedType,
+  selectedStatus,
+  setSelectedStatus,
+  selectedCategory,
+  setSelectedCategory,
+  categories,
+  onClear,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  selectedType: 'all' | TransactionType;
+  setSelectedType: (type: 'all' | TransactionType) => void;
+  selectedStatus: 'all' | BusinessStatus;
+  setSelectedStatus: (status: 'all' | BusinessStatus) => void;
+  selectedCategory: string;
+  setSelectedCategory: (category: string) => void;
+  categories: Category[];
+  onClear: () => void;
+}) {
+  if (!isOpen) return null;
+
+  const typeOptions: { value: 'all' | TransactionType; label: string }[] = [
+    { value: 'all', label: 'ทั้งหมด' },
+    { value: 'income', label: 'รายรับ' },
+    { value: 'expense', label: 'รายจ่าย' },
+    { value: 'transfer', label: 'โอนเงิน' },
+  ];
+
+  const statusOptions: { value: 'all' | BusinessStatus; label: string }[] = [
+    { value: 'all', label: 'ทั้งหมด' },
+    { value: 'pending', label: 'รอชำระ' },
+    { value: 'received', label: 'รับชำระแล้ว' },
+  ];
+
+  const activeCategories = categories.filter(c => c.isActive);
 
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className={`flex min-h-32 flex-col items-center justify-center rounded-2xl border px-2 text-center disabled:opacity-45 ${colors[color]}`}>
-      <span>{icon}</span>
-      <span className="mt-2 text-sm font-bold">{label}</span>
-      <span className="mt-1 text-[10px] leading-tight text-slate-500">{description}</span>
-    </button>
+    <div className="fixed inset-0 z-50 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5">
+      <div className="flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-xl sm:max-h-[80vh] sm:max-w-md sm:rounded-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="w-11" />
+          <h2 className="text-lg font-bold text-slate-900">ตัวกรองเพิ่มเติม</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="ปิด"
+            className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {/* Type Filter */}
+          <div className="mb-6">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <span>💰</span> ประเภท
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {typeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setSelectedType(option.value)}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    selectedType === option.value
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Status Filter */}
+          <div className="mb-6">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <span>📊</span> สถานะ
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {statusOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setSelectedStatus(option.value)}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    selectedStatus === option.value
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Category Filter */}
+          <div>
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <span>🏷️</span> หมวดหมู่
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedCategory('all')}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                  selectedCategory === 'all'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                ทั้งหมด
+              </button>
+              {activeCategories.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => setSelectedCategory(category.id)}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    selectedCategory === category.id
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {category.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-100 px-5 py-4 pb-6">
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClear}
+              className="h-12 flex-1 rounded-xl border border-slate-200 font-semibold text-slate-700 transition-colors hover:bg-slate-50 active:bg-slate-100"
+            >
+              ล้างตัวกรอง
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-12 flex-1 rounded-xl bg-emerald-600 font-semibold text-white transition-colors hover:bg-emerald-700 active:bg-emerald-800"
+            >
+              ตกลง
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -438,14 +684,12 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
     transfer: 'โอนเงิน',
   };
 
-  // Get account type label
   const getAccountTypeLabel = (isBusiness: boolean | null, accountType: 'bank' | 'cash' | null) => {
     if (isBusiness === true) return '🏢 บัญชีธุรกิจ';
     if (accountType === 'cash') return '💵 เงินสด';
     return '👤 บัญชีส่วนตัว';
   };
 
-  // Get source/dest account info
   const getAccountInfo = (account: typeof transaction) => {
     const name = account.type === 'income' ? account.destinationAccountName : account.sourceAccountName;
     const bank = account.type === 'income' ? account.destinationAccountBank : account.sourceAccountBank;
@@ -461,16 +705,13 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
 
   const accountInfo = getAccountInfo(transaction);
 
-  // Business Rule: categoryId=null means no category (e.g., transfer), categoryName=null with categoryId means deleted
   const categoryDisplay = transaction.categoryName ?? (transaction.categoryId ? '(หมวดหมู่ถูกลบ)' : '—');
 
-  // Status label
   const statusLabels: Record<BusinessStatus, string> = {
     pending: 'รอชำระ',
     received: 'รับชำระแล้ว',
   };
 
-  // Format date
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -809,7 +1050,7 @@ function EmptyState() {
     <div className="surface-card border-dashed px-5 py-12 text-center">
       <ArrowLeftRight className="mx-auto text-slate-400" size={30} />
       <p className="mt-3 font-medium text-slate-700">ยังไม่มีรายการที่ตรงกัน</p>
-      <p className="mt-1 text-sm text-slate-500">เพิ่มรายรับ รายจ่าย หรือรายการโอนได้จากปุ่มด้านบน</p>
+      <p className="mt-1 text-sm text-slate-500">เพิ่มรายการใหม่ได้โดยกดปุ่ม + ด้านล่าง</p>
     </div>
   );
 }
