@@ -141,6 +141,7 @@ function TransactionsContent() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [isMarkingReceived, setIsMarkingReceived] = useState<string | null>(null);
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
   const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>('month');
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -443,13 +444,23 @@ function TransactionsContent() {
       {/* Floating Action Button */}
       <button
         type="button"
-        onClick={() => openCreate('expense')}
+        onClick={() => setIsAddSheetOpen(true)}
         disabled={accounts.length === 0}
         className="fixed bottom-24 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg transition-transform active:scale-95 disabled:opacity-50 md:bottom-6"
         aria-label="เพิ่มรายการใหม่"
       >
         <span className="text-2xl">+</span>
       </button>
+
+      {/* Add Transaction Bottom Sheet */}
+      <AddTransactionSheet
+        isOpen={isAddSheetOpen}
+        onClose={() => setIsAddSheetOpen(false)}
+        onSelect={(type) => {
+          setIsAddSheetOpen(false);
+          openCreate(type);
+        }}
+      />
 
       {/* Filter Bottom Sheet */}
       <FilterBottomSheet
@@ -671,6 +682,84 @@ function FilterBottomSheet({
               ตกลง
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Add Transaction Bottom Sheet
+function AddTransactionSheet({
+  isOpen,
+  onClose,
+  onSelect,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSelect: (type: TransactionType) => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5">
+      <div className="flex w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-xl sm:max-w-md sm:rounded-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="w-11" />
+          <h2 className="text-lg font-bold text-slate-900">เพิ่มรายการใหม่</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="ปิด"
+            className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Options */}
+        <div className="flex flex-col gap-3 px-5 py-4 pb-6">
+          <button
+            type="button"
+            onClick={() => onSelect('income')}
+            className="surface-card flex items-center gap-4 p-4 text-left transition-transform active:scale-[0.98]"
+          >
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-emerald-100 text-emerald-700">
+              <ArrowDownLeft size={24} />
+            </div>
+            <div>
+              <p className="text-base font-semibold text-slate-900">รายรับ</p>
+              <p className="text-sm text-slate-500">บันทึกรายรับ เงินเดือน ผลตอบแทน</p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelect('expense')}
+            className="surface-card flex items-center gap-4 p-4 text-left transition-transform active:scale-[0.98]"
+          >
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-rose-100 text-rose-700">
+              <ArrowUpRight size={24} />
+            </div>
+            <div>
+              <p className="text-base font-semibold text-slate-900">รายจ่าย</p>
+              <p className="text-sm text-slate-500">บันทึกรายจ่าย ค่าใช้จ่าย บิล</p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelect('transfer')}
+            className="surface-card flex items-center gap-4 p-4 text-left transition-transform active:scale-[0.98]"
+          >
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-100 text-indigo-700">
+              <ArrowLeftRight size={24} />
+            </div>
+            <div>
+              <p className="text-base font-semibold text-slate-900">โอนเงิน</p>
+              <p className="text-sm text-slate-500">โอนระหว่างบัญชี</p>
+            </div>
+          </button>
         </div>
       </div>
     </div>
