@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
         amount: transactions.amount,
         date: transactions.date,
         title: transactions.title,
+        status: transactions.status,
         propertyId: transactions.propertyId,
         propertyName: properties.name,
         categoryId: transactions.categoryId,

@@ -247,7 +247,7 @@ function AccountsContent() {
           return filteredAccounts.map((account) => (
             <article key={account.id} className="surface-card p-4">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                <Link href={`/accounts/${account.id}`} className="min-w-0 flex-1">
                   <div className="flex items-center gap-3">
                     <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${account.accountType === 'bank' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-700'}`}>
                       {account.accountType === 'bank' ? <WalletCards size={21} /> : <Banknote size={21} />}
@@ -267,8 +267,8 @@ function AccountsContent() {
                   {account.accountNumber && <p className="mt-3 truncate text-xs text-slate-500">เลขบัญชี {account.accountNumber}</p>}
                   <p className="mt-2 truncate text-xs text-slate-500">เจ้าของบัญชี: {account.personName}</p>
                   <p className="mt-5 truncate text-2xl font-bold tracking-tight text-slate-900">{account.currentBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-sm font-medium text-slate-500">บาท</span></p>
-                </div>
-                <div className="flex gap-2">
+                </Link>
+                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                   <button type="button" onClick={() => openEdit(account)} aria-label={`แก้ไข ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
                     <Pencil size={18} />
                   </button>

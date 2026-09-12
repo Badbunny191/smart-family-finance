@@ -17,6 +17,7 @@ type Transaction = {
   amount: number;
   date: string;
   title: string;
+  status: string;
   propertyId: string | null;
   propertyName: string | null;
   categoryId: string | null;
