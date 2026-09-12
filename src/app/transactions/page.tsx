@@ -431,6 +431,19 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onView, onRecei
   // Business Rule: categoryId=null means no category (e.g., transfer), categoryName=null with categoryId means deleted
   const categoryDisplay = transaction.categoryName ?? (transaction.categoryId ? '(หมวดหมู่ถูกลบ)' : '—');
 
+  // Format account display with bank name and last 4 digits
+  const formatAccountCard = (accountName: string | null, bankName: string | null, accountNumber: string | null) => {
+    if (!accountName) return 'ไม่ระบุบัญชี';
+    const parts = [accountName];
+    if (bankName) parts.push(bankName);
+    if (accountNumber) parts.push(`••••${accountNumber.slice(-4)}`);
+    return parts.join(' ');
+  };
+
+  // Get account info for display
+  const sourceAccountDisplay = formatAccountCard(transaction.sourceAccountName, transaction.sourceAccountBank, transaction.sourceAccountNumber);
+  const destAccountDisplay = formatAccountCard(transaction.destinationAccountName, transaction.destinationAccountBank, transaction.destinationAccountNumber);
+
   return (
     <article className="surface-card overflow-hidden p-4">
       <div className="flex items-start justify-between gap-3">
@@ -447,24 +460,55 @@ function TransactionCard({ transaction, getAccountLabel, onEdit, onView, onRecei
             {transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
           </p>
 
-          <p className="mt-1 truncate text-xs text-slate-500">
-            {transaction.type === 'transfer'
-              ? `${getAccountLabel(transaction.sourceAccountId)} → ${getAccountLabel(transaction.destinationAccountId)}`
-              : transaction.type === 'income'
-                ? getAccountLabel(transaction.destinationAccountId)
-                : getAccountLabel(transaction.sourceAccountId)}
-          </p>
+          {/* Account Information */}
+          <div className="mt-2 space-y-1">
+            {transaction.type === 'transfer' ? (
+              <>
+                <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
+                  <span className="text-rose-500">📤</span> {sourceAccountDisplay}
+                </p>
+                <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
+                  <span className="ml-2 text-slate-300">↓</span>
+                </p>
+                <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
+                  <span className="text-emerald-500">📥</span> {destAccountDisplay}
+                </p>
+              </>
+            ) : transaction.type === 'income' ? (
+              <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
+                <span className="text-emerald-500">📥</span> {destAccountDisplay}
+              </p>
+            ) : (
+              <p className="flex items-center gap-1.5 truncate text-xs text-slate-600">
+                <span className="text-rose-500">📤</span> {sourceAccountDisplay}
+              </p>
+            )}
+          </div>
 
-          <div className="mt-2 flex flex-wrap gap-2">
-            <span className="max-w-full truncate rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-              🏷️ {categoryDisplay}
-            </span>
-            {transaction.businessStatus && (
-              <span className={`rounded-full px-2 py-1 text-xs font-medium ${badgeClass}`}>
-                {businessStatusLabels[transaction.businessStatus]}
+          {/* Category */}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {transaction.type !== 'transfer' && (
+              <span className="max-w-full truncate rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                🏷️ {categoryDisplay}
               </span>
             )}
           </div>
+
+          {/* Note - Show only when exists, truncate to one line */}
+          {transaction.note && (
+            <p className="mt-2 truncate text-xs italic text-slate-400">
+              📝 {transaction.note}
+            </p>
+          )}
+
+          {/* Business Status Badge */}
+          {transaction.businessStatus && (
+            <div className="mt-2">
+              <span className={`inline-block rounded-full px-2 py-1 text-xs font-medium ${badgeClass}`}>
+                {businessStatusLabels[transaction.businessStatus]}
+              </span>
+            </div>
+          )}
 
           {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
             <button type="button" onClick={() => void onReceived(transaction.id)} disabled={isMarkingReceived} className="touch-button mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
@@ -577,7 +621,16 @@ function TransactionForm({ form, setForm, properties, accounts, categories, onCl
           )}
 
           <FormLabel label="หมายเหตุ">
-            <textarea value={form.note} onChange={(event) => update({ note: event.target.value })} className="form-input min-h-24 resize-none" />
+            <div className="relative">
+              <textarea
+                value={form.note}
+                onChange={(event) => update({ note: event.target.value })}
+                placeholder="เพิ่มรายละเอียดเพิ่มเติม..."
+                rows={3}
+                className="form-input min-h-24 w-full resize-none p-3 leading-relaxed text-slate-900 placeholder:text-slate-400"
+              />
+              <p className="mt-1.5 text-xs text-slate-400">💡 ใช้บันทึกรายละเอียดเพิ่มเติม เช่น หมายเหตุการชำระเงิน</p>
+            </div>
           </FormLabel>
 
           {sameAccountSelected && <p className="mt-3 text-sm text-rose-600">บัญชีต้นทางและปลายทางต้องไม่ใช่บัญชีเดียวกัน</p>}
