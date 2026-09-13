@@ -211,12 +211,10 @@ export default async function DashboardPage() {
 
   return (
     <main className="app-shell min-h-screen pb-24 md:pb-0">
-      <header className="border-b border-slate-200/70 bg-white px-5 pb-6 pt-7">
-        <div className="mx-auto flex max-w-5xl items-start justify-between gap-4">
-          <div>
-            <p className="section-label">Dashboard</p>
-            <h1 className="mt-2 text-[1.65rem] font-bold tracking-tight text-slate-900">สวัสดี, {session.user.name}</h1>
-            <p className="mt-1 text-sm text-slate-500">{session.user.email}</p>
+      <header className="border-b border-slate-200/70 bg-white px-5 py-3">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-bold tracking-tight text-slate-900">{session.user.name}</h1>
           </div>
           <SignOutButton />
         </div>
@@ -254,13 +252,13 @@ export default async function DashboardPage() {
             QUICK ACTIONS
             ======================================== */}
         <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">การจัดการ</h2>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">ดูรายการ</h2>
           <div className="grid grid-cols-3 gap-3">
             <Link href="/transactions?type=income" prefetch={false} className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
               <div className="mx-auto grid h-10 w-10 place-items-center rounded-2xl bg-emerald-50 text-emerald-700">
                 <CircleDollarSign size={20} />
               </div>
-              <p className="mt-2 text-sm font-medium text-slate-700">รายรับใหม่</p>
+              <p className="mt-2 text-sm font-medium text-slate-700">รายรับ</p>
             </Link>
             <Link href="/transactions?type=expense" prefetch={false} className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
               <div className="mx-auto grid h-10 w-10 place-items-center rounded-2xl bg-rose-50 text-rose-700">
@@ -268,7 +266,7 @@ export default async function DashboardPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
               </div>
-              <p className="mt-2 text-sm font-medium text-slate-700">รายจ่ายใหม่</p>
+              <p className="mt-2 text-sm font-medium text-slate-700">รายจ่าย</p>
             </Link>
             <Link href="/transactions?type=transfer" prefetch={false} className="surface-card block p-4 text-center transition-transform active:scale-[0.98]">
               <div className="mx-auto grid h-10 w-10 place-items-center rounded-2xl bg-indigo-50 text-indigo-700">
