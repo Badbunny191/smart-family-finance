@@ -46,7 +46,7 @@ export default async function DashboardPage() {
         isNull(accounts.deletedAt)
       )),
 
-    // QUERY 2: Monthly income/expense
+    // QUERY 2: Monthly income/expense (exclude adjustments)
     db
       .select({
         type: transactions.type,
@@ -61,6 +61,20 @@ export default async function DashboardPage() {
         isNull(transactions.deletedAt)
       ))
       .groupBy(transactions.type),
+
+    // QUERY 2b: Monthly adjustments (separate query)
+    db
+      .select({
+        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.status, 'completed'),
+        eq(transactions.type, 'adjustment'),
+        gte(transactions.date, monthStart),
+        lt(transactions.date, nextMonthStart),
+        isNull(transactions.deletedAt)
+      )),
 
     // QUERY 3: Pending income
     db
@@ -134,7 +148,7 @@ export default async function DashboardPage() {
   ]);
 
   // Extract results
-  const [accountMetrics, monthlyMetrics, pendingResult, recentRows, businessAccounts, personalByPerson] = queryResults.map((result) =>
+  const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, recentRows, businessAccounts, personalByPerson] = queryResults.map((result) =>
     result.status === 'fulfilled' ? result.value : null
   );
 
@@ -142,16 +156,18 @@ export default async function DashboardPage() {
   type AccountMetricsRow = { totalBalance: number; businessTotal: number; businessCashTotal: number } | null;
   type MonthlyMetricsRow = { type: string; total: number } | null;
   type PendingRow = { total: number; count: number } | null;
+  type MonthlyAdjustmentsRow = { total: number } | null;
   type BusinessAccountRow = { personId: string; personName: string; balance: number; accountName: string } | null;
   type PersonalAccountRow = { personId: string; personName: string; balance: number } | null;
 
   const typedAccountMetrics = accountMetrics as AccountMetricsRow[];
   const typedMonthlyMetrics = monthlyMetrics as MonthlyMetricsRow[];
   const typedPendingResult = pendingResult as PendingRow[];
+  const typedMonthlyAdjustments = monthlyAdjustments as MonthlyAdjustmentsRow[];
   const typedBusinessAccounts = businessAccounts as BusinessAccountRow[];
   const typedPersonalByPerson = personalByPerson as PersonalAccountRow[];
 
-  // Process monthly metrics
+  // Process monthly metrics (income + expense only, NOT adjustments)
   let monthlyIncome = 0;
   let monthlyExpense = 0;
 
@@ -165,12 +181,16 @@ export default async function DashboardPage() {
     }
   }
 
+  // Process monthly adjustments separately
+  const monthlyAdjustmentTotal = Number(typedMonthlyAdjustments?.[0]?.total) || 0;
+
   // ========== COMPUTED VALUES ==========
 
   const totalBalance = Number(typedAccountMetrics?.[0]?.totalBalance) || 0;
   const businessTotal = Number(typedAccountMetrics?.[0]?.businessTotal) || 0;
   const businessCashTotal = Number(typedAccountMetrics?.[0]?.businessCashTotal) || 0;
   const personalTotal = totalBalance - businessTotal;
+  // Net balance = income - expense (NOT including adjustments)
   const netBalance = monthlyIncome - monthlyExpense;
 
   // Financial Health KPIs
@@ -195,6 +215,7 @@ export default async function DashboardPage() {
     totalBalance,
     monthlyIncome,
     monthlyExpense,
+    monthlyAdjustmentTotal,
     recentTransactions: (recentRows ?? []) as { id: string; type: 'income' | 'expense' | 'transfer' | 'adjustment'; amount: number; date: Date; title: string; status: string; sourceAccountId: string | null; destinationAccountId: string | null; note: string | null; createdAt: Date; sourceAccountName: string | null; destinationAccountName: string | null; adjustmentDirection: 'increase' | 'decrease' | null }[],
     pending: {
       total: Number(typedPendingResult?.[0]?.total) || 0,
@@ -403,6 +424,29 @@ export default async function DashboardPage() {
               </div>
             </Link>
           </div>
+
+          {/* Adjustment Card - Only show if there are adjustments */}
+          {data.monthlyAdjustmentTotal !== 0 && (
+            <Link
+              href="/transactions?type=adjustment"
+              prefetch={false}
+              className="surface-card mt-3 block overflow-hidden p-4 transition-transform active:scale-[0.98]"
+            >
+              <div className="flex items-center gap-2">
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-orange-50 text-orange-600">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-500">ปรับยอดบัญชี</p>
+                  <p className={`text-sm font-bold ${data.monthlyAdjustmentTotal >= 0 ? 'text-orange-700' : 'text-blue-700'}`}>
+                    {data.monthlyAdjustmentTotal >= 0 ? '+' : ''}{formatCurrency(data.monthlyAdjustmentTotal)}
+                  </p>
+                </div>
+              </div>
+            </Link>
+          )}
         </section>
 
         {/* ========================================

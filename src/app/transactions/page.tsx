@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
+import { useSession } from '@/lib/auth-client';
 
 type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BusinessStatus = 'pending' | 'received';
@@ -120,6 +121,12 @@ function TransactionsContent() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+
+  // Admin check for adjustment permissions
+  const { data: sessionData } = useSession();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const session = sessionData as any;
+  const isAdmin = session?.user?.role === 'admin' || session?.role === 'admin';
 
   // Initialize filters from URL params
   const urlType = searchParams.get('type');
@@ -437,6 +444,7 @@ function TransactionsContent() {
               onDelete={deleteTransaction}
               isDeleting={isDeleting === transaction.id}
               isMarkingReceived={isMarkingReceived === transaction.id}
+              isAdmin={isAdmin}
             />
           ))
         )}
@@ -516,6 +524,7 @@ function TransactionsContent() {
             setEditingTransaction(tx);
           }}
           onDelete={deleteTransaction}
+          isAdmin={isAdmin}
         />
       )}
 
@@ -555,6 +564,7 @@ function FilterBottomSheet({
     { value: 'income', label: 'รายรับ' },
     { value: 'expense', label: 'รายจ่าย' },
     { value: 'transfer', label: 'โอนเงิน' },
+    { value: 'adjustment', label: 'ปรับยอด' },
   ];
 
   const statusOptions: { value: 'all' | BusinessStatus; label: string }[] = [
@@ -767,13 +777,17 @@ function AddTransactionSheet({
   );
 }
 
-function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, isDeleting, isMarkingReceived }: { transaction: Transaction; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean }) {
+function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, isDeleting, isMarkingReceived, isAdmin }: { transaction: Transaction; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean; isAdmin: boolean }) {
   const typeLabels: Record<TransactionType, string> = {
     income: 'รายรับ',
     expense: 'รายจ่าย',
     transfer: 'โอนเงิน',
     adjustment: 'ปรับยอดบัญชี',
   };
+
+  // Hide edit/delete for adjustments unless admin
+  const canEdit = transaction.type !== 'adjustment' || isAdmin;
+  const canDelete = transaction.type !== 'adjustment' || isAdmin;
 
   const getAccountTypeLabel = (isBusiness: boolean | null, accountType: 'bank' | 'cash' | null) => {
     if (isBusiness === true) return '🏢 บัญชีธุรกิจ';
@@ -819,14 +833,20 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
           <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{typeLabels[transaction.type]}</p>
           <h2 className="mt-0.5 truncate font-semibold text-slate-900">{transaction.title}</h2>
         </div>
-        <div className="flex gap-1">
-          <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(transaction); }} aria-label={`แก้ไข ${transaction.title}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700">
-            <Pencil size={16} />
-          </button>
-          <button type="button" onClick={(e) => { e.stopPropagation(); void onDelete(transaction.id); }} disabled={isDeleting} aria-label={`ลบ ${transaction.title}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-rose-500 hover:bg-rose-50 disabled:opacity-50">
-            {isDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-          </button>
-        </div>
+        {canEdit && canDelete ? (
+          <div className="flex gap-1">
+            <button type="button" onClick={(e) => { e.stopPropagation(); onEdit(transaction); }} aria-label={`แก้ไข ${transaction.title}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700">
+              <Pencil size={16} />
+            </button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); void onDelete(transaction.id); }} disabled={isDeleting} aria-label={`ลบ ${transaction.title}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-rose-500 hover:bg-rose-50 disabled:opacity-50">
+              {isDeleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <span className="rounded bg-orange-100 px-2 py-1 text-xs font-medium text-orange-700">ปรับยอด</span>
+          </div>
+        )}
       </div>
 
       {/* Note - Show when exists */}
@@ -1154,7 +1174,7 @@ function EmptyState() {
   );
 }
 
-function TransactionDetailModal({ transaction, onClose, onEdit, onDelete }: { transaction: Transaction; onClose: () => void; onEdit: (transaction: Transaction) => void; onDelete: (id: string) => Promise<void> }) {
+function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmin }: { transaction: Transaction; onClose: () => void; onEdit: (transaction: Transaction) => void; onDelete: (id: string) => Promise<void>; isAdmin: boolean }) {
   const typeLabels: Record<TransactionType, string> = {
     income: 'รายรับ',
     expense: 'รายจ่าย',
@@ -1171,6 +1191,10 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete }: { tr
     pending: 'bg-amber-50 text-amber-700',
     received: 'bg-emerald-50 text-emerald-700',
   };
+
+  // Hide edit/delete for adjustments unless admin
+  const canEdit = transaction.type !== 'adjustment' || isAdmin;
+  const canDelete = transaction.type !== 'adjustment' || isAdmin;
 
   const formatAccount = (name: string | null, bank: string | null, number: string | null) => {
     if (!name) return 'ไม่ระบุบัญชี';
@@ -1276,29 +1300,39 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete }: { tr
 
         {/* Footer - Action Buttons */}
         <div className="border-t border-slate-100 px-5 py-4 pb-6">
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => void onEdit(transaction)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 h-12 font-semibold text-white"
-            >
-              <Pencil size={18} />
-              แก้ไข
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm('ต้องการลบรายการนี้หรือไม่')) {
-                  void onDelete(transaction.id);
-                  onClose();
-                }
-              }}
-              className="flex items-center justify-center gap-2 rounded-xl bg-rose-50 h-12 px-5 font-semibold text-rose-600"
-            >
-              <Trash2 size={18} />
-              ลบ
-            </button>
-          </div>
+          {canEdit || canDelete ? (
+            <div className="flex gap-3">
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => void onEdit(transaction)}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 h-12 font-semibold text-white"
+                >
+                  <Pencil size={18} />
+                  แก้ไข
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('ต้องการลบรายการนี้หรือไม่')) {
+                      void onDelete(transaction.id);
+                      onClose();
+                    }
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-rose-50 h-12 px-5 font-semibold text-rose-600"
+                >
+                  <Trash2 size={18} />
+                  ลบ
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl bg-orange-50 p-3 text-center">
+              <p className="text-sm font-medium text-orange-700">🔒 รายการปรับยอด - ต้องเป็น Admin ถึงจะแก้ไขได้</p>
+            </div>
+          )}
           <button type="button" onClick={onClose} className="mt-3 h-11 w-full rounded-xl bg-slate-100 font-semibold text-slate-700">ปิด</button>
         </div>
       </div>
