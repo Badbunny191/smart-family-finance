@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { formatCurrency } from '@/lib/utils';
+import { useSession } from '@/lib/auth-client';
 
 type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BusinessStatus = 'pending' | 'received';
@@ -80,9 +81,13 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('month');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isAdjusting, setIsAdjusting] = useState(false);
+  
+  // Session & role check
+  const { data } = useSession();
+  const sessionData = data as any;
+  const isAdmin = sessionData?.user?.role === 'admin' || sessionData?.role === 'admin';
   
   // Find current account
   const account = accounts.find(a => a.id === accountId);
@@ -92,24 +97,15 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [accountsRes, transactionsRes, sessionRes] = await Promise.all([
+        const [accountsRes, transactionsRes] = await Promise.all([
           fetch('/api/accounts'),
           fetch('/api/transactions'),
-          fetch('/api/auth/session'),
         ]);
         if (!accountsRes.ok || !transactionsRes.ok) {
           throw new Error('โหลดข้อมูลไม่สำเร็จ');
         }
         setAccounts(await accountsRes.json());
         setTransactions(await transactionsRes.json());
-        
-        // Load user session
-        if (sessionRes.ok) {
-          const session = await sessionRes.json() as { user?: { email?: string } } | null;
-          if (session?.user?.email) {
-            setUserEmail(session.user.email);
-          }
-        }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด');
       } finally {
@@ -119,8 +115,8 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
     loadData();
   }, []);
 
-  // Check if user can create adjustment
-  const canCreateAdjustment = userEmail === 'thanet_30@hotmail.com';
+  // Check if user can create adjustment (admin only)
+  const canCreateAdjustment = isAdmin;
 
   // Create adjustment handler
   const handleCreateAdjustment = async (actualBalance: number, reason: string) => {
@@ -205,7 +201,7 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
 
   // Filter and calculate transactions for this account
   const { summary, filteredTransactions } = useMemo(() => {
-    if (!account) return { summary: { income: 0, expense: 0, net: 0 }, filteredTransactions: [] };
+    if (!account) return { summary: { income: 0, expense: 0, net: 0, adjustment: 0 }, filteredTransactions: [] };
 
     const { start, end } = getDateRange(selectedPeriod);
 
@@ -224,9 +220,10 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
       return isForThisAccount && isInPeriod && isCompleted;
     });
 
-    // Calculate summary
+    // Calculate summary (exclude adjustments - they affect balance but not income/expense)
     let income = 0;
     let expense = 0;
+    let adjustmentTotal = 0;
 
     for (const tx of accountTransactions) {
       if (tx.type === 'income') {
@@ -239,13 +236,9 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
         } else if (tx.destinationAccountId === accountId) {
           income += tx.amount; // โอนเข้า = รายรับ
         }
-      } else if (tx.type === 'adjustment' && tx.sourceAccountId === accountId) {
-        // ปรับยอด: ดูจาก adjustmentDirection ที่เก็บในฐานข้อมูล
-        if (tx.adjustmentDirection === 'increase') {
-          income += tx.amount;
-        } else if (tx.adjustmentDirection === 'decrease') {
-          expense += tx.amount;
-        }
+      } else if (tx.type === 'adjustment') {
+        // ปรับยอด: แยกแสดงไม่นับในรายรับ/รายจ่าย
+        adjustmentTotal += tx.amount;
       }
     }
 
@@ -261,8 +254,8 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
     filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return {
-      summary: { income, expense, net: income - expense },
-      filteredTransactions: filtered,
+      summary: { income, expense, net: income - expense, adjustment: adjustmentTotal },
+      filteredTransactions: filtered as typeof accountTransactions,
     };
   }, [account, accountId, transactions, selectedPeriod, searchQuery]);
 
@@ -487,6 +480,25 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
             </p>
           </div>
         </div>
+
+        {/* Adjustment Summary - Only show if there are adjustments */}
+        {summary.adjustment !== 0 && (
+          <div className="surface-card p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="grid h-8 w-8 place-items-center rounded-xl bg-orange-50 text-orange-600">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                </div>
+                <p className="text-xs text-slate-500">ปรับยอดบัญชี</p>
+              </div>
+              <p className={`text-sm font-bold ${summary.adjustment >= 0 ? 'text-orange-700' : 'text-blue-700'}`}>
+                {summary.adjustment >= 0 ? '+' : ''}{formatCurrency(summary.adjustment)}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Search */}
         {filteredTransactions.length > 0 && (
