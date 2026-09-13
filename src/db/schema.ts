@@ -177,7 +177,7 @@ export const transactions = sqliteTable(
   'transactions',
   {
     id: text('id').primaryKey(),
-    type: text('type', { enum: ['income', 'expense', 'transfer'] }).notNull(),
+    type: text('type', { enum: ['income', 'expense', 'transfer', 'adjustment'] }).notNull(),
     amount: real('amount').notNull(),
     date: integer('date', { mode: 'timestamp' }).notNull(),
     title: text('title').notNull(),
@@ -192,6 +192,7 @@ export const transactions = sqliteTable(
       enum: ['pending', 'received'],
     }).$type<'pending' | 'received' | null>(),
     note: text('note'),
+    adjustmentReason: text('adjustment_reason'),
     ownerPersonId: text('owner_person_id').references(() => persons.id),
     payerPersonId: text('payer_person_id').references(() => persons.id),
     createdByUserId: text('created_by_user_id')

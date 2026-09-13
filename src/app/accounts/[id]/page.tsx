@@ -7,7 +7,7 @@ import { useParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { formatCurrency } from '@/lib/utils';
 
-type TransactionType = 'income' | 'expense' | 'transfer';
+type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BusinessStatus = 'pending' | 'received';
 type Account = {
   id: string;
@@ -35,6 +35,9 @@ type Transaction = {
   destinationAccountId: string | null;
   destinationAccountName: string | null;
   destinationAccountBank: string | null;
+  note: string | null;
+  adjustmentReason: string | null;
+  createdByUserName: string | null;
 };
 
 type Period = 'today' | 'week' | 'month';
@@ -76,6 +79,9 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<Period>('month');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
+  const [isAdjusting, setIsAdjusting] = useState(false);
   
   // Find current account
   const account = accounts.find(a => a.id === accountId);
@@ -85,15 +91,24 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [accountsRes, transactionsRes] = await Promise.all([
+        const [accountsRes, transactionsRes, sessionRes] = await Promise.all([
           fetch('/api/accounts'),
           fetch('/api/transactions'),
+          fetch('/api/auth/session'),
         ]);
         if (!accountsRes.ok || !transactionsRes.ok) {
           throw new Error('โหลดข้อมูลไม่สำเร็จ');
         }
         setAccounts(await accountsRes.json());
         setTransactions(await transactionsRes.json());
+        
+        // Load user session
+        if (sessionRes.ok) {
+          const session = await sessionRes.json();
+          if (session?.user?.email) {
+            setUserEmail(session.user.email);
+          }
+        }
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด');
       } finally {
@@ -102,6 +117,62 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
     };
     loadData();
   }, []);
+
+  // Check if user can create adjustment
+  const canCreateAdjustment = userEmail === 'thanet_30@hotmail.com';
+
+  // Create adjustment handler
+  const handleCreateAdjustment = async (actualBalance: number, reason: string) => {
+    if (!account) return;
+    
+    const currentBalance = account.currentBalance;
+    const difference = actualBalance - currentBalance;
+    
+    if (difference === 0) {
+      alert('ยอดที่กรอกเท่ากับยอดปัจจุบัน ไม่ต้องปรับยอด');
+      return;
+    }
+    
+    setIsAdjusting(true);
+    try {
+      const response = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'adjustment',
+          amount: Math.abs(difference),
+          title: `ปรับยอด: ${difference > 0 ? 'เพิ่ม' : 'ลด'} ${formatCurrency(Math.abs(difference))}`,
+          date: new Date().toISOString(),
+          sourceAccountId: account.id,
+          destinationAccountId: null,
+          categoryId: null,
+          businessStatus: null,
+          adjustmentReason: reason,
+          note: `ปรับยอดจาก ${formatCurrency(currentBalance)} เป็น ${formatCurrency(actualBalance)}`,
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'ไม่สามารถปรับยอดได้');
+      }
+      
+      // Reload data
+      const [accountsRes, transactionsRes] = await Promise.all([
+        fetch('/api/accounts'),
+        fetch('/api/transactions'),
+      ]);
+      if (accountsRes.ok) setAccounts(await accountsRes.json());
+      if (transactionsRes.ok) setTransactions(await transactionsRes.json());
+      
+      setIsAdjustmentModalOpen(false);
+      alert('ปรับยอดเรียบร้อยแล้ว');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด');
+    } finally {
+      setIsAdjusting(false);
+    }
+  };
 
   // Get date range for selected period
   const getDateRange = (period: Period): { start: Date; end: Date } => {
@@ -163,6 +234,14 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
         } else if (tx.destinationAccountId === accountId) {
           income += tx.amount; // โอนเข้า = รายรับ
         }
+      } else if (tx.type === 'adjustment' && tx.sourceAccountId === accountId) {
+        // ปรับยอด: amount บวก = เพิ่มยอด (เหมือนรายรับ), amount ลบ = ลดยอด (เหมือนรายจ่าย)
+        // ในฟอร์ม adjustment จะส่ง amount เป็นบวกเสมอ และกำหนด direction จาก title
+        if (tx.title.includes('เพิ่ม')) {
+          income += tx.amount;
+        } else if (tx.title.includes('ลด')) {
+          expense += tx.amount;
+        }
       }
     }
 
@@ -185,6 +264,18 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
 
   // Transaction display helper
   const getTransactionDisplay = (tx: Transaction) => {
+    if (tx.type === 'adjustment') {
+      // ปรับยอด: ดูจาก title ว่าเป็นเพิ่มหรือลด
+      const isIncrease = tx.title.includes('เพิ่ม');
+      return {
+        direction: isIncrease ? 'in' as const : 'out' as const,
+        icon: isIncrease ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />,
+        iconBg: 'bg-orange-50 text-orange-700',
+        amountColor: isIncrease ? 'text-orange-700' : 'text-orange-700',
+        amountPrefix: isIncrease ? '+' : '-',
+        accountLabel: 'ปรับยอดบัญชี',
+      };
+    }
     if (tx.type === 'transfer') {
       if (tx.sourceAccountId === accountId) {
         // Transfer Out: บัญชีนี้ → บัญชีปลายทาง
@@ -308,6 +399,15 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
               </h1>
             </div>
           </div>
+          {canCreateAdjustment && account && (
+            <button
+              type="button"
+              onClick={() => setIsAdjustmentModalOpen(true)}
+              className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-orange-600"
+            >
+              ปรับยอด
+            </button>
+          )}
         </div>
       </header>
 
@@ -447,7 +547,125 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
         )}
       </section>
 
+      {/* Adjustment Modal */}
+      {isAdjustmentModalOpen && account && (
+        <AdjustmentModal
+          account={account}
+          onClose={() => setIsAdjustmentModalOpen(false)}
+          onSubmit={handleCreateAdjustment}
+          isLoading={isAdjusting}
+        />
+      )}
+
       <MobileNav />
     </main>
+  );
+}
+
+// Adjustment Modal Component
+function AdjustmentModal({
+  account,
+  onClose,
+  onSubmit,
+  isLoading,
+}: {
+  account: Account;
+  onClose: () => void;
+  onSubmit: (actualBalance: number, reason: string) => Promise<void>;
+  isLoading: boolean;
+}) {
+  const [actualBalance, setActualBalance] = useState('');
+  const [reason, setReason] = useState('');
+
+  const difference = account.currentBalance - (parseFloat(actualBalance) || 0);
+  const isIncrease = difference < 0;
+  const hasChange = parseFloat(actualBalance) !== account.currentBalance;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reason.trim()) {
+      alert('กรุณาระบุเหตุผลการปรับยอด');
+      return;
+    }
+    onSubmit(parseFloat(actualBalance), reason);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 md:items-center">
+      <div className="surface-card w-full max-w-md rounded-t-3xl p-6 md:rounded-2xl">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-slate-900">ปรับยอดบัญชี</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-9 w-9 place-items-center rounded-xl bg-slate-100 text-slate-600"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Current Balance Display */}
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">ยอดปัจจุบันในระบบ</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">
+              {formatCurrency(account.currentBalance)}
+            </p>
+          </div>
+
+          {/* New Balance Input */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              ยอดจริงในบัญชี
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={actualBalance}
+              onChange={(e) => setActualBalance(e.target.value)}
+              placeholder="กรอกยอดจริง"
+              className="h-12 w-full rounded-xl border border-slate-200 px-4 text-lg outline-none focus:border-emerald-600"
+              autoFocus
+            />
+          </div>
+
+          {/* Difference Preview */}
+          {hasChange && (
+            <div className={`rounded-xl p-4 ${isIncrease ? 'bg-emerald-50' : 'bg-rose-50'}`}>
+              <p className={`text-sm ${isIncrease ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {isIncrease ? '📈 จะเพิ่มยอด' : '📉 จะลดยอด'}
+              </p>
+              <p className={`mt-1 text-xl font-bold ${isIncrease ? 'text-emerald-700' : 'text-rose-700'}`}>
+                {isIncrease ? '+' : '-'}{formatCurrency(Math.abs(difference))}
+              </p>
+            </div>
+          )}
+
+          {/* Reason Input */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              เหตุผลการปรับยอด <span className="text-rose-500">*</span>
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="เช่น กรอกยอดเริ่มต้นผิด, ปรับยอด ATM ที่อยู่ในบัญชี"
+              rows={3}
+              className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-emerald-600"
+              required
+            />
+          </div>
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={isLoading || !hasChange || !reason.trim()}
+            className="h-12 w-full rounded-xl bg-emerald-600 font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {isLoading ? 'กำลังปรับยอด...' : 'บันทึกการปรับยอด'}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }

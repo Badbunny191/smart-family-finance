@@ -194,7 +194,7 @@ export default async function DashboardPage() {
     totalBalance,
     monthlyIncome,
     monthlyExpense,
-    recentTransactions: (recentRows ?? []) as { id: string; type: 'income' | 'expense' | 'transfer'; amount: number; date: Date; title: string; status: string; sourceAccountId: string | null; destinationAccountId: string | null; note: string | null; createdAt: Date; sourceAccountName: string | null; destinationAccountName: string | null }[],
+    recentTransactions: (recentRows ?? []) as { id: string; type: 'income' | 'expense' | 'transfer' | 'adjustment'; amount: number; date: Date; title: string; status: string; sourceAccountId: string | null; destinationAccountId: string | null; note: string | null; createdAt: Date; sourceAccountName: string | null; destinationAccountName: string | null }[],
     pending: {
       total: Number(typedPendingResult?.[0]?.total) || 0,
       count: Number(typedPendingResult?.[0]?.count) || 0
@@ -454,10 +454,14 @@ export default async function DashboardPage() {
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
               {data.recentTransactions.map((tx) => {
-                const iconBg = tx.type === 'income' ? 'bg-emerald-50 text-emerald-700' : tx.type === 'expense' ? 'bg-rose-50 text-rose-700' : 'bg-indigo-50 text-indigo-700';
-                const amountColor = tx.type === 'income' ? 'text-emerald-700' : tx.type === 'expense' ? 'text-rose-700' : 'text-slate-700';
-                const typeLabel = tx.type === 'income' ? 'รายรับ' : tx.type === 'expense' ? 'รายจ่าย' : 'โอนเงิน';
-                const iconElement = tx.type === 'income' ? <ArrowDownLeft size={19} /> : tx.type === 'expense' ? <ArrowUpRight size={19} /> : (
+                const iconBg = tx.type === 'income' ? 'bg-emerald-50 text-emerald-700' : tx.type === 'expense' ? 'bg-rose-50 text-rose-700' : tx.type === 'adjustment' ? 'bg-orange-50 text-orange-700' : 'bg-indigo-50 text-indigo-700';
+                const amountColor = tx.type === 'income' ? 'text-emerald-700' : tx.type === 'expense' ? 'text-rose-700' : tx.type === 'adjustment' ? 'text-orange-700' : 'text-slate-700';
+                const typeLabel = tx.type === 'income' ? 'รายรับ' : tx.type === 'expense' ? 'รายจ่าย' : tx.type === 'adjustment' ? 'ปรับยอด' : 'โอนเงิน';
+                const iconElement = tx.type === 'income' ? <ArrowDownLeft size={19} /> : tx.type === 'expense' ? <ArrowUpRight size={19} /> : tx.type === 'adjustment' ? (
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                ) : (
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
                   </svg>
@@ -489,7 +493,7 @@ export default async function DashboardPage() {
                           </p>
                         </div>
                         <p className={`shrink-0 font-bold ${amountColor}`}>
-                          {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}{formatCurrency(tx.amount)}
+                          {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'adjustment' ? (tx.title.includes('เพิ่ม') ? '+' : '-') : ''}{formatCurrency(tx.amount)}
                         </p>
                       </div>
                       {accountDisplay && (

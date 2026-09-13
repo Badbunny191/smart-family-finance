@@ -43,7 +43,7 @@ export const transactionStatusInputSchema = z.object({
 
 export const transactionInputSchema = z
   .object({
-    type: z.enum(['income', 'expense', 'transfer']),
+    type: z.enum(['income', 'expense', 'transfer', 'adjustment']),
     amount: z.number().finite().positive('จำนวนเงินต้องมากกว่า 0'),
     date: z.coerce.date(),
     title: requiredName,
@@ -56,6 +56,7 @@ export const transactionInputSchema = z
     sourceAccountId: z.string().trim().min(1).nullable().optional(),
     destinationAccountId: z.string().trim().min(1).nullable().optional(),
     note: z.string().trim().max(500, 'หมายเหตุต้องไม่เกิน 500 ตัวอักษร').nullable().optional(),
+    adjustmentReason: z.string().trim().min(1, 'กรุณาระบุเหตุผลการปรับยอด').max(500, 'เหตุผลต้องไม่เกิน 500 ตัวอักษร').nullable().optional(),
   })
   .superRefine((value, context) => {
     if (value.type === 'income' && !value.destinationAccountId) {
@@ -72,6 +73,12 @@ export const transactionInputSchema = z
     }
     if (value.type === 'transfer' && value.categoryId) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['categoryId'], message: 'รายการโอนไม่ใช้หมวดหมู่รายรับหรือรายจ่าย' });
+    }
+    if (value.type === 'adjustment' && !value.adjustmentReason) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['adjustmentReason'], message: 'กรุณาระบุเหตุผลการปรับยอด' });
+    }
+    if (value.type === 'adjustment' && !value.sourceAccountId) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['sourceAccountId'], message: 'รายการปรับยอดต้องมีบัญชีที่ต้องการปรับ' });
     }
   });
 

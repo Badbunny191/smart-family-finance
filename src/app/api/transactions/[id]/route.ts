@@ -53,18 +53,20 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
 function rollbackStatements(
   db: Awaited<ReturnType<typeof getRequestContext>>['db'],
-  type: 'income' | 'expense' | 'transfer',
+  type: 'income' | 'expense' | 'transfer' | 'adjustment',
   amount: number,
   sourceAccountId: string | null,
   destinationAccountId: string | null
 ) {
   const statements = [];
-  if ((type === 'expense' || type === 'transfer') && sourceAccountId) {
+  // expense, transfer, adjustment = reverse the balance change
+  if ((type === 'expense' || type === 'transfer' || type === 'adjustment') && sourceAccountId) {
     statements.push(
       db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
     );
   }
-  if ((type === 'income' || type === 'transfer') && destinationAccountId) {
+  // income = reverse the balance change
+  if (type === 'income' && destinationAccountId) {
     statements.push(
       db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
     );

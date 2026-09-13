@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
-import { accounts, categories, persons, properties, transactions } from '@/db/schema';
+import { accounts, categories, persons, properties, transactions, users } from '@/db/schema';
 import { getRequestContext, handleApiError } from '@/lib/api-auth';
 import { transactionInputSchema, validationError } from '@/lib/validation';
 import { alias } from 'drizzle-orm/sqlite-core';
@@ -9,6 +9,7 @@ export const runtime = 'nodejs';
 
 const sourceAcc = alias(accounts, 'source_account');
 const destAcc = alias(accounts, 'destination_account');
+const txCreatedBy = alias(users, 'tx_created_by');
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
     const businessStatus = searchParams.get('businessStatus');
     const categoryId = searchParams.get('categoryId');
     const filters = [isNull(transactions.deletedAt)];
-    if (type === 'income' || type === 'expense' || type === 'transfer') filters.push(eq(transactions.type, type));
+    if (type === 'income' || type === 'expense' || type === 'transfer' || type === 'adjustment') filters.push(eq(transactions.type, type));
     if (businessStatus === 'pending' || businessStatus === 'received') filters.push(eq(transactions.businessStatus, businessStatus));
     if (categoryId) filters.push(eq(transactions.categoryId, categoryId));
     const rows = await db
@@ -47,12 +48,15 @@ export async function GET(request: NextRequest) {
         destinationAccountType: destAcc.accountType,
         destinationIsBusinessAccount: destAcc.isBusinessAccount,
         note: transactions.note,
+        adjustmentReason: transactions.adjustmentReason,
+        createdByUserName: txCreatedBy.name,
       })
       .from(transactions)
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .leftJoin(properties, eq(transactions.propertyId, properties.id))
       .leftJoin(sourceAcc, eq(transactions.sourceAccountId, sourceAcc.id))
       .leftJoin(destAcc, eq(transactions.destinationAccountId, destAcc.id))
+      .leftJoin(txCreatedBy, eq(transactions.createdByUserId, txCreatedBy.id))
       .where(and(...filters))
       .orderBy(desc(transactions.date), desc(transactions.createdAt));
     return NextResponse.json(rows);
@@ -118,6 +122,7 @@ export async function POST(request: NextRequest) {
       status: (input.businessStatus === 'pending' ? 'pending' : 'completed') as 'pending' | 'completed',
       businessStatus: input.businessStatus || null,
       note: input.note || null,
+      adjustmentReason: input.adjustmentReason || null,
       createdByUserId: session.user.id,
       recurringScheduleId: null,
       createdAt: now,
@@ -149,7 +154,7 @@ export async function POST(request: NextRequest) {
 
 function balanceStatements(
   db: Awaited<ReturnType<typeof getRequestContext>>['db'],
-  type: 'income' | 'expense' | 'transfer',
+  type: 'income' | 'expense' | 'transfer' | 'adjustment',
   amount: number,
   sourceAccountId: string | null | undefined,
   destinationAccountId: string | null | undefined,
@@ -161,14 +166,23 @@ function balanceStatements(
   const shouldUpdateBalance = businessStatus !== 'pending';
   
   if (shouldUpdateBalance) {
+    // expense, transfer = subtract from source account
     if ((type === 'expense' || type === 'transfer') && sourceAccountId) {
       statements.push(
         db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
       );
     }
+    // income, transfer = add to destination account
     if ((type === 'income' || type === 'transfer') && destinationAccountId) {
       statements.push(
         db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
+      );
+    }
+    // adjustment = affects source account
+    // positive amount = add to balance, negative amount = subtract from balance
+    if (type === 'adjustment' && sourceAccountId) {
+      statements.push(
+        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
       );
     }
   }

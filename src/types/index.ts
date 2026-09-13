@@ -12,7 +12,7 @@ import type {
 } from '@/db/schema';
 
 export type UserRole = 'admin' | 'viewer';
-export type TransactionType = 'income' | 'expense' | 'transfer';
+export type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 export type TransactionStatus = 'pending' | 'completed' | 'cancelled';
 export type AccountType = 'bank' | 'cash';
 export type PropertyStatus = 'active' | 'inactive';

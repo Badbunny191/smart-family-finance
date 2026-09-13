@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 
-type TransactionType = 'income' | 'expense' | 'transfer';
+type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BusinessStatus = 'pending' | 'received';
 type Property = { id: string; name: string };
 type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean; accountType: 'bank' | 'cash' };
@@ -36,6 +36,7 @@ type Transaction = {
   destinationAccountType: 'bank' | 'cash' | null;
   destinationIsBusinessAccount: boolean | null;
   note: string | null;
+  adjustmentReason: string | null;
 };
 type FormState = {
   type: TransactionType;
@@ -123,7 +124,7 @@ function TransactionsContent() {
   // Initialize filters from URL params
   const urlType = searchParams.get('type');
   const urlBusinessStatus = searchParams.get('businessStatus');
-  const validTypes: TransactionType[] = ['income', 'expense', 'transfer'];
+  const validTypes: TransactionType[] = ['income', 'expense', 'transfer', 'adjustment'];
   const validStatuses: BusinessStatus[] = ['pending', 'received'];
 
   const [selectedType, setSelectedType] = useState<'all' | TransactionType>(
@@ -771,6 +772,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
     income: 'รายรับ',
     expense: 'รายจ่าย',
     transfer: 'โอนเงิน',
+    adjustment: 'ปรับยอดบัญชี',
   };
 
   const getAccountTypeLabel = (isBusiness: boolean | null, accountType: 'bank' | 'cash' | null) => {
@@ -892,6 +894,14 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
           </span>
         )}
       </div>
+
+      {/* Adjustment Reason */}
+      {transaction.type === 'adjustment' && transaction.adjustmentReason && (
+        <div className="mt-3 rounded-lg bg-orange-50 p-2">
+          <p className="text-xs font-medium text-orange-700">📝 เหตุผลการปรับยอด</p>
+          <p className="mt-1 text-sm text-orange-900">{transaction.adjustmentReason}</p>
+        </div>
+      )}
 
       {/* Date & Received Button */}
       <div className="mt-3 flex items-center justify-between">
@@ -1149,11 +1159,13 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete }: { tr
     income: 'รายรับ',
     expense: 'รายจ่าย',
     transfer: 'โอนเงิน',
+    adjustment: 'ปรับยอดบัญชี',
   };
   const typeColors: Record<TransactionType, string> = {
     income: 'text-emerald-700',
     expense: 'text-rose-700',
     transfer: 'text-indigo-700',
+    adjustment: 'text-orange-700',
   };
   const statusColors: Record<BusinessStatus, string> = {
     pending: 'bg-amber-50 text-amber-700',
@@ -1249,6 +1261,14 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete }: { tr
               <div className="rounded-xl bg-slate-50 p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-500">หมายเหตุ</p>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{transaction.note}</p>
+              </div>
+            )}
+
+            {/* Adjustment Reason */}
+            {transaction.type === 'adjustment' && transaction.adjustmentReason && (
+              <div className="rounded-xl bg-orange-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-orange-600">เหตุผลการปรับยอด</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-orange-900">{transaction.adjustmentReason}</p>
               </div>
             )}
           </div>
