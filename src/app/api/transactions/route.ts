@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
         destinationIsBusinessAccount: destAcc.isBusinessAccount,
         note: transactions.note,
         adjustmentReason: transactions.adjustmentReason,
+        adjustmentDirection: transactions.adjustmentDirection,
         createdByUserName: txCreatedBy.name,
       })
       .from(transactions)
@@ -75,6 +76,12 @@ export async function POST(request: NextRequest) {
 
     const input = parsed.data;
     console.log('[POST /api/transactions] Input:', parsed.data);
+
+    // Permission check for adjustment type
+    const userEmail = (session.user as { email?: string }).email;
+    if (input.type === 'adjustment' && userEmail !== 'thanet_30@hotmail.com') {
+      return NextResponse.json({ error: 'คุณไม่มีสิทธิ์สร้างรายการปรับยอด' }, { status: 403 });
+    }
 
     if (input.propertyId) {
       const property = await db
@@ -123,6 +130,7 @@ export async function POST(request: NextRequest) {
       businessStatus: input.businessStatus || null,
       note: input.note || null,
       adjustmentReason: input.adjustmentReason || null,
+      adjustmentDirection: input.adjustmentDirection || null,
       createdByUserId: session.user.id,
       recurringScheduleId: null,
       createdAt: now,
@@ -134,7 +142,7 @@ export async function POST(request: NextRequest) {
 
     await db.batch([
       db.insert(transactions).values(transaction),
-      ...balanceStatements(db, input.type, input.amount, input.sourceAccountId, input.destinationAccountId, input.businessStatus),
+      ...balanceStatements(db, input.type, input.amount, input.adjustmentDirection, input.sourceAccountId, input.destinationAccountId, input.businessStatus),
     ]);
     return NextResponse.json(transaction, { status: 201 });
   } catch (error) {
@@ -156,15 +164,16 @@ function balanceStatements(
   db: Awaited<ReturnType<typeof getRequestContext>>['db'],
   type: 'income' | 'expense' | 'transfer' | 'adjustment',
   amount: number,
+  adjustmentDirection: 'increase' | 'decrease' | null | undefined,
   sourceAccountId: string | null | undefined,
   destinationAccountId: string | null | undefined,
   businessStatus?: string | null
 ) {
   const statements = [];
-  
+
   // Only update balance when businessStatus is NOT 'pending'
   const shouldUpdateBalance = businessStatus !== 'pending';
-  
+
   if (shouldUpdateBalance) {
     // expense, transfer = subtract from source account
     if ((type === 'expense' || type === 'transfer') && sourceAccountId) {
@@ -178,12 +187,19 @@ function balanceStatements(
         db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
       );
     }
-    // adjustment = affects source account
-    // positive amount = add to balance, negative amount = subtract from balance
+    // Adjustment: explicit direction from request (not from title)
+    // increase = add to balance, decrease = subtract from balance
     if (type === 'adjustment' && sourceAccountId) {
-      statements.push(
-        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
-      );
+      if (adjustmentDirection === 'increase') {
+        statements.push(
+          db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+        );
+      } else {
+        // 'decrease' or default to subtract
+        statements.push(
+          db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+        );
+      }
     }
   }
   return statements;

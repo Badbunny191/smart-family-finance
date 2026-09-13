@@ -37,6 +37,7 @@ type Transaction = {
   destinationAccountBank: string | null;
   note: string | null;
   adjustmentReason: string | null;
+  adjustmentDirection: 'increase' | 'decrease' | null;
   createdByUserName: string | null;
 };
 
@@ -104,7 +105,7 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
         
         // Load user session
         if (sessionRes.ok) {
-          const session = await sessionRes.json();
+          const session = await sessionRes.json() as { user?: { email?: string } } | null;
           if (session?.user?.email) {
             setUserEmail(session.user.email);
           }
@@ -124,15 +125,18 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   // Create adjustment handler
   const handleCreateAdjustment = async (actualBalance: number, reason: string) => {
     if (!account) return;
-    
+
     const currentBalance = account.currentBalance;
     const difference = actualBalance - currentBalance;
-    
+
     if (difference === 0) {
       alert('ยอดที่กรอกเท่ากับยอดปัจจุบัน ไม่ต้องปรับยอด');
       return;
     }
-    
+
+    const isIncrease = difference > 0;
+    const isDecrease = difference < 0;
+
     setIsAdjusting(true);
     try {
       const response = await fetch('/api/transactions', {
@@ -141,20 +145,21 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
         body: JSON.stringify({
           type: 'adjustment',
           amount: Math.abs(difference),
-          title: `ปรับยอด: ${difference > 0 ? 'เพิ่ม' : 'ลด'} ${formatCurrency(Math.abs(difference))}`,
+          title: `ปรับยอด: ${isIncrease ? 'เพิ่ม' : 'ลด'} ${formatCurrency(Math.abs(difference))}`,
           date: new Date().toISOString(),
           sourceAccountId: account.id,
           destinationAccountId: null,
           categoryId: null,
           businessStatus: null,
           adjustmentReason: reason,
+          adjustmentDirection: isIncrease ? 'increase' : 'decrease',
           note: `ปรับยอดจาก ${formatCurrency(currentBalance)} เป็น ${formatCurrency(actualBalance)}`,
         }),
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'ไม่สามารถปรับยอดได้');
+        const errorData = await response.json() as { message?: string };
+        throw new Error(errorData.message || 'ไม่สามารถปรับยอดได้');
       }
       
       // Reload data
@@ -235,11 +240,10 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
           income += tx.amount; // โอนเข้า = รายรับ
         }
       } else if (tx.type === 'adjustment' && tx.sourceAccountId === accountId) {
-        // ปรับยอด: amount บวก = เพิ่มยอด (เหมือนรายรับ), amount ลบ = ลดยอด (เหมือนรายจ่าย)
-        // ในฟอร์ม adjustment จะส่ง amount เป็นบวกเสมอ และกำหนด direction จาก title
-        if (tx.title.includes('เพิ่ม')) {
+        // ปรับยอด: ดูจาก adjustmentDirection ที่เก็บในฐานข้อมูล
+        if (tx.adjustmentDirection === 'increase') {
           income += tx.amount;
-        } else if (tx.title.includes('ลด')) {
+        } else if (tx.adjustmentDirection === 'decrease') {
           expense += tx.amount;
         }
       }
@@ -265,8 +269,8 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   // Transaction display helper
   const getTransactionDisplay = (tx: Transaction) => {
     if (tx.type === 'adjustment') {
-      // ปรับยอด: ดูจาก title ว่าเป็นเพิ่มหรือลด
-      const isIncrease = tx.title.includes('เพิ่ม');
+      // ปรับยอด: ดูจาก adjustmentDirection ที่เก็บในฐานข้อมูล
+      const isIncrease = tx.adjustmentDirection === 'increase';
       return {
         direction: isIncrease ? 'in' as const : 'out' as const,
         icon: isIncrease ? <ArrowDownLeft size={18} /> : <ArrowUpRight size={18} />,

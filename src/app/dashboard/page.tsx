@@ -75,7 +75,7 @@ export default async function DashboardPage() {
         isNull(transactions.deletedAt)
       )),
 
-    // QUERY 4: Recent transactions (include all types: income, expense, transfer)
+    // QUERY 4: Recent transactions (include all types: income, expense, transfer, adjustment)
     db
       .select({
         id: transactions.id,
@@ -90,6 +90,7 @@ export default async function DashboardPage() {
         createdAt: transactions.createdAt,
         sourceAccountName: sourceAccountAlias.name,
         destinationAccountName: destinationAccountAlias.name,
+        adjustmentDirection: transactions.adjustmentDirection,
       })
       .from(transactions)
       .leftJoin(sourceAccountAlias, eq(transactions.sourceAccountId, sourceAccountAlias.id))
@@ -194,7 +195,7 @@ export default async function DashboardPage() {
     totalBalance,
     monthlyIncome,
     monthlyExpense,
-    recentTransactions: (recentRows ?? []) as { id: string; type: 'income' | 'expense' | 'transfer' | 'adjustment'; amount: number; date: Date; title: string; status: string; sourceAccountId: string | null; destinationAccountId: string | null; note: string | null; createdAt: Date; sourceAccountName: string | null; destinationAccountName: string | null }[],
+    recentTransactions: (recentRows ?? []) as { id: string; type: 'income' | 'expense' | 'transfer' | 'adjustment'; amount: number; date: Date; title: string; status: string; sourceAccountId: string | null; destinationAccountId: string | null; note: string | null; createdAt: Date; sourceAccountName: string | null; destinationAccountName: string | null; adjustmentDirection: 'increase' | 'decrease' | null }[],
     pending: {
       total: Number(typedPendingResult?.[0]?.total) || 0,
       count: Number(typedPendingResult?.[0]?.count) || 0
@@ -493,7 +494,7 @@ export default async function DashboardPage() {
                           </p>
                         </div>
                         <p className={`shrink-0 font-bold ${amountColor}`}>
-                          {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'adjustment' ? (tx.title.includes('เพิ่ม') ? '+' : '-') : ''}{formatCurrency(tx.amount)}
+                          {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : tx.type === 'adjustment' ? (tx.adjustmentDirection === 'increase' ? '+' : '-') : ''}{formatCurrency(tx.amount)}
                         </p>
                       </div>
                       {accountDisplay && (

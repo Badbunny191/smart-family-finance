@@ -57,6 +57,9 @@ export const transactionInputSchema = z
     destinationAccountId: z.string().trim().min(1).nullable().optional(),
     note: z.string().trim().max(500, 'หมายเหตุต้องไม่เกิน 500 ตัวอักษร').nullable().optional(),
     adjustmentReason: z.string().trim().min(1, 'กรุณาระบุเหตุผลการปรับยอด').max(500, 'เหตุผลต้องไม่เกิน 500 ตัวอักษร').nullable().optional(),
+    // Direction for adjustment: 'increase' or 'decrease'
+    // Only used when type is 'adjustment'
+    adjustmentDirection: z.enum(['increase', 'decrease']).nullable().optional(),
   })
   .superRefine((value, context) => {
     if (value.type === 'income' && !value.destinationAccountId) {
@@ -79,6 +82,9 @@ export const transactionInputSchema = z
     }
     if (value.type === 'adjustment' && !value.sourceAccountId) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['sourceAccountId'], message: 'รายการปรับยอดต้องมีบัญชีที่ต้องการปรับ' });
+    }
+    if (value.type === 'adjustment' && !value.adjustmentDirection) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['adjustmentDirection'], message: 'กรุณาระบุทิศทางการปรับยอด' });
     }
   });
 

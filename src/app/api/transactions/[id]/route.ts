@@ -31,7 +31,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { db } = await getRequestContext(request);
+    const { db, session } = await getRequestContext(request);
     const { id } = await params;
     const transaction = await db
       .select()
@@ -41,9 +41,16 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     if (!transaction[0]) return NextResponse.json({ error: 'ไม่พบรายการ' }, { status: 404 });
 
     const row = transaction[0];
+
+    // Permission check for deleting adjustment
+    const userEmail = (session.user as { email?: string }).email;
+    if (row.type === 'adjustment' && userEmail !== 'thanet_30@hotmail.com') {
+      return NextResponse.json({ error: 'คุณไม่มีสิทธิ์ลบรายการปรับยอด' }, { status: 403 });
+    }
+
     await db.batch([
       db.update(transactions).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(transactions.id, id)),
-      ...rollbackStatements(db, row.type, row.amount, row.sourceAccountId, row.destinationAccountId),
+      ...rollbackStatements(db, row.type, row.amount, row.adjustmentDirection, row.sourceAccountId, row.destinationAccountId),
     ]);
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -55,21 +62,58 @@ function rollbackStatements(
   db: Awaited<ReturnType<typeof getRequestContext>>['db'],
   type: 'income' | 'expense' | 'transfer' | 'adjustment',
   amount: number,
+  adjustmentDirection: 'increase' | 'decrease' | null,
   sourceAccountId: string | null,
   destinationAccountId: string | null
 ) {
   const statements = [];
-  // expense, transfer, adjustment = reverse the balance change
-  if ((type === 'expense' || type === 'transfer' || type === 'adjustment') && sourceAccountId) {
+
+  // expense = reverse: add back to source
+  if (type === 'expense' && sourceAccountId) {
     statements.push(
       db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
     );
   }
-  // income = reverse the balance change
+
+  // transfer = reverse BOTH accounts:
+  // - subtract from destination (what was added)
+  // - add back to source (what was subtracted)
+  if (type === 'transfer') {
+    if (sourceAccountId) {
+      statements.push(
+        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+      );
+    }
+    if (destinationAccountId) {
+      statements.push(
+        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
+      );
+    }
+  }
+
+  // adjustment = reverse based on explicit direction
+  // increase: balance was increased, so subtract back
+  // decrease: balance was decreased, so add back
+  if (type === 'adjustment' && sourceAccountId) {
+    if (adjustmentDirection === 'increase') {
+      // Was added (+), so subtract back (-)
+      statements.push(
+        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+      );
+    } else {
+      // 'decrease' or default: was subtracted (-), so add back (+)
+      statements.push(
+        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+      );
+    }
+  }
+
+  // income = reverse: subtract from destination
   if (type === 'income' && destinationAccountId) {
     statements.push(
       db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
     );
   }
+
   return statements;
 }

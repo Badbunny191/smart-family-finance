@@ -193,6 +193,9 @@ export const transactions = sqliteTable(
     }).$type<'pending' | 'received' | null>(),
     note: text('note'),
     adjustmentReason: text('adjustment_reason'),
+    adjustmentDirection: text('adjustment_direction', {
+      enum: ['increase', 'decrease'],
+    }).$type<'increase' | 'decrease' | null>(),
     ownerPersonId: text('owner_person_id').references(() => persons.id),
     payerPersonId: text('payer_person_id').references(() => persons.id),
     createdByUserId: text('created_by_user_id')
