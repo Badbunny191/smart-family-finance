@@ -1,7 +1,16 @@
 import type { Metadata } from 'next';
+import type { Viewport } from "next";
 import { DesktopSidebar } from '@/components/desktop-sidebar';
 import { ToastProvider } from '@/components/ui/toast';
+import { GlobalErrorLogger } from '@/components/global-error-logger';
 import './globals.css';
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
 export const metadata: Metadata = {
   title: 'Smart Family Finance',
@@ -16,6 +25,7 @@ export default function RootLayout({
   return (
     <html lang="th">
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
+        <GlobalErrorLogger />
         <ToastProvider>
           <div className="flex min-h-screen w-full">
             <DesktopSidebar />
