@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { DesktopSidebar } from '@/components/desktop-sidebar';
 import { ToastProvider } from '@/components/ui/toast';
 import './globals.css';
@@ -6,6 +6,18 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Smart Family Finance',
   description: 'Mobile-first family finance tracking application',
+
+  manifest: '/manifest.json',
+
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Smart Family Finance',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#10b981',
 };
 
 export default function RootLayout({
