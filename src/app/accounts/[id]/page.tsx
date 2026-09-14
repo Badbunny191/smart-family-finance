@@ -76,6 +76,11 @@ function AccountDetailLoading() {
 }
 
 function AccountDetailContent({ accountId }: { accountId: string }) {
+  console.error('ACCOUNT_DEBUG_VISIBLE', {
+    accountId,
+    timestamp: new Date().toISOString(),
+  });
+
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -111,6 +116,11 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
 
   // Load data
   useEffect(() => {
+    console.error('ACCOUNT_EFFECT_MOUNT', {
+      accountId,
+      timestamp: new Date().toISOString(),
+    });
+
     const loadData = async () => {
       console.log('[ACCOUNT_LOAD_START]', {
         accountId,
