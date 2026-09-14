@@ -84,12 +84,27 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isAdjusting, setIsAdjusting] = useState(false);
-  
+
+  console.log('[ACCOUNT_RENDER]', {
+    accountId,
+    accountsCount: accounts.length,
+    transactionsCount: transactions.length,
+    selectedPeriod,
+    searchQuery,
+    timestamp: new Date().toISOString(),
+  });
+
   // Session & role check
   const { data } = useSession();
   const session = data as Session | null;
   const isAdmin = isUserAdmin(session);
-  
+
+  console.log('[ACCOUNT_SESSION]', {
+    hasSession: !!data,
+    userId: data?.user?.id,
+    timestamp: new Date().toISOString(),
+  });
+
   // Find current account
   const account = accounts.find(a => a.id === accountId);
   const isAccountNotFound = !isLoading && accounts.length > 0 && !account;
@@ -97,6 +112,10 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   // Load data
   useEffect(() => {
     const loadData = async () => {
+      console.log('[ACCOUNT_LOAD_START]', {
+        accountId,
+        timestamp: new Date().toISOString(),
+      });
       try {
         const [accountsRes, transactionsRes] = await Promise.all([
           fetch('/api/accounts'),
@@ -105,8 +124,16 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
         if (!accountsRes.ok || !transactionsRes.ok) {
           throw new Error('โหลดข้อมูลไม่สำเร็จ');
         }
-        setAccounts(await accountsRes.json());
-        setTransactions(await transactionsRes.json());
+        const accountsJson = await accountsRes.json();
+        const transactionsJson = await transactionsRes.json();
+        console.log('[ACCOUNT_LOAD_SUCCESS]', {
+          accountId,
+          accountsCount: accountsJson.length,
+          transactionsCount: transactionsJson.length,
+          timestamp: new Date().toISOString(),
+        });
+        setAccounts(accountsJson);
+        setTransactions(transactionsJson);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'เกิดข้อผิดพลาด');
       } finally {
@@ -253,6 +280,14 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
 
     // Sort by date descending
     filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    console.log('[ACCOUNT_MEMO]', {
+      accountId,
+      selectedPeriod,
+      transactionCount: accountTransactions.length,
+      filteredCount: filtered.length,
+      timestamp: new Date().toISOString(),
+    });
 
     return {
       summary: { income, expense, net: income - expense, adjustment: adjustmentTotal },
