@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Smart Family Finance',
-    short_name: 'Finance',
+    name: 'GrandFinance',
+    short_name: 'GrandFinance',
     start_url: '/',
     scope: '/',
     display: 'standalone',
