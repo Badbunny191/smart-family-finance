@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { accounts, categories, persons, properties, transactions, users } from '@/db/schema';
-import { getRequestContext, handleApiError } from '@/lib/api-auth';
+import { getRequestContext, handleApiError, isAdmin } from '@/lib/api-auth';
 import { transactionInputSchema, validationError } from '@/lib/validation';
 import { alias } from 'drizzle-orm/sqlite-core';
 
@@ -77,9 +77,8 @@ export async function POST(request: NextRequest) {
     const input = parsed.data;
     console.log('[POST /api/transactions] Input:', parsed.data);
 
-    // Permission check for adjustment type
-    const userEmail = (session.user as { email?: string }).email;
-    if (input.type === 'adjustment' && userEmail !== 'thanet_30@hotmail.com') {
+    // Permission check for adjustment type - only admin can create adjustments
+    if (input.type === 'adjustment' && !isAdmin(session)) {
       return NextResponse.json({ error: 'คุณไม่มีสิทธิ์สร้างรายการปรับยอด' }, { status: 403 });
     }
 

@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { accounts, categories, transactions } from '@/db/schema';
-import { getRequestContext, handleApiError } from '@/lib/api-auth';
+import { getRequestContext, handleApiError, isAdmin } from '@/lib/api-auth';
 import { transactionMetadataSchema, validationError } from '@/lib/validation';
 
 export const runtime = 'nodejs';
@@ -10,16 +10,31 @@ type RouteParams = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { db } = await getRequestContext(request);
+    const { db, session } = await getRequestContext(request);
     const { id } = await params;
     const parsed = transactionMetadataSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json(validationError(parsed.error), { status: 400 });
 
-    const existing = await db.select({ type: transactions.type }).from(transactions).where(and(eq(transactions.id, id), isNull(transactions.deletedAt))).limit(1);
-    if (!existing[0]) return NextResponse.json({ error: 'ไม่พบรายการ' }, { status: 404 });
+    // Get existing transaction with full data for authorization check
+    const [existing] = await db
+      .select({ 
+        type: transactions.type,
+        createdByUserId: transactions.createdByUserId 
+      })
+      .from(transactions)
+      .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+      .limit(1);
+    
+    if (!existing) return NextResponse.json({ error: 'ไม่พบรายการ' }, { status: 404 });
+
+    // Only admin can modify adjustment transactions
+    if (existing.type === 'adjustment' && !isAdmin(session)) {
+      return NextResponse.json({ error: 'คุณไม่มีสิทธิ์แก้ไขรายการปรับยอด' }, { status: 403 });
+    }
+
     if (parsed.data.categoryId) {
       const category = await db.select({ type: categories.type }).from(categories).where(and(eq(categories.id, parsed.data.categoryId), isNull(categories.deletedAt))).limit(1);
-      if (!category[0] || category[0].type !== existing[0].type) return NextResponse.json({ error: 'หมวดหมู่ไม่ตรงกับประเภทรายการ' }, { status: 400 });
+      if (!category[0] || category[0].type !== existing.type) return NextResponse.json({ error: 'หมวดหมู่ไม่ตรงกับประเภทรายการ' }, { status: 400 });
     }
 
     const updated = await db.update(transactions).set({ ...parsed.data, updatedAt: new Date() }).where(eq(transactions.id, id)).returning();
@@ -42,9 +57,8 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const row = transaction[0];
 
-    // Permission check for deleting adjustment
-    const userEmail = (session.user as { email?: string }).email;
-    if (row.type === 'adjustment' && userEmail !== 'thanet_30@hotmail.com') {
+    // Only admin can delete adjustment transactions
+    if (row.type === 'adjustment' && !isAdmin(session)) {
       return NextResponse.json({ error: 'คุณไม่มีสิทธิ์ลบรายการปรับยอด' }, { status: 403 });
     }
 

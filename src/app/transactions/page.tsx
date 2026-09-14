@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { useSession } from '@/lib/auth-client';
+import { isUserAdmin, type Session } from '@/types/session';
 
 type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BusinessStatus = 'pending' | 'received';
@@ -124,9 +125,8 @@ function TransactionsContent() {
 
   // Admin check for adjustment permissions
   const { data: sessionData } = useSession();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const session = sessionData as any;
-  const isAdmin = session?.user?.role === 'admin' || session?.role === 'admin';
+  const session = sessionData as Session | null;
+  const isAdmin = isUserAdmin(session);
 
   // Initialize filters from URL params
   const urlType = searchParams.get('type');

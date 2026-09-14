@@ -7,6 +7,7 @@ import { useParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { formatCurrency } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
+import { isUserAdmin, type Session } from '@/types/session';
 
 type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BusinessStatus = 'pending' | 'received';
@@ -86,8 +87,8 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   
   // Session & role check
   const { data } = useSession();
-  const sessionData = data as any;
-  const isAdmin = sessionData?.user?.role === 'admin' || sessionData?.role === 'admin';
+  const session = data as Session | null;
+  const isAdmin = isUserAdmin(session);
   
   // Find current account
   const account = accounts.find(a => a.id === accountId);
