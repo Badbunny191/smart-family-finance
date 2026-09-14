@@ -124,8 +124,8 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
         if (!accountsRes.ok || !transactionsRes.ok) {
           throw new Error('โหลดข้อมูลไม่สำเร็จ');
         }
-        const accountsJson = await accountsRes.json();
-        const transactionsJson = await transactionsRes.json();
+        const accountsJson = await accountsRes.json() as Account[];
+        const transactionsJson = await transactionsRes.json() as Transaction[];
         console.log('[ACCOUNT_LOAD_SUCCESS]', {
           accountId,
           accountsCount: accountsJson.length,
