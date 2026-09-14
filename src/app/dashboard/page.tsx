@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, ChevronRight, CircleDollarSign, PiggyBank, TrendingUp, TrendingDown, Percent, Droplets } from 'lucide-react';
+import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Building2, ChevronDown, ChevronRight, CircleDollarSign, PiggyBank, TrendingUp, TrendingDown, Percent } from 'lucide-react';
 import { headers } from 'next/headers';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -11,12 +11,36 @@ import { getDb } from '@/db/client';
 import { createAuth } from '@/lib/auth';
 import { getD1 } from '@/lib/cloudflare';
 import { formatCurrency } from '@/lib/utils';
+import { PersonAccordionCard } from './_components/person-accordion-card';
 
 // Alias for self-join (source and destination accounts)
 const sourceAccountAlias = alias(accounts, 'source_account');
 const destinationAccountAlias = alias(accounts, 'destination_account');
 
 export const runtime = 'nodejs';
+
+// Type definitions
+type AccountRow = {
+  id: string;
+  name: string;
+  accountType: 'cash' | 'bank';
+  bankName: string | null;
+  currentBalance: number;
+};
+
+type PersonWithAccounts = {
+  personId: string;
+  personName: string;
+  totalBalance: number;
+  accounts: AccountRow[];
+};
+
+type BusinessPersonWithAccounts = {
+  personId: string;
+  personName: string;
+  totalBalance: number;
+  accounts: AccountRow[];
+};
 
 export default async function DashboardPage() {
   const requestHeaders = await headers();
@@ -116,39 +140,51 @@ export default async function DashboardPage() {
       .orderBy(desc(transactions.date), desc(transactions.createdAt))
       .limit(10),
 
-    // QUERY 5: Business accounts with person names
+    // QUERY 5: Personal accounts with person names (grouped by person)
+    // Order by account balance DESC - will sort persons by total in JS
     db
       .select({
         personId: persons.id,
         personName: persons.name,
-        balance: accounts.currentBalance,
+        accountId: accounts.id,
         accountName: accounts.name,
-      })
-      .from(accounts)
-      .innerJoin(persons, eq(accounts.personId, persons.id))
-      .where(and(
-        eq(accounts.isBusinessAccount, true),
-        isNull(accounts.deletedAt)
-      )),
-
-    // QUERY 6: Personal accounts grouped by person
-    db
-      .select({
-        personId: persons.id,
-        personName: persons.name,
-        balance: sql<number>`COALESCE(SUM(${accounts.currentBalance}), 0)`,
+        accountType: accounts.accountType,
+        bankName: accounts.bankName,
+        balance: accounts.currentBalance,
       })
       .from(accounts)
       .innerJoin(persons, eq(accounts.personId, persons.id))
       .where(and(
         eq(accounts.isBusinessAccount, false),
+        inArray(accounts.accountType, ['cash', 'bank']),
         isNull(accounts.deletedAt)
       ))
-      .groupBy(persons.id, persons.name),
+      .orderBy(desc(accounts.currentBalance)),
+
+    // QUERY 6: Business accounts with person names (grouped by person)
+    // Order by account balance DESC - will sort persons by total in JS
+    db
+      .select({
+        personId: persons.id,
+        personName: persons.name,
+        accountId: accounts.id,
+        accountName: accounts.name,
+        accountType: accounts.accountType,
+        bankName: accounts.bankName,
+        balance: accounts.currentBalance,
+      })
+      .from(accounts)
+      .innerJoin(persons, eq(accounts.personId, persons.id))
+      .where(and(
+        eq(accounts.isBusinessAccount, true),
+        inArray(accounts.accountType, ['cash', 'bank']),
+        isNull(accounts.deletedAt)
+      ))
+      .orderBy(desc(accounts.currentBalance)),
   ]);
 
   // Extract results
-  const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, recentRows, businessAccounts, personalByPerson] = queryResults.map((result) =>
+  const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, recentRows, personalAccountsRows, businessAccountsRows] = queryResults.map((result) =>
     result.status === 'fulfilled' ? result.value : null
   );
 
@@ -157,15 +193,15 @@ export default async function DashboardPage() {
   type MonthlyMetricsRow = { type: string; total: number } | null;
   type PendingRow = { total: number; count: number } | null;
   type MonthlyAdjustmentsRow = { total: number } | null;
-  type BusinessAccountRow = { personId: string; personName: string; balance: number; accountName: string } | null;
-  type PersonalAccountRow = { personId: string; personName: string; balance: number } | null;
+  type PersonalAccountRow = { personId: string; personName: string; accountId: string; accountName: string; accountType: 'cash' | 'bank'; bankName: string | null; balance: number } | null;
+  type BusinessAccountRow = { personId: string; personName: string; accountId: string; accountName: string; accountType: 'cash' | 'bank'; bankName: string | null; balance: number } | null;
 
   const typedAccountMetrics = accountMetrics as AccountMetricsRow[];
   const typedMonthlyMetrics = monthlyMetrics as MonthlyMetricsRow[];
   const typedPendingResult = pendingResult as PendingRow[];
   const typedMonthlyAdjustments = monthlyAdjustments as MonthlyAdjustmentsRow[];
-  const typedBusinessAccounts = businessAccounts as BusinessAccountRow[];
-  const typedPersonalByPerson = personalByPerson as PersonalAccountRow[];
+  const typedPersonalAccountsRows = (personalAccountsRows ?? []) as (PersonalAccountRow & { personId: string; accountId: string })[];
+  const typedBusinessAccountsRows = (businessAccountsRows ?? []) as (BusinessAccountRow & { personId: string; accountId: string })[];
 
   // Process monthly metrics (income + expense only, NOT adjustments)
   let monthlyIncome = 0;
@@ -198,18 +234,77 @@ export default async function DashboardPage() {
   const cashRatio = totalBalance > 0 ? Math.round((businessCashTotal / totalBalance) * 100) : 0;
   const businessRatio = totalBalance > 0 ? Math.round((businessTotal / totalBalance) * 100) : 0;
 
-  // KPI thresholds
-  const getSavingsColor = (rate: number) => {
-    if (rate >= 30) return 'text-emerald-600';
-    if (rate >= 10) return 'text-amber-600';
-    return 'text-rose-600';
-  };
+  // Process personal accounts - group by person
+  // Order: Account by balance DESC, then Person by totalBalance DESC
+  const personalByPerson: PersonWithAccounts[] = [];
+  const personalMap = new Map<string, PersonWithAccounts>();
 
-  const getCashColor = (ratio: number) => {
-    if (ratio >= 50) return 'text-emerald-600';
-    if (ratio >= 20) return 'text-amber-600';
-    return 'text-rose-600';
-  };
+  for (const row of typedPersonalAccountsRows) {
+    if (!row) continue;
+    if (!personalMap.has(row.personId)) {
+      personalMap.set(row.personId, {
+        personId: row.personId,
+        personName: row.personName,
+        totalBalance: 0,
+        accounts: [],
+      });
+    }
+    const person = personalMap.get(row.personId)!;
+    person.totalBalance += Number(row.balance) || 0;
+    person.accounts.push({
+      id: row.accountId,
+      name: row.accountName,
+      accountType: row.accountType,
+      bankName: row.bankName,
+      currentBalance: Number(row.balance) || 0,
+    });
+  }
+
+  // Sort accounts within person by balance DESC, then sort persons by totalBalance DESC
+  personalByPerson.push(
+    ...Array.from(personalMap.values())
+      .map((person) => ({
+        ...person,
+        accounts: person.accounts.sort((a, b) => b.currentBalance - a.currentBalance),
+      }))
+      .sort((a, b) => b.totalBalance - a.totalBalance)
+  );
+
+  // Process business accounts - group by person
+  // Order: Account by balance DESC, then Person by totalBalance DESC
+  const businessByPerson: BusinessPersonWithAccounts[] = [];
+  const businessMap = new Map<string, BusinessPersonWithAccounts>();
+
+  for (const row of typedBusinessAccountsRows) {
+    if (!row) continue;
+    if (!businessMap.has(row.personId)) {
+      businessMap.set(row.personId, {
+        personId: row.personId,
+        personName: row.personName,
+        totalBalance: 0,
+        accounts: [],
+      });
+    }
+    const person = businessMap.get(row.personId)!;
+    person.totalBalance += Number(row.balance) || 0;
+    person.accounts.push({
+      id: row.accountId,
+      name: row.accountName,
+      accountType: row.accountType,
+      bankName: row.bankName,
+      currentBalance: Number(row.balance) || 0,
+    });
+  }
+
+  // Sort accounts within person by balance DESC, then sort persons by totalBalance DESC
+  businessByPerson.push(
+    ...Array.from(businessMap.values())
+      .map((person) => ({
+        ...person,
+        accounts: person.accounts.sort((a, b) => b.currentBalance - a.currentBalance),
+      }))
+      .sort((a, b) => b.totalBalance - a.totalBalance)
+  );
 
   const data = {
     totalBalance,
@@ -221,11 +316,11 @@ export default async function DashboardPage() {
       total: Number(typedPendingResult?.[0]?.total) || 0,
       count: Number(typedPendingResult?.[0]?.count) || 0
     },
-    businessAccounts: (typedBusinessAccounts ?? []) as { personId: string; personName: string; balance: number; accountName: string }[],
     businessTotal,
     businessCashTotal,
-    personalByPerson: (typedPersonalByPerson ?? []) as { personId: string; personName: string; balance: number }[],
     personalTotal,
+    personalByPerson,
+    businessByPerson,
     savingsRate,
     cashRatio,
     businessRatio,
@@ -302,70 +397,34 @@ export default async function DashboardPage() {
         </section>
 
         {/* ========================================
-            BUSINESS ACCOUNTS - Full Width
+            PERSONAL ACCOUNTS - Accordion
             ======================================== */}
-        {data.businessTotal > 0 && data.businessAccounts.length > 0 && (
+        {data.personalByPerson.length > 0 && (
           <section>
-            <Link
-              href="/accounts?type=business"
-              prefetch={false}
-              className="surface-card block overflow-hidden transition-transform active:scale-[0.99]"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 p-4">
-                <div className="flex items-center gap-2">
-                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
-                    <Building2 size={18} />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">บัญชีธุรกิจ</p>
-                    <p className="font-bold text-slate-900">{formatCurrency(data.businessTotal)}</p>
-                  </div>
-                </div>
-                <ChevronRight size={20} className="text-slate-400" />
-              </div>
-              <div className="divide-y divide-slate-100">
-                {data.businessAccounts.map((acc, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 text-sm">
-                    <span className="text-slate-700">{acc.personName}</span>
-                    <span className="font-medium text-slate-900">{formatCurrency(acc.balance)}</span>
-                  </div>
-                ))}
-              </div>
-            </Link>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">บัญชีส่วนตัว</h2>
+              <span className="text-sm font-bold text-slate-700">{formatCurrency(data.personalTotal)}</span>
+            </div>
+            <PersonAccordionCard
+              persons={data.personalByPerson}
+              variant="personal"
+            />
           </section>
         )}
 
         {/* ========================================
-            PERSONAL ACCOUNTS - Full Width
+            BUSINESS ACCOUNTS - Accordion
             ======================================== */}
-        {(data.personalTotal >= 0 || data.personalByPerson.length > 0) && (
+        {data.businessByPerson.length > 0 && (
           <section>
-            <Link
-              href="/accounts?type=personal"
-              prefetch={false}
-              className="surface-card block overflow-hidden transition-transform active:scale-[0.99]"
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 p-4">
-                <div className="flex items-center gap-2">
-                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-700">
-                    <PiggyBank size={18} />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">บัญชีส่วนตัว</p>
-                    <p className="font-bold text-slate-900">{formatCurrency(data.personalTotal)}</p>
-                  </div>
-                </div>
-                <ChevronRight size={20} className="text-slate-400" />
-              </div>
-              <div className="divide-y divide-slate-100">
-                {data.personalByPerson.map((person) => (
-                  <div key={person.personId} className="flex items-center justify-between p-3 text-sm">
-                    <span className="text-slate-700">{person.personName}</span>
-                    <span className="font-medium text-slate-900">{formatCurrency(person.balance)}</span>
-                  </div>
-                ))}
-              </div>
-            </Link>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">บัญชีธุรกิจ</h2>
+              <span className="text-sm font-bold text-slate-700">{formatCurrency(data.businessTotal)}</span>
+            </div>
+            <PersonAccordionCard
+              persons={data.businessByPerson}
+              variant="business"
+            />
           </section>
         )}
 

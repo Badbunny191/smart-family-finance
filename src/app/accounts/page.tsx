@@ -236,7 +236,9 @@ function AccountsContent() {
             }
             return true;
           });
-          if (filteredAccounts.length === 0) {
+          // Sort: by balance DESC (account with higher balance first)
+          const sortedAccounts = filteredAccounts.sort((a, b) => b.currentBalance - a.currentBalance);
+          if (sortedAccounts.length === 0) {
             return (
               <div className="surface-card border-dashed px-5 py-12 text-center">
                 <p className="font-medium text-slate-700">ไม่พบบัญชีที่ค้นหา</p>
@@ -244,7 +246,7 @@ function AccountsContent() {
               </div>
             );
           }
-          return filteredAccounts.map((account) => (
+          return sortedAccounts.map((account) => (
             <article key={account.id} className="surface-card p-4">
               <div className="flex items-start justify-between gap-3">
                 <Link href={`/accounts/${account.id}`} className="min-w-0 flex-1">

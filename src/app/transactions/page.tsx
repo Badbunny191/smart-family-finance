@@ -11,7 +11,7 @@ import { isUserAdmin, type Session } from '@/types/session';
 type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BusinessStatus = 'pending' | 'received';
 type Property = { id: string; name: string };
-type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean; accountType: 'bank' | 'cash' };
+type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean; accountType: 'bank' | 'cash'; personId: string; personName: string };
 type Category = { id: string; name: string; type: 'income' | 'expense'; isActive: boolean };
 type Transaction = {
   id: string;
@@ -131,6 +131,7 @@ function TransactionsContent() {
   // Initialize filters from URL params
   const urlType = searchParams.get('type');
   const urlBusinessStatus = searchParams.get('businessStatus');
+  const urlAccount = searchParams.get('account');
   const validTypes: TransactionType[] = ['income', 'expense', 'transfer', 'adjustment'];
   const validStatuses: BusinessStatus[] = ['pending', 'received'];
 
@@ -139,6 +140,9 @@ function TransactionsContent() {
   );
   const [selectedBusinessStatus, setSelectedBusinessStatus] = useState<'all' | BusinessStatus>(
     urlBusinessStatus && validStatuses.includes(urlBusinessStatus as BusinessStatus) ? urlBusinessStatus as BusinessStatus : 'all'
+  );
+  const [selectedAccount, setSelectedAccount] = useState<string>(
+    urlAccount || 'all'
   );
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -332,22 +336,27 @@ function TransactionsContent() {
     // Date filter
     const txDate = new Date(transaction.date);
     const inDateRange = txDate >= dateRangeStart && txDate <= dateRangeEnd;
-    
+
     // Type filter
     const typeMatch = selectedType === 'all' || transaction.type === selectedType;
-    
+
     // Status filter
     const statusMatch = selectedBusinessStatus === 'all' || transaction.businessStatus === selectedBusinessStatus;
-    
+
     // Category filter
     const categoryMatch = selectedCategory === 'all' || transaction.categoryId === selectedCategory;
-    
+
+    // Account filter - match if account appears as source OR destination
+    const accountMatch = selectedAccount === 'all' ||
+      transaction.sourceAccountId === selectedAccount ||
+      transaction.destinationAccountId === selectedAccount;
+
     // Search filter
     const searchMatch = normalizedSearch === '' ||
       transaction.title.toLowerCase().includes(normalizedSearch) ||
       (transaction.note?.toLowerCase().includes(normalizedSearch) ?? false);
-    
-    return inDateRange && typeMatch && statusMatch && categoryMatch && searchMatch;
+
+    return inDateRange && typeMatch && statusMatch && categoryMatch && accountMatch && searchMatch;
   });
 
   // Sort by date descending
@@ -360,10 +369,11 @@ function TransactionsContent() {
   const availableCategories = categories.filter((category) => category.type === form.type && category.isActive);
 
   // Count active filters
-  const activeFilterCount = 
+  const activeFilterCount =
     (selectedType !== 'all' ? 1 : 0) +
     (selectedBusinessStatus !== 'all' ? 1 : 0) +
-    (selectedCategory !== 'all' ? 1 : 0);
+    (selectedCategory !== 'all' ? 1 : 0) +
+    (selectedAccount !== 'all' ? 1 : 0);
 
   return (
     <main className="app-shell min-h-screen pb-24 md:pb-0">
@@ -481,11 +491,15 @@ function TransactionsContent() {
         setSelectedStatus={setSelectedBusinessStatus}
         selectedCategory={selectedCategory}
         setSelectedCategory={setSelectedCategory}
+        selectedAccount={selectedAccount}
+        setSelectedAccount={setSelectedAccount}
         categories={categories}
+        accounts={accounts}
         onClear={() => {
           setSelectedType('all');
           setSelectedBusinessStatus('all');
           setSelectedCategory('all');
+          setSelectedAccount('all');
         }}
       />
 
@@ -543,7 +557,10 @@ function FilterBottomSheet({
   setSelectedStatus,
   selectedCategory,
   setSelectedCategory,
+  selectedAccount,
+  setSelectedAccount,
   categories,
+  accounts,
   onClear,
 }: {
   isOpen: boolean;
@@ -554,7 +571,10 @@ function FilterBottomSheet({
   setSelectedStatus: (status: 'all' | BusinessStatus) => void;
   selectedCategory: string;
   setSelectedCategory: (category: string) => void;
+  selectedAccount: string;
+  setSelectedAccount: (account: string) => void;
   categories: Category[];
+  accounts: Account[];
   onClear: () => void;
 }) {
   if (!isOpen) return null;
@@ -669,6 +689,47 @@ function FilterBottomSheet({
                   }`}
                 >
                   {category.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Account Filter */}
+          <div>
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <span>🏦</span> บัญชี
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedAccount('all')}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                  selectedAccount === 'all'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                ทั้งหมด
+              </button>
+              {/* Sort accounts: by person total balance, then by account balance */}
+              {accounts
+                .slice()
+                .sort((a, b) => {
+                  // Sort by balance DESC (account with higher balance first)
+                  return b.currentBalance - a.currentBalance;
+                })
+                .map((account) => (
+                <button
+                  key={account.id}
+                  type="button"
+                  onClick={() => setSelectedAccount(account.id)}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                    selectedAccount === account.id
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {account.personName} • {account.name}
                 </button>
               ))}
             </div>
