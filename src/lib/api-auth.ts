@@ -36,9 +36,36 @@ export async function getRequestContext(request: NextRequest): Promise<{
   db: AppDatabase;
   session: NonNullable<Awaited<ReturnType<ReturnType<typeof createAuth>['api']['getSession']>>>;
 }> {
+  const totalStart = performance.now();
+
+  const d1Start = performance.now();
   const d1 = await getD1();
+  const d1Ms = performance.now() - d1Start;
+
   const db = getDb(d1);
-  const session = await createAuth(d1).api.getSession({ headers: request.headers });
+
+  const authStart = performance.now();
+  const auth = createAuth(d1);
+  const authMs = performance.now() - authStart;
+
+  const sessionStart = performance.now();
+  const session = await auth.api.getSession({ headers: request.headers });
+  const sessionMs = performance.now() - sessionStart;
+
+  const totalMs = performance.now() - totalStart;
+
+  console.log('[API_AUTH]', {
+    url: request.url,
+    method: request.method,
+    hasSession: !!session,
+    userId: session?.user?.id,
+    d1Ms: Math.round(d1Ms * 100) / 100,
+    authMs: Math.round(authMs * 100) / 100,
+    sessionMs: Math.round(sessionMs * 100) / 100,
+    totalMs: Math.round(totalMs * 100) / 100,
+    timestamp: new Date().toISOString(),
+  });
+
   if (!session) {
     throw new UnauthorizedError();
   }

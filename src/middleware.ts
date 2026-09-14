@@ -3,6 +3,18 @@ import { NextResponse, type NextRequest } from 'next/server';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  const sessionCookie =
+    request.cookies.get('better-auth.session_token') ||
+    request.cookies.get('__Secure-better-auth.session_token');
+
+  const hasCookie = !!sessionCookie;
+
+  console.log('[MIDDLEWARE]', {
+    pathname,
+    hasCookie,
+    timestamp: new Date().toISOString(),
+  });
+
   // ข้าม Static Assets และ Public Paths
   if (
     pathname.startsWith('/_next') ||
@@ -12,11 +24,6 @@ export async function middleware(request: NextRequest) {
   ) {
     return NextResponse.next();
   }
-
-  // ดึง Session Cookie ที่ Better Auth สร้างขึ้น
-  const sessionCookie =
-    request.cookies.get('better-auth.session_token') ||
-    request.cookies.get('__Secure-better-auth.session_token');
 
   // ตรวจสอบการเข้าถึงหน้าที่มีการป้องกัน
   if (!sessionCookie) {
