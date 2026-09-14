@@ -41,6 +41,12 @@ export async function middleware(request: NextRequest) {
     pathname === '/login' ||
     pathname.includes('.')
   ) {
+    console.error('[MIDDLEWARE_PASS]', {
+      pathname,
+      hasCookie,
+      reason: 'skipped_public_or_static',
+      timestamp: new Date().toISOString(),
+    });
     return NextResponse.next();
   }
 
@@ -48,9 +54,24 @@ export async function middleware(request: NextRequest) {
   if (!sessionCookie) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('callbackUrl', encodeURI(pathname));
+
+    console.error('[MIDDLEWARE_REDIRECT]', {
+      pathname,
+      hasCookie,
+      reason: 'no_session_cookie',
+      target: loginUrl.pathname + loginUrl.search,
+      timestamp: new Date().toISOString(),
+    });
+
     return NextResponse.redirect(loginUrl);
   }
 
+  console.error('[MIDDLEWARE_PASS]', {
+    pathname,
+    hasCookie,
+    reason: 'session_cookie_present',
+    timestamp: new Date().toISOString(),
+  });
   return NextResponse.next();
 }
 
