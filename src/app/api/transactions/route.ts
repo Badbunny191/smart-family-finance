@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { accounts, categories, persons, properties, transactions, users } from '@/db/schema';
 import { getRequestContext, handleApiError, isAdmin } from '@/lib/api-auth';
 import { transactionInputSchema, validationError } from '@/lib/validation';
+import { getBalanceImpact, getTransferImpact } from '@/lib/transaction-balance';
 import { alias } from 'drizzle-orm/sqlite-core';
 
 export const runtime = 'nodejs';
@@ -171,33 +172,65 @@ function balanceStatements(
   const statements = [];
 
   // Only update balance when businessStatus is NOT 'pending'
+  // businessStatus === 'pending' → status === 'pending' → 0 impact (never affected balance)
   const shouldUpdateBalance = businessStatus !== 'pending';
 
   if (shouldUpdateBalance) {
-    // expense, transfer = subtract from source account
-    if ((type === 'expense' || type === 'transfer') && sourceAccountId) {
-      statements.push(
-        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
-      );
+    // Build a completed-status tx for impact calculation
+    const completedTx = {
+      type,
+      amount,
+      status: 'completed' as const,
+      adjustmentDirection: adjustmentDirection ?? null,
+      sourceAccountId: sourceAccountId ?? null,
+      destinationAccountId: destinationAccountId ?? null,
+    };
+
+    // expense / income / adjustment: scalar impact via getBalanceImpact
+    if (type === 'expense' && sourceAccountId) {
+      const impact = getBalanceImpact(completedTx);
+      if (impact !== 0) {
+        statements.push(
+          db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${impact}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+        );
+      }
     }
-    // income, transfer = add to destination account
-    if ((type === 'income' || type === 'transfer') && destinationAccountId) {
-      statements.push(
-        db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
-      );
+    if (type === 'income' && destinationAccountId) {
+      const impact = getBalanceImpact(completedTx);
+      if (impact !== 0) {
+        statements.push(
+          db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${impact}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
+        );
+      }
     }
-    // Adjustment: explicit direction from request (not from title)
-    // increase = add to balance, decrease = subtract from balance
+
+    // adjustment: scalar impact via getBalanceImpact
     if (type === 'adjustment' && sourceAccountId) {
-      if (adjustmentDirection === 'increase') {
+      const impact = getBalanceImpact(completedTx);
+      if (impact !== 0) {
         statements.push(
-          db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+          db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${impact}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
         );
-      } else {
-        // 'decrease' or default to subtract
-        statements.push(
-          db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} - ${amount}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
-        );
+      }
+    }
+
+    // transfer: per-account impact via getTransferImpact
+    if (type === 'transfer') {
+      if (sourceAccountId) {
+        const impact = getTransferImpact(completedTx, sourceAccountId);
+        if (impact !== 0) {
+          statements.push(
+            db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${impact}`, updatedAt: new Date() }).where(eq(accounts.id, sourceAccountId))
+          );
+        }
+      }
+      if (destinationAccountId) {
+        const impact = getTransferImpact(completedTx, destinationAccountId);
+        if (impact !== 0) {
+          statements.push(
+            db.update(accounts).set({ currentBalance: sql`${accounts.currentBalance} + ${impact}`, updatedAt: new Date() }).where(eq(accounts.id, destinationAccountId))
+          );
+        }
       }
     }
   }

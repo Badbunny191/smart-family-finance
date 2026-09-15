@@ -192,8 +192,20 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
       });
       
       if (!response.ok) {
-        const errorData = await response.json() as { message?: string };
-        throw new Error(errorData.message || 'ไม่สามารถปรับยอดได้');
+        const errorData = await response.json() as { error?: string | Record<string, string[]>; message?: string };
+        // Server returns { error: ... } not { message: ... }
+        let errorMsg = errorData.message;
+        if (!errorMsg && errorData.error) {
+          if (typeof errorData.error === 'string') {
+            errorMsg = errorData.error;
+          } else {
+            // Zod validation error shape: { field: [msgs] }
+            const fieldErrors = errorData.error as Record<string, string[]>;
+            const firstField = Object.keys(fieldErrors)[0];
+            if (firstField) errorMsg = fieldErrors[firstField]?.[0];
+          }
+        }
+        throw new Error(errorMsg || 'ไม่สามารถปรับยอดได้');
       }
       
       // Reload data
