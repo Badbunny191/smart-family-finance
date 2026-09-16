@@ -2,12 +2,19 @@
   "version": "7",
   "dialect": "sqlite",
   "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1789492615588,
-      "tag": "0000_spotty_giant_man",
-      "breakpoints": true
-    }
+  {
+    "idx": 0,
+    "version": "6",
+    "when": 1789492615588,
+    "tag": "0000_spotty_giant_man",
+    "breakpoints": true
+  },
+  {
+    "idx": 1,
+    "version": "6",
+    "when": 1726500000000,
+    "tag": "0010_allow_reconcile_action",
+    "breakpoints": false
+  }
   ]
 }

@@ -256,7 +256,7 @@ export const activityLogs = sqliteTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id),
-    action: text('action', { enum: ['CREATE', 'UPDATE', 'DELETE', 'RESTORE'] }).notNull(),
+    action: text('action', { enum: ['CREATE', 'UPDATE', 'DELETE', 'RESTORE', 'RECONCILE'] }).notNull(),
     entity: text('entity').notNull(),
     entityId: text('entity_id').notNull(),
     oldValue: text('old_value'),
