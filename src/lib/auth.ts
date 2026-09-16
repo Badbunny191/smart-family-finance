@@ -9,16 +9,10 @@ let authInstance: ReturnType<typeof betterAuth> | null = null;
 export function createAuth(d1: D1Database) {
   // Fast path: return cached instance
   if (authInstance) {
-    console.log('[AUTH]', {
-      event: 'cache_hit',
-      timestamp: new Date().toISOString(),
-    });
     return authInstance;
   }
 
   const db = getDb(d1);
-  const initStart = performance.now();
-  const start = performance.now();
 
   authInstance = betterAuth({
     database: drizzleAdapter(db, {
@@ -66,20 +60,9 @@ export function createAuth(d1: D1Database) {
     },
   });
 
-  const initMs = performance.now() - initStart;
-  console.log('[AUTH]', {
-    event: 'cold_start',
-    initMs: Math.round(initMs * 100) / 100,
-    timestamp: new Date().toISOString(),
-  });
-
   return authInstance;
 }
 
 export function invalidateAuthCache(): void {
-  console.log('[AUTH]', {
-    event: 'cache_invalidated',
-    timestamp: new Date().toISOString(),
-  });
   authInstance = null;
 }

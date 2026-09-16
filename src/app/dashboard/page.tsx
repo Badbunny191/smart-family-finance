@@ -44,30 +44,9 @@ type BusinessPersonWithAccounts = {
 
 export default async function DashboardPage() {
   const requestHeaders = await headers();
-  const h = Object.fromEntries(requestHeaders.entries());
-  const cookieHeader = h['cookie'] || '';
-  const userAgent = h['user-agent'] || '';
-  const isIOS = /iPad|iPhone|iPod/.test(userAgent);
 
   const d1 = await getD1();
   const session = await createAuth(d1).api.getSession({ headers: requestHeaders });
-
-  console.log('[REDIRECT_TRACE]', {
-    source: 'src/app/dashboard/page.tsx (DashboardPage)',
-    hasCookieHeader: !!cookieHeader,
-    cookieHeaderLength: cookieHeader.length,
-    cookieHeaderHasSessionToken: cookieHeader.includes('better-auth.session_token'),
-    isIOS,
-    secFetchMode: h['sec-fetch-mode'],
-    secFetchDest: h['sec-fetch-dest'],
-    hasSession: !!session,
-    userId: session?.user?.id,
-    userEmail: session?.user?.email,
-    sessionExpiresAt: session?.session?.expiresAt,
-    willRedirectToLogin: !session,
-    target: !session ? '/login' : null,
-    timestamp: new Date().toISOString(),
-  });
 
   if (!session) redirect('/login');
 

@@ -76,11 +76,6 @@ function AccountDetailLoading() {
 }
 
 function AccountDetailContent({ accountId }: { accountId: string }) {
-  console.error('ACCOUNT_DEBUG_VISIBLE', {
-    accountId,
-    timestamp: new Date().toISOString(),
-  });
-
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,25 +85,10 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isAdjusting, setIsAdjusting] = useState(false);
 
-  console.log('[ACCOUNT_RENDER]', {
-    accountId,
-    accountsCount: accounts.length,
-    transactionsCount: transactions.length,
-    selectedPeriod,
-    searchQuery,
-    timestamp: new Date().toISOString(),
-  });
-
   // Session & role check
   const { data } = useSession();
   const session = data as Session | null;
   const isAdmin = isUserAdmin(session);
-
-  console.log('[ACCOUNT_SESSION]', {
-    hasSession: !!data,
-    userId: data?.user?.id,
-    timestamp: new Date().toISOString(),
-  });
 
   // Find current account
   const account = accounts.find(a => a.id === accountId);
@@ -116,16 +96,7 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
 
   // Load data
   useEffect(() => {
-    console.error('ACCOUNT_EFFECT_MOUNT', {
-      accountId,
-      timestamp: new Date().toISOString(),
-    });
-
     const loadData = async () => {
-      console.log('[ACCOUNT_LOAD_START]', {
-        accountId,
-        timestamp: new Date().toISOString(),
-      });
       try {
         const [accountsRes, transactionsRes] = await Promise.all([
           fetch('/api/accounts'),
@@ -136,12 +107,6 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
         }
         const accountsJson = await accountsRes.json() as Account[];
         const transactionsJson = await transactionsRes.json() as Transaction[];
-        console.log('[ACCOUNT_LOAD_SUCCESS]', {
-          accountId,
-          accountsCount: accountsJson.length,
-          transactionsCount: transactionsJson.length,
-          timestamp: new Date().toISOString(),
-        });
         setAccounts(accountsJson);
         setTransactions(transactionsJson);
       } catch (error) {
@@ -302,14 +267,6 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
 
     // Sort by date descending
     filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    console.log('[ACCOUNT_MEMO]', {
-      accountId,
-      selectedPeriod,
-      transactionCount: accountTransactions.length,
-      filteredCount: filtered.length,
-      timestamp: new Date().toISOString(),
-    });
 
     return {
       summary: { income, expense, net: income - expense, adjustment: adjustmentTotal },

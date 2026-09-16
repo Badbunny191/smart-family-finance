@@ -76,7 +76,6 @@ export async function POST(request: NextRequest) {
     }
 
     const input = parsed.data;
-    console.log('[POST /api/transactions] Input:', parsed.data);
 
     // Permission check for adjustment type - only admin can create adjustments
     if (input.type === 'adjustment' && !isAdmin(session)) {
@@ -138,24 +137,12 @@ export async function POST(request: NextRequest) {
       deletedAt: null,
     };
 
-    console.log('[POST /api/transactions] Transaction:', transaction);
-
     await db.batch([
       db.insert(transactions).values(transaction),
       ...balanceStatements(db, input.type, input.amount, input.adjustmentDirection, input.sourceAccountId, input.destinationAccountId, input.businessStatus),
     ]);
     return NextResponse.json(transaction, { status: 201 });
   } catch (error) {
-    console.error(
-      '[POST /api/transactions] ERROR',
-      error instanceof Error
-        ? {
-            name: error.name,
-            message: error.message,
-            stack: error.stack,
-          }
-        : error
-    );
     return handleApiError(error);
   }
 }

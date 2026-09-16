@@ -36,56 +36,10 @@ export async function getRequestContext(request: NextRequest): Promise<{
   db: AppDatabase;
   session: NonNullable<Awaited<ReturnType<ReturnType<typeof createAuth>['api']['getSession']>>>;
 }> {
-  const totalStart = performance.now();
-
-  // 🎯 DEBUG: log raw request info ก่อนทำอะไร
-  const rawCookieHeader = request.headers.get('cookie') || '';
-  const userAgent = request.headers.get('user-agent') || '';
-  const isIOS = /iPad|iPhone|iPod/.test(userAgent);
-
-  console.log('[GET_SESSION_CONTEXT_REQUEST]', {
-    url: request.url,
-    method: request.method,
-    hasCookieHeader: !!rawCookieHeader,
-    cookieHeaderLength: rawCookieHeader.length,
-    cookieHeaderHasSessionToken: rawCookieHeader.includes('better-auth.session_token'),
-    isIOS,
-    timestamp: new Date().toISOString(),
-  });
-
-  const d1Start = performance.now();
   const d1 = await getD1();
-  const d1Ms = performance.now() - d1Start;
-
   const db = getDb(d1);
-
-  const authStart = performance.now();
   const auth = createAuth(d1);
-  const authMs = performance.now() - authStart;
-
-  const sessionStart = performance.now();
   const session = await auth.api.getSession({ headers: request.headers });
-  const sessionMs = performance.now() - sessionStart;
-
-  const totalMs = performance.now() - totalStart;
-
-  // 🎯 DEBUG: log session resolution result
-  console.log('[GET_SESSION_CONTEXT_RESULT]', {
-    url: request.url,
-    method: request.method,
-    hasSession: !!session,
-    userId: session?.user?.id,
-    userEmail: session?.user?.email,
-    sessionId: session?.session?.id ? 'present' : 'missing',
-    sessionExpiresAt: session?.session?.expiresAt,
-    sessionIpAddress: session?.session?.ipAddress,
-    sessionUserAgent: session?.session?.userAgent?.slice(0, 50),
-    d1Ms: Math.round(d1Ms * 100) / 100,
-    authMs: Math.round(authMs * 100) / 100,
-    sessionMs: Math.round(sessionMs * 100) / 100,
-    totalMs: Math.round(totalMs * 100) / 100,
-    timestamp: new Date().toISOString(),
-  });
 
   if (!session) {
     throw new UnauthorizedError();

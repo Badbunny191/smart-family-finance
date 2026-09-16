@@ -215,6 +215,8 @@ export const transactions = sqliteTable(
     ),
     propertyIdx: index('transactions_property_idx').on(table.propertyId),
     businessStatusIdx: index('transactions_business_status_idx').on(table.businessStatus),
+    sourceAccountIdx: index('transactions_source_account_idx').on(table.sourceAccountId),
+    destinationAccountIdx: index('transactions_destination_account_idx').on(table.destinationAccountId),
     deletedIdx: index('transactions_deleted_idx').on(table.deletedAt),
   })
 );

@@ -41,8 +41,6 @@ export function GlobalErrorLogger() {
     window.addEventListener('error', onError);
     window.addEventListener('unhandledrejection', onUnhandledRejection);
 
-    console.error('[GLOBAL_ERROR_INITIALIZED]', context());
-
     return () => {
       window.removeEventListener('error', onError);
       window.removeEventListener('unhandledrejection', onUnhandledRejection);

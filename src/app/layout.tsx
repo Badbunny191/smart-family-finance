@@ -3,11 +3,10 @@ import type { Viewport } from "next";
 import { DesktopSidebar } from '@/components/desktop-sidebar';
 import { ToastProvider } from '@/components/ui/toast';
 import { GlobalErrorLogger } from '@/components/global-error-logger';
-import { SessionDebugger } from '@/components/session-debugger';
 import './globals.css';
 
 export const viewport: Viewport = {
-  width: "device-width",
+    width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
@@ -27,7 +26,6 @@ export default function RootLayout({
     <html lang="th">
       <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
         <GlobalErrorLogger />
-        <SessionDebugger />
         <ToastProvider>
           <div className="flex min-h-screen w-full">
             <DesktopSidebar />
