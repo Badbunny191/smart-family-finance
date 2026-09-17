@@ -41,7 +41,17 @@ type Transaction = {
   adjustmentReason: string | null;
   adjustmentDirection: 'increase' | 'decrease' | null;
   createdByUserName: string | null;
+  createdAt: string;
 };
+
+type SortOrder = 'date_desc' | 'date_asc';
+
+const PREFERENCE_KEY = 'accountTransactionSortOrder';
+
+const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
+  { value: 'date_desc', label: 'ล่าสุดก่อน' },
+  { value: 'date_asc', label: 'เก่าสุดก่อน' },
+];
 
 type Period = 'today' | 'week' | 'month';
 
@@ -84,6 +94,23 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isAdjusting, setIsAdjusting] = useState(false);
+
+  // Sort order state with localStorage persistence
+  const [sortOrder, setSortOrder] = useState<SortOrder>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(PREFERENCE_KEY);
+      return (saved === 'date_asc' ? 'date_asc' : 'date_desc') as SortOrder;
+    }
+    return 'date_desc';
+  });
+
+  // Handle sort order change
+  const handleSortOrderChange = (newOrder: SortOrder) => {
+    setSortOrder(newOrder);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(PREFERENCE_KEY, newOrder);
+    }
+  };
 
   // Session & role check
   const { data } = useSession();
@@ -261,18 +288,28 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
     const normalizedSearch = searchQuery.trim().toLowerCase();
     const filtered = normalizedSearch === ''
       ? accountTransactions
-      : accountTransactions.filter(tx => 
+      : accountTransactions.filter(tx =>
           tx.title.toLowerCase().includes(normalizedSearch)
         );
 
-    // Sort by date descending
-    filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // Sort by date and createdAt based on sortOrder preference
+    filtered.sort((a, b) => {
+      const dateA = new Date(a.date).getTime();
+      const dateB = new Date(b.date).getTime();
+      if (dateB !== dateA) {
+        return sortOrder === 'date_desc' ? dateB - dateA : dateA - dateB;
+      }
+      // Same date: use createdAt as secondary sort
+      const createdA = new Date(a.createdAt).getTime();
+      const createdB = new Date(b.createdAt).getTime();
+      return sortOrder === 'date_desc' ? createdB - createdA : createdA - createdB;
+    });
 
     return {
       summary: { income, expense, net: income - expense, adjustment: adjustmentTotal },
       filteredTransactions: filtered as typeof accountTransactions,
     };
-  }, [account, accountId, transactions, selectedPeriod, searchQuery]);
+  }, [account, accountId, transactions, selectedPeriod, searchQuery, sortOrder]);
 
   // Transaction display helper
   const getTransactionDisplay = (tx: Transaction) => {
@@ -515,17 +552,30 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
           </div>
         )}
 
-        {/* Search */}
+        {/* Search & Sort Row */}
         {filteredTransactions.length > 0 && (
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="🔍 ค้นหารายการ..."
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-600"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="🔍 ค้นหารายการ..."
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-600"
+              />
+            </div>
+            <select
+              value={sortOrder}
+              onChange={(e) => handleSortOrderChange(e.target.value as SortOrder)}
+              className="h-11 shrink-0 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-600"
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 

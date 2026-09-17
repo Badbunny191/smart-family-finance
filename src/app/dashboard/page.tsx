@@ -398,22 +398,6 @@ export default async function DashboardPage() {
         </section>
 
         {/* ========================================
-            PERSONAL ACCOUNTS - Accordion
-            ======================================== */}
-        {data.personalByPerson.length > 0 && (
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">บัญชีส่วนตัว</h2>
-              <span className="text-sm font-bold text-slate-700">{formatCurrency(data.personalTotal)}</span>
-            </div>
-            <PersonAccordionCard
-              persons={data.personalByPerson}
-              variant="personal"
-            />
-          </section>
-        )}
-
-        {/* ========================================
             BUSINESS ACCOUNTS - Accordion
             ======================================== */}
         {data.businessByPerson.length > 0 && (
@@ -425,6 +409,22 @@ export default async function DashboardPage() {
             <PersonAccordionCard
               persons={data.businessByPerson}
               variant="business"
+            />
+          </section>
+        )}
+
+        {/* ========================================
+            PERSONAL ACCOUNTS - Accordion
+            ======================================== */}
+        {data.personalByPerson.length > 0 && (
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">บัญชีส่วนตัว</h2>
+              <span className="text-sm font-bold text-slate-700">{formatCurrency(data.personalTotal)}</span>
+            </div>
+            <PersonAccordionCard
+              persons={data.personalByPerson}
+              variant="personal"
             />
           </section>
         )}

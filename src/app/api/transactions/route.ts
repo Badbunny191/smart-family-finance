@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         date: transactions.date,
         title: transactions.title,
         status: transactions.status,
+        createdAt: transactions.createdAt,
         propertyId: transactions.propertyId,
         propertyName: properties.name,
         categoryId: transactions.categoryId,
