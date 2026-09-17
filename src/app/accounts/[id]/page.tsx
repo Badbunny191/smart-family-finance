@@ -44,14 +44,14 @@ type Transaction = {
   createdAt: string;
 };
 
-type SortOrder = 'date_desc' | 'date_asc';
-
-const PREFERENCE_KEY = 'accountTransactionSortOrder';
-
+type SortOrder = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc';
 const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
   { value: 'date_desc', label: 'ล่าสุดก่อน' },
   { value: 'date_asc', label: 'เก่าสุดก่อน' },
+  { value: 'amount_desc', label: 'มาก→น้อย' },
+  { value: 'amount_asc', label: 'น้อย→มาก' },
 ];
+const SORT_PREFERENCE_KEY = 'transactionSortOrder';
 
 type Period = 'today' | 'week' | 'month';
 
@@ -98,8 +98,10 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   // Sort order state with localStorage persistence
   const [sortOrder, setSortOrder] = useState<SortOrder>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(PREFERENCE_KEY);
-      return (saved === 'date_asc' ? 'date_asc' : 'date_desc') as SortOrder;
+      const saved = localStorage.getItem(SORT_PREFERENCE_KEY);
+      if (saved && SORT_OPTIONS.some(o => o.value === saved)) {
+        return saved as SortOrder;
+      }
     }
     return 'date_desc';
   });
@@ -108,7 +110,7 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
   const handleSortOrderChange = (newOrder: SortOrder) => {
     setSortOrder(newOrder);
     if (typeof window !== 'undefined') {
-      localStorage.setItem(PREFERENCE_KEY, newOrder);
+      localStorage.setItem(SORT_PREFERENCE_KEY, newOrder);
     }
   };
 
@@ -292,8 +294,15 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
           tx.title.toLowerCase().includes(normalizedSearch)
         );
 
-    // Sort by date and createdAt based on sortOrder preference
+    // Sort by date/amount based on sortOrder preference
     filtered.sort((a, b) => {
+      if (sortOrder === 'amount_desc') {
+        return b.amount - a.amount;
+      }
+      if (sortOrder === 'amount_asc') {
+        return a.amount - b.amount;
+      }
+      // Date sorting
       const dateA = new Date(a.date).getTime();
       const dateB = new Date(b.date).getTime();
       if (dateB !== dateA) {

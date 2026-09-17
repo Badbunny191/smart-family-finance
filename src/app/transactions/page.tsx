@@ -11,7 +11,61 @@ import { isUserAdmin, type Session } from '@/types/session';
 type TransactionType = 'income' | 'expense' | 'transfer' | 'adjustment';
 type BusinessStatus = 'pending' | 'received';
 type Property = { id: string; name: string };
-type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean; accountType: 'bank' | 'cash'; personId: string; personName: string };
+
+// Shared sort types
+type SortOrder = 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc';
+const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
+  { value: 'date_desc', label: 'ล่าสุดก่อน' },
+  { value: 'date_asc', label: 'เก่าสุดก่อน' },
+  { value: 'amount_desc', label: 'มาก→น้อย' },
+  { value: 'amount_asc', label: 'น้อย→มาก' },
+];
+const SORT_PREFERENCE_KEY = 'transactionSortOrder';
+
+// Account display helper
+const formatAccountLabel = (account: { name: string; bankName: string | null; accountNumber: string | null; accountType: 'bank' | 'cash'; isBusinessAccount: boolean; accountAlias?: string | null }) => {
+  // Cash account
+  if (account.accountType === 'cash') {
+    return `💵 เงินสด`;
+  }
+  
+  // Bank account with alias
+  if (account.accountAlias) {
+    return account.accountAlias;
+  }
+  
+  // Bank account without alias - show bank + last 4 digits
+  const bankDisplay = account.bankName || 'ไม่ระบุธนาคาร';
+  const numberDisplay = account.accountNumber ? ` • ${account.accountNumber.slice(-4)}` : '';
+  return `${bankDisplay}${numberDisplay}`;
+};
+
+// Sort transactions helper
+const sortTransactions = <T extends { date: string; amount: number; createdAt?: string }>(
+  transactions: T[],
+  sortOrder: SortOrder
+): T[] => {
+  return [...transactions].sort((a, b) => {
+    if (sortOrder === 'amount_desc') {
+      return b.amount - a.amount;
+    }
+    if (sortOrder === 'amount_asc') {
+      return a.amount - b.amount;
+    }
+    // Date sorting
+    const dateA = new Date(a.date).getTime();
+    const dateB = new Date(b.date).getTime();
+    if (dateB !== dateA) {
+      return sortOrder === 'date_desc' ? dateB - dateA : dateA - dateB;
+    }
+    // Secondary sort by createdAt for same date
+    const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return sortOrder === 'date_desc' ? createdB - createdA : createdA - createdB;
+  });
+};
+
+type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean; accountType: 'bank' | 'cash'; personId: string; personName: string; accountAlias?: string | null };
 type Category = { id: string; name: string; type: 'income' | 'expense'; isActive: boolean };
 type Transaction = {
   id: string;
@@ -39,6 +93,7 @@ type Transaction = {
   destinationIsBusinessAccount: boolean | null;
   note: string | null;
   adjustmentReason: string | null;
+  createdAt?: string;
 };
 type FormState = {
   type: TransactionType;
@@ -155,6 +210,15 @@ function TransactionsContent() {
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
   const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>('month');
+  const [sortOrder, setSortOrder] = useState<SortOrder>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(SORT_PREFERENCE_KEY);
+      if (saved && SORT_OPTIONS.some(o => o.value === saved)) {
+        return saved as SortOrder;
+      }
+    }
+    return 'date_desc';
+  });
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -361,10 +425,8 @@ function TransactionsContent() {
 
   // Sort by date descending
   const sortedTransactions = useMemo(() => {
-    return [...visibleTransactions].sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-  }, [visibleTransactions]);
+    return sortTransactions(visibleTransactions, sortOrder);
+  }, [visibleTransactions, sortOrder]);
 
   const availableCategories = categories.filter((category) => category.type === form.type && category.isActive);
 
@@ -379,7 +441,7 @@ function TransactionsContent() {
     <main className="app-shell min-h-screen pb-24 md:pb-0">
       {/* V4 Sticky Filter Bar */}
       <header className="sticky top-0 z-10 border-b border-slate-200/70 bg-white/95 px-4 backdrop-blur-xl">
-        {/* Row 1: Search + Filter Button */}
+        {/* Row 1: Search + Sort + Filter Button */}
         <div className="flex items-center gap-2 py-3">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -391,6 +453,21 @@ function TransactionsContent() {
               className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
             />
           </div>
+          <select
+            value={sortOrder}
+            onChange={(e) => {
+              const newOrder = e.target.value as SortOrder;
+              setSortOrder(newOrder);
+              localStorage.setItem(SORT_PREFERENCE_KEY, newOrder);
+            }}
+            className="h-11 shrink-0 rounded-xl border border-slate-200 bg-white px-2 text-sm outline-none focus:border-emerald-500"
+          >
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => setIsFilterSheetOpen(true)}
@@ -714,24 +791,21 @@ function FilterBottomSheet({
               {/* Sort accounts: by person total balance, then by account balance */}
               {accounts
                 .slice()
-                .sort((a, b) => {
-                  // Sort by balance DESC (account with higher balance first)
-                  return b.currentBalance - a.currentBalance;
-                })
+                .sort((a, b) => b.currentBalance - a.currentBalance)
                 .map((account) => (
-                <button
-                  key={account.id}
-                  type="button"
-                  onClick={() => setSelectedAccount(account.id)}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                    selectedAccount === account.id
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  {account.personName} • {account.name}
-                </button>
-              ))}
+                  <button
+                    key={account.id}
+                    type="button"
+                    onClick={() => setSelectedAccount(account.id)}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                      selectedAccount === account.id
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {formatAccountLabel(account)}
+                  </button>
+                ))}
             </div>
           </div>
         </div>
@@ -850,23 +924,31 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
   const canEdit = transaction.type !== 'adjustment' || isAdmin;
   const canDelete = transaction.type !== 'adjustment' || isAdmin;
 
-  const getAccountTypeLabel = (isBusiness: boolean | null, accountType: 'bank' | 'cash' | null) => {
+  const getAccountBadge = (isBusiness: boolean | null, accountType: 'bank' | 'cash' | null) => {
     if (isBusiness === true) return '🏢 บัญชีธุรกิจ';
     if (accountType === 'cash') return '💵 เงินสด';
     return '👤 บัญชีส่วนตัว';
   };
 
+  // Format account label for display
+  const formatAccountDisplay = (name: string | null, bank: string | null, number: string | null) => {
+    if (!name) return 'ไม่ระบุบัญชี';
+    const bankDisplay = bank || 'ไม่ระบุธนาคาร';
+    const numberDisplay = number ? ` • ${number.slice(-4)}` : '';
+    return `${bankDisplay}${numberDisplay}`;
+  };
+
   const getAccountInfo = (account: typeof transaction) => {
-    const name = account.type === 'income' ? account.destinationAccountName : account.sourceAccountName;
-    const bank = account.type === 'income' ? account.destinationAccountBank : account.sourceAccountBank;
-    const number = account.type === 'income' ? account.destinationAccountNumber : account.sourceAccountNumber;
-    const isBusiness = account.type === 'income' ? account.destinationIsBusinessAccount : account.sourceIsBusinessAccount;
-    const accType = account.type === 'income' ? account.destinationAccountType : account.sourceAccountType;
+    const name = account.type === 'income' ? transaction.destinationAccountName : transaction.sourceAccountName;
+    const bank = account.type === 'income' ? transaction.destinationAccountBank : transaction.sourceAccountBank;
+    const number = account.type === 'income' ? transaction.destinationAccountNumber : transaction.sourceAccountNumber;
+    const isBusiness = account.type === 'income' ? transaction.destinationIsBusinessAccount : transaction.sourceIsBusinessAccount;
+    const accType = account.type === 'income' ? transaction.destinationAccountType : transaction.sourceAccountType;
 
     if (!name) return null;
-    const typeLabel = getAccountTypeLabel(isBusiness, accType);
-    const accountDisplay = bank ? `${name} •••${number?.slice(-4) || '****'}` : name;
-    return { typeLabel, accountDisplay, icon: account.type === 'income' ? '📥' : '📤', label: account.type === 'income' ? 'เงินเข้า' : 'เงินออก' };
+    const badge = getAccountBadge(isBusiness, accType);
+    const display = formatAccountDisplay(name, bank, number);
+    return { badge, display, icon: account.type === 'income' ? '📥' : '📤', label: account.type === 'income' ? 'เงินเข้า' : 'เงินออก' };
   };
 
   const accountInfo = getAccountInfo(transaction);
@@ -926,8 +1008,8 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
       {transaction.type !== 'transfer' && accountInfo && (
         <div className="mt-3">
           <p className={`text-xs font-medium ${typeColor}`}>{accountInfo.icon} {accountInfo.label}</p>
-          <p className="mt-0.5 text-sm font-semibold text-slate-700">{accountInfo.typeLabel}</p>
-          <p className="text-sm font-medium text-slate-900">{accountInfo.accountDisplay}</p>
+          <p className="mt-0.5 text-sm font-semibold text-slate-700">{accountInfo.badge}</p>
+          <p className="text-sm font-medium text-slate-900">{accountInfo.display}</p>
         </div>
       )}
 
@@ -938,11 +1020,14 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
             <div>
               <p className="text-xs font-medium text-rose-600">📤 ต้นทาง</p>
               <p className="mt-0.5 text-sm font-semibold text-slate-700">
-                {getAccountTypeLabel(transaction.sourceIsBusinessAccount, transaction.sourceAccountType)}
+                {getAccountBadge(transaction.sourceIsBusinessAccount, transaction.sourceAccountType)}
               </p>
               <p className="text-sm font-medium text-slate-900">
-                {transaction.sourceAccountName}
-                {transaction.sourceAccountBank && ` •••${transaction.sourceAccountNumber?.slice(-4) || '****'}`}
+                {formatAccountDisplay(
+                  transaction.sourceAccountName,
+                  transaction.sourceAccountBank,
+                  transaction.sourceAccountNumber
+                )}
               </p>
             </div>
           )}
@@ -953,11 +1038,14 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
             <div>
               <p className="text-xs font-medium text-emerald-600">📥 ปลายทาง</p>
               <p className="mt-0.5 text-sm font-semibold text-slate-700">
-                {getAccountTypeLabel(transaction.destinationIsBusinessAccount, transaction.destinationAccountType)}
+                {getAccountBadge(transaction.destinationIsBusinessAccount, transaction.destinationAccountType)}
               </p>
               <p className="text-sm font-medium text-slate-900">
-                {transaction.destinationAccountName}
-                {transaction.destinationAccountBank && ` •••${transaction.destinationAccountNumber?.slice(-4) || '****'}`}
+                {formatAccountDisplay(
+                  transaction.destinationAccountName,
+                  transaction.destinationAccountBank,
+                  transaction.destinationAccountNumber
+                )}
               </p>
             </div>
           )}
@@ -1268,10 +1356,9 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
 
   const formatAccount = (name: string | null, bank: string | null, number: string | null) => {
     if (!name) return 'ไม่ระบุบัญชี';
-    const parts = [name];
-    if (bank) parts.push(bank);
-    if (number) parts.push(`เลขบัญชี: ${number}`);
-    return parts.join(' • ');
+    const bankDisplay = bank || 'ไม่ระบุธนาคาร';
+    const numberDisplay = number ? ` • ${number.slice(-4)}` : '';
+    return `${bankDisplay}${numberDisplay}`;
   };
 
   return (
