@@ -1142,20 +1142,29 @@ function AccountSelect({ value, accounts, onChange }: { value: string; accounts:
   const businessAccounts = accounts.filter(a => a.isBusinessAccount);
   const personalAccounts = accounts.filter(a => !a.isBusinessAccount);
 
+  const formatAccountOption = (account: Account) => {
+    if (account.accountType === 'cash') {
+      return `💵 ${account.name}`;
+    }
+    const bankDisplay = account.bankName || 'ไม่ระบุธนาคาร';
+    const accountNumberDisplay = account.accountNumber || '';
+    return `${account.name} (${bankDisplay}) - ${accountNumberDisplay}`;
+  };
+
   return (
     <select required value={value} onChange={(event) => onChange(event.target.value)} className="form-input">
       <option value="">เลือกบัญชี</option>
       {businessAccounts.length > 0 && (
         <optgroup label="🏢 บัญชีธุรกิจ">
           {businessAccounts.map((account) => (
-            <option key={account.id} value={account.id}>{account.name}</option>
+            <option key={account.id} value={account.id}>{formatAccountOption(account)}</option>
           ))}
         </optgroup>
       )}
       {personalAccounts.length > 0 && (
         <optgroup label="👤 บัญชีส่วนตัว">
           {personalAccounts.map((account) => (
-            <option key={account.id} value={account.id}>{account.name}</option>
+            <option key={account.id} value={account.id}>{formatAccountOption(account)}</option>
           ))}
         </optgroup>
       )}
