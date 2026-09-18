@@ -246,41 +246,54 @@ function AccountsContent() {
           }
           return sortedAccounts.map((account) => (
             <article key={account.id} className="surface-card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <Link href={`/accounts/${account.id}`} className="min-w-0 flex-1">
-                  <div className="flex items-center gap-3">
-                    <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${account.accountType === 'bank' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-700'}`}>
-                      {account.accountType === 'bank' ? <WalletCards size={21} /> : <Banknote size={21} />}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-900">
-                        {account.name?.trim() || account.personName}
-                      </div>
-                      {(account.accountType === 'bank' && (account.bankName || account.accountNumber)) && (
-                        <div className="text-xs text-slate-500">
-                          {account.bankName && `(${account.bankName})`}
-                          {account.accountNumber && ` ${account.accountNumber.replace(/-/g, '').slice(-4)}`}
+                <div className="flex items-start justify-between gap-3">
+                  <Link href={`/accounts/${account.id}`} className="min-w-0 flex-1">
+                    <div className="flex flex-col gap-1">
+                      {/* Row 1: Icon + Name + Edit/Delete */}
+                      <div className="flex items-center gap-3">
+                        <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl ${account.accountType === 'bank' ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                          {account.accountType === 'bank' ? <WalletCards size={21} /> : <Banknote size={21} />}
                         </div>
-                      )}
-                      <div className="text-xs text-slate-400">เจ้าของ : {account.personName}</div>
-                      {account.isBusinessAccount ? (
-                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">ธุรกิจ</span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">ส่วนตัว</span>
-                      )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-base font-bold text-slate-900 leading-snug">
+                            {account.name?.trim() || account.personName}
+                          </div>
+                          <div className="text-sm text-slate-500 leading-snug">
+                            {account.accountType === 'bank' ? (
+                              <>
+                                {account.bankName && `(${account.bankName}) `}
+                                {account.accountNumber && account.accountNumber.replace(/-/g, '').slice(-4)}
+                              </>
+                            ) : (
+                              <>เงินสด</>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-400 leading-snug">เจ้าของ : {account.personName}</div>
+                        </div>
+                      </div>
+                      {/* Row 2: Badge */}
+                      <div className="pl-14">
+                        {account.isBusinessAccount ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">ธุรกิจ</span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">ส่วนตัว</span>
+                        )}
+                      </div>
+                      {/* Row 3: Balance */}
+                      <div className="pl-14">
+                        <p className="text-2xl font-bold tracking-tight text-slate-900">{account.currentBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-sm font-medium text-slate-500">บาท</span></p>
+                      </div>
                     </div>
+                  </Link>
+                  <div className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" onClick={() => openEdit(account)} aria-label={`แก้ไข ${account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
+                      <Pencil size={18} />
+                    </button>
+                    <button type="button" onClick={() => void handleDeleteClick(account)} disabled={isChecking} aria-label={`ลบ ${account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+                      {isChecking ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                    </button>
                   </div>
-                  <p className="mt-5 truncate text-2xl font-bold tracking-tight text-slate-900">{account.currentBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-sm font-medium text-slate-500">บาท</span></p>
-                </Link>
-                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                  <button type="button" onClick={() => openEdit(account)} aria-label={`แก้ไข ${account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
-                    <Pencil size={18} />
-                  </button>
-                  <button type="button" onClick={() => void handleDeleteClick(account)} disabled={isChecking} aria-label={`ลบ ${account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
-                    {isChecking ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
-                  </button>
                 </div>
-              </div>
             </article>
           ));
         })()}
