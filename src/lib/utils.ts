@@ -16,8 +16,12 @@ import { twMerge } from 'tailwind-merge';
  */
 export type AccountDisplayInput = {
   accountType: 'bank' | 'cash';
+
   /** Display name (primary) */
   name: string | null;
+
+  accountAlias?: string | null;
+
   bankName?: string | null;
   accountNumber?: string | null;
 };
