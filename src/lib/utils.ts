@@ -5,13 +5,13 @@ import { twMerge } from 'tailwind-merge';
  * Central account display formatter.
  * Used consistently across all pages to show account names.
  *
- * Rules:
- * - Cash + alias: "{alias} เงินสด"
- * - Cash + no alias: "เงินสด"
- * - Bank + alias: "{alias} {bankName} • {last4digits}"
- * - Bank + no alias: "{bankName} • {last4digits}"
+ * Format:
+ * - Bank + name:     "🏦 {name} ({bankName})\n{last4}"
+ * - Bank + no name:  "🏦 {bankName}\n{last4}"
+ * - Cash + name:     "💵 {name} (เงินสด)"
+ * - Cash + no name:  "💵 เงินสด"
  *
- * last4digits = accountNumber.replace(/-/g, '').slice(-4)
+ * last4 = accountNumber.replace(/-/g, '').slice(-4)
  * (removes dashes before slicing to avoid "22-5" from "322-5")
  */
 export type AccountDisplayInput = {
@@ -30,7 +30,7 @@ export function formatAccountDisplayName(account: AccountDisplayInput): string {
   const { accountType, name, bankName, accountNumber } = account;
 
   if (accountType === 'cash') {
-    return name || 'เงินสด';
+    return name ? `💵 ${name} (เงินสด)` : '💵 เงินสด';
   }
 
   // Bank account
@@ -39,13 +39,17 @@ export function formatAccountDisplayName(account: AccountDisplayInput): string {
       ? accountNumber.replace(/-/g, '').slice(-4)
       : '';
 
+  const bank = bankName || 'ไม่ระบุธนาคาร';
+  const prefix = '🏦';
+
   if (name) {
-    return last4 ? `${name} • ${last4}` : name;
+    return last4
+      ? `${prefix} ${name} (${bank})\n${last4}`
+      : `${prefix} ${name} (${bank})`;
   }
 
   // No name → show only bank + last4
-  const bank = bankName || 'ไม่ระบุธนาคาร';
-  return last4 ? `${bank} • ${last4}` : bank;
+  return last4 ? `${prefix} ${bank}\n${last4}` : `${prefix} ${bank}`;
 }
 
 export function cn(...inputs: ClassValue[]): string {

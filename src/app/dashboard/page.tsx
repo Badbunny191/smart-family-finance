@@ -630,7 +630,7 @@ export default async function DashboardPage() {
                   : null;
 
                 const accountDisplay = tx.type === 'transfer'
-                  ? (sourceLabel && destLabel ? `${sourceLabel} → ${destLabel}` : sourceLabel || destLabel || '')
+                  ? (sourceLabel && destLabel ? `${sourceLabel}\n↓\n${destLabel}` : sourceLabel || destLabel || '')
                   : tx.type === 'income'
                     ? (destLabel || sourceLabel || '')
                     : (sourceLabel || '');

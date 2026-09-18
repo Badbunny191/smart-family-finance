@@ -1250,12 +1250,12 @@ function AccountSelect({ value, accounts, onChange }: { value: string; accounts:
   const personalAccounts = accounts.filter(a => !a.isBusinessAccount);
 
   const formatAccountOption = (account: Account) => {
-    return `💵 ${formatAccountDisplayName({
+    return formatAccountDisplayName({
       accountType: account.accountType,
       accountAlias: account.accountAlias,
       bankName: account.bankName,
       accountNumber: account.accountNumber,
-    })}`;
+    });
   };
 
   return (

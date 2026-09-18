@@ -5,6 +5,26 @@ import Link from 'next/link';
 import { ChevronDown, ChevronRight, PiggyBank, Building2 } from 'lucide-react';
 import { formatAccountDisplayName, formatCurrency } from '@/lib/utils';
 
+/**
+ * Dashboard-friendly account display.
+ * Bank: returns [nameLine, last4] — last4 as separate string for smaller font
+ * Cash: returns [fullLine, ''] — last4 empty
+ */
+function getDashboardAccountParts(account: AccountRow): [string, string] {
+  if (account.accountType === 'cash') {
+    const label = account.name ? `💵 ${account.name} (เงินสด)` : '💵 เงินสด';
+    return [label, ''];
+  }
+  const bank = account.bankName || 'ไม่ระบุธนาคาร';
+  const prefix = '🏦';
+  const nameLine = account.name ? `${prefix} ${account.name} (${bank})` : `${prefix} ${bank}`;
+  const last4 =
+    account.accountNumber && account.accountNumber.length > 0
+      ? account.accountNumber.replace(/-/g, '').slice(-4)
+      : '';
+  return [nameLine, last4];
+}
+
 // Types
 type AccountRow = {
   id: string;
@@ -139,17 +159,15 @@ function PersonAccordionRow({
             >
               <div className="flex items-center gap-3">
                 <AccountIcon type={account.accountType} />
-                <div>
-                  <p className="font-medium text-slate-800">
-                    {formatAccountDisplayName({
-                      accountType: account.accountType,
-                      accountAlias: account.accountAlias,
-                      bankName: account.bankName,
-                      accountNumber: account.accountNumber,
-                      name: account.name,
-                    })}
-                  </p>
-                </div>
+                {(function () {
+                  const [nameLine, last4] = getDashboardAccountParts(account);
+                  return (
+                    <div>
+                      <p className="font-medium text-slate-800 leading-tight">{nameLine}</p>
+                      {last4 && <p className="text-xs text-slate-400">{last4}</p>}
+                    </div>
+                  );
+                })()}
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-medium text-slate-700">{formatCurrency(account.currentBalance)}</span>
