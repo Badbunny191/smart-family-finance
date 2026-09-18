@@ -98,6 +98,7 @@ export const transactionMetadataSchema = z.object({
   // are intentionally NOT allowed via PATCH to preserve financial integrity.
   title: z.string().trim().min(1).max(200).optional(),
   note: z.string().trim().max(1000).nullable().optional(),
+  propertyId: z.string().trim().nullable().optional(),
 });
 
 export function validationError(error: z.ZodError) {

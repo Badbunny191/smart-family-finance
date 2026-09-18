@@ -357,6 +357,7 @@ function TransactionsContent() {
     note: string;
     categoryId: string;
     businessStatus: '' | BusinessStatus;
+    propertyId: string;
   }) => {
     if (!editingTransaction) return;
     setIsUpdating(true);
@@ -369,6 +370,7 @@ function TransactionsContent() {
         note: data.note || null,
         categoryId: data.categoryId || null,
         businessStatus: data.businessStatus || null,
+        propertyId: data.propertyId || null,
       }),
     });
 
@@ -623,6 +625,7 @@ function TransactionsContent() {
         <TransactionMetadataForm
           transaction={editingTransaction}
           categories={categories.filter((category) => category.type === editingTransaction.type && category.isActive)}
+          properties={properties}
           onClose={() => setEditingTransaction(null)}
           onSubmit={updateMetadata}
           isSaving={isUpdating}
@@ -1307,18 +1310,21 @@ function BusinessStatusSelect({ value, onChange }: { value: '' | BusinessStatus;
 function TransactionMetadataForm({
   transaction,
   categories,
+  properties,
   onClose,
   onSubmit,
   isSaving,
 }: {
   transaction: Transaction;
   categories: Category[];
+  properties: Property[];
   onClose: () => void;
   onSubmit: (data: {
     title: string;
     note: string;
     categoryId: string;
     businessStatus: '' | BusinessStatus;
+    propertyId: string;
   }) => Promise<void>;
   isSaving: boolean;
 }) {
@@ -1328,6 +1334,7 @@ function TransactionMetadataForm({
   const [businessStatus, setBusinessStatus] = useState<'' | BusinessStatus>(
     transaction.businessStatus || ''
   );
+  const [propertyId, setPropertyId] = useState(transaction.propertyId || '');
 
   const typeLabels: Record<TransactionType, string> = {
     income: 'รายรับ',
@@ -1412,6 +1419,7 @@ function TransactionMetadataForm({
             note: note.trim(),
             categoryId,
             businessStatus,
+            propertyId,
           });
         }}
         className="flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-white shadow-xl sm:max-w-md sm:rounded-2xl"
@@ -1467,6 +1475,16 @@ function TransactionMetadataForm({
           {transaction.type === 'income' && (
             <FormLabel label="สถานะ">
               <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} />
+            </FormLabel>
+          )}
+
+          {transaction.type !== 'transfer' && (
+            <FormLabel label="ทรัพย์สินที่เกี่ยวข้อง">
+              <PropertySelect
+                value={propertyId}
+                properties={properties}
+                onChange={setPropertyId}
+              />
             </FormLabel>
           )}
 
