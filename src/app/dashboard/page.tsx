@@ -153,7 +153,6 @@ export default async function DashboardPage() {
       .limit(10),
 
     // QUERY 5: Personal accounts with person names (grouped by person)
-    // Order by account balance DESC - will sort persons by total in JS
     db
       .select({
         personId: persons.id,
@@ -176,7 +175,6 @@ export default async function DashboardPage() {
       .orderBy(desc(accounts.currentBalance)),
 
     // QUERY 6: Business accounts with person names (grouped by person)
-    // Order by account balance DESC - will sort persons by total in JS
     db
       .select({
         personId: persons.id,
