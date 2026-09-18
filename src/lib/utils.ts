@@ -18,7 +18,7 @@ export type AccountDisplayInput = {
   accountType: 'bank' | 'cash';
 
   /** Display name (primary) */
-  name: string | null;
+  name?: string | null;
 
   accountAlias?: string | null;
 

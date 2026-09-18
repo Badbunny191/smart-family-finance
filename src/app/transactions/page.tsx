@@ -1440,9 +1440,11 @@ function TransactionMetadataForm({
             </FormLabel>
           )}
 
-          <FormLabel label="สถานะ">
-            <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} />
-          </FormLabel>
+          {transaction.type === 'income' && (
+            <FormLabel label="สถานะ">
+              <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} />
+            </FormLabel>
+          )}
 
           {/* Locked fields — read-only summary */}
           <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
