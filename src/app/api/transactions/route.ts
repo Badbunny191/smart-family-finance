@@ -11,6 +11,8 @@ export const runtime = 'nodejs';
 const sourceAcc = alias(accounts, 'source_account');
 const destAcc = alias(accounts, 'destination_account');
 const txCreatedBy = alias(users, 'tx_created_by');
+const sourceOwner = alias(persons, 'source_owner');
+const destOwner = alias(persons, 'dest_owner');
 
 export async function GET(request: NextRequest) {
   try {
@@ -45,6 +47,7 @@ export async function GET(request: NextRequest) {
         sourceAccountNumber: sourceAcc.accountNumber,
         sourceAccountType: sourceAcc.accountType,
         sourceIsBusinessAccount: sourceAcc.isBusinessAccount,
+        sourcePersonName: sourceOwner.name,
         destinationAccountId: transactions.destinationAccountId,
         destinationAccountName: destAcc.name,
         destinationAccountAlias: destAcc.accountAlias,
@@ -52,6 +55,7 @@ export async function GET(request: NextRequest) {
         destinationAccountNumber: destAcc.accountNumber,
         destinationAccountType: destAcc.accountType,
         destinationIsBusinessAccount: destAcc.isBusinessAccount,
+        destinationPersonName: destOwner.name,
         note: transactions.note,
         adjustmentReason: transactions.adjustmentReason,
         adjustmentDirection: transactions.adjustmentDirection,
@@ -61,7 +65,9 @@ export async function GET(request: NextRequest) {
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .leftJoin(properties, eq(transactions.propertyId, properties.id))
       .leftJoin(sourceAcc, eq(transactions.sourceAccountId, sourceAcc.id))
+      .leftJoin(sourceOwner, eq(sourceAcc.personId, sourceOwner.id))
       .leftJoin(destAcc, eq(transactions.destinationAccountId, destAcc.id))
+      .leftJoin(destOwner, eq(destAcc.personId, destOwner.id))
       .leftJoin(txCreatedBy, eq(transactions.createdByUserId, txCreatedBy.id))
       .where(and(...filters))
       .orderBy(desc(transactions.date), desc(transactions.createdAt));

@@ -7,22 +7,29 @@ import { formatAccountDisplayName, formatCurrency } from '@/lib/utils';
 
 /**
  * Dashboard-friendly account display.
- * Bank: returns [nameLine, last4] — last4 as separate string for smaller font
- * Cash: returns [fullLine, ''] — last4 empty
+ * Bank: returns [nameLine, secondLine] — both as separate strings for different font sizes
+ *   Line 1: "{name}"
+ *   Line 2: "({bankName}) {last4}"
+ * Cash: returns [nameLine, secondLine] — both as separate strings for different font sizes
+ *   Line 1: "💵 {name}"
+ *   Line 2: "(เงินสด)"
  */
 function getDashboardAccountParts(account: AccountRow): [string, string] {
+  const displayName = account.name?.trim() || account.owner?.trim() || '';
+
   if (account.accountType === 'cash') {
-    const label = account.name ? `💵 ${account.name} (เงินสด)` : '💵 เงินสด';
-    return [label, ''];
+    const nameLine = displayName ? `💵 ${displayName}` : '💵 เงินสด';
+    const secondLine = '(เงินสด)';
+    return [nameLine, secondLine];
   }
   const bank = account.bankName || 'ไม่ระบุธนาคาร';
-  const prefix = '🏦';
-  const nameLine = account.name ? `${prefix} ${account.name} (${bank})` : `${prefix} ${bank}`;
   const last4 =
     account.accountNumber && account.accountNumber.length > 0
       ? account.accountNumber.replace(/-/g, '').slice(-4)
       : '';
-  return [nameLine, last4];
+  const nameLine = displayName;
+  const secondLine = last4 ? `(${bank}) ${last4}` : `(${bank})`;
+  return [nameLine, secondLine];
 }
 
 // Types
@@ -34,6 +41,8 @@ type AccountRow = {
   accountNumber?: string | null;
   bankName: string | null;
   currentBalance: number;
+  /** Owner/person name — used as fallback when name is empty */
+  owner?: string | null;
 };
 
 type PersonWithAccounts = {

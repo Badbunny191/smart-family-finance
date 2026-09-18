@@ -7,7 +7,6 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
-import { formatAccountDisplayName } from '@/lib/utils';
 
 type Person = { id: string; name: string };
 type Property = { id: string; name: string };
@@ -254,22 +253,21 @@ function AccountsContent() {
                       {account.accountType === 'bank' ? <WalletCards size={21} /> : <Banknote size={21} />}
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h2 className="truncate font-semibold text-slate-900">
-                          {formatAccountDisplayName({
-                            accountType: account.accountType,
-                            name: account.name,
-                            bankName: account.bankName,
-                            accountNumber: account.accountNumber,
-                          })}
-                        </h2>
-                        {account.isBusinessAccount ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">ธุรกิจ</span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">ส่วนตัว</span>
-                        )}
+                      <div className="text-sm font-semibold text-slate-900">
+                        {account.name?.trim() || account.personName}
                       </div>
-                      <p className="mt-1 truncate text-xs text-slate-500">เจ้าของบัญชี: {account.personName}</p>
+                      {(account.accountType === 'bank' && (account.bankName || account.accountNumber)) && (
+                        <div className="text-xs text-slate-500">
+                          {account.bankName && `(${account.bankName})`}
+                          {account.accountNumber && ` ${account.accountNumber.replace(/-/g, '').slice(-4)}`}
+                        </div>
+                      )}
+                      <div className="text-xs text-slate-400">เจ้าของ : {account.personName}</div>
+                      {account.isBusinessAccount ? (
+                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">ธุรกิจ</span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">ส่วนตัว</span>
+                      )}
                     </div>
                   </div>
                   <p className="mt-5 truncate text-2xl font-bold tracking-tight text-slate-900">{account.currentBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-sm font-medium text-slate-500">บาท</span></p>

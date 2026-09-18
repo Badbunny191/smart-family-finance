@@ -5,7 +5,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
-import { formatAccountDisplayName } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
 
@@ -31,6 +31,7 @@ const formatAccountLabel = (account: {
   accountType: 'bank' | 'cash';
   isBusinessAccount: boolean;
   accountAlias?: string | null;
+  personName?: string | null;
 }) => {
   return formatAccountDisplayName({
     accountType: account.accountType,
@@ -38,6 +39,7 @@ const formatAccountLabel = (account: {
     bankName: account.bankName,
     accountNumber: account.accountNumber,
     name: account.name,
+    owner: account.personName,
   });
 };
 
@@ -82,18 +84,20 @@ type Transaction = {
   businessStatus: BusinessStatus | null;
   sourceAccountId: string | null;
   sourceAccountName: string | null;
+  sourceAccountAlias?: string | null;
   sourceAccountBank: string | null;
   sourceAccountNumber: string | null;
   sourceAccountType: 'bank' | 'cash' | null;
-  sourceAccountAlias?: string | null;
   sourceIsBusinessAccount: boolean | null;
+  sourcePersonName?: string | null;
   destinationAccountId: string | null;
   destinationAccountName: string | null;
+  destinationAccountAlias?: string | null;
   destinationAccountBank: string | null;
   destinationAccountNumber: string | null;
   destinationAccountType: 'bank' | 'cash' | null;
-  destinationAccountAlias?: string | null;
   destinationIsBusinessAccount: boolean | null;
+  destinationPersonName?: string | null;
   note: string | null;
   adjustmentReason: string | null;
   createdAt?: string;
@@ -410,6 +414,7 @@ function TransactionsContent() {
       bankName: account.bankName,
       accountNumber: account.accountNumber,
       name: account.name,
+      owner: account.personName,
     });
   };
 
@@ -956,6 +961,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
     const alias = account.type === 'income' ? transaction.destinationAccountAlias : transaction.sourceAccountAlias;
     const isBusiness = account.type === 'income' ? transaction.destinationIsBusinessAccount : transaction.sourceIsBusinessAccount;
     const accType = account.type === 'income' ? transaction.destinationAccountType : transaction.sourceAccountType;
+    const owner = account.type === 'income' ? transaction.destinationPersonName : transaction.sourcePersonName;
 
     if (!name) return null;
     const badge = getAccountBadge(isBusiness, accType);
@@ -964,6 +970,8 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
       accountAlias: alias,
       bankName: bank,
       accountNumber: number,
+      name,
+      owner,
     });
     return { badge, display, icon: account.type === 'income' ? '📥' : '📤', label: account.type === 'income' ? 'เงินเข้า' : 'เงินออก' };
   };
@@ -1039,12 +1047,14 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
               <p className="mt-0.5 text-sm font-semibold text-slate-700">
                 {getAccountBadge(transaction.sourceIsBusinessAccount, transaction.sourceAccountType)}
               </p>
-              <p className="text-sm font-medium text-slate-900">
+              <p className="text-sm font-medium text-slate-900 whitespace-pre-line">
                 {formatAccountDisplayName({
                   accountType: transaction.sourceAccountType ?? 'bank',
                   accountAlias: transaction.sourceAccountAlias,
                   bankName: transaction.sourceAccountBank,
                   accountNumber: transaction.sourceAccountNumber,
+                  name: transaction.sourceAccountName ?? undefined,
+                  owner: transaction.sourcePersonName ?? undefined,
                 })}
               </p>
             </div>
@@ -1058,12 +1068,14 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
               <p className="mt-0.5 text-sm font-semibold text-slate-700">
                 {getAccountBadge(transaction.destinationIsBusinessAccount, transaction.destinationAccountType)}
               </p>
-              <p className="text-sm font-medium text-slate-900">
+              <p className="text-sm font-medium text-slate-900 whitespace-pre-line">
                 {formatAccountDisplayName({
                   accountType: transaction.destinationAccountType ?? 'bank',
                   accountAlias: transaction.destinationAccountAlias,
                   bankName: transaction.destinationAccountBank,
                   accountNumber: transaction.destinationAccountNumber,
+                  name: transaction.destinationAccountName ?? undefined,
+                  owner: transaction.destinationPersonName ?? undefined,
                 })}
               </p>
             </div>
@@ -1250,11 +1262,13 @@ function AccountSelect({ value, accounts, onChange }: { value: string; accounts:
   const personalAccounts = accounts.filter(a => !a.isBusinessAccount);
 
   const formatAccountOption = (account: Account) => {
-    return formatAccountDisplayName({
+    return formatAccountForSelector({
       accountType: account.accountType,
       accountAlias: account.accountAlias,
       bankName: account.bankName,
       accountNumber: account.accountNumber,
+      name: account.name,
+      owner: account.personName,
     });
   };
 
@@ -1330,14 +1344,18 @@ function TransactionMetadataForm({
         accountAlias: transaction.sourceAccountAlias,
         bankName: transaction.sourceAccountBank,
         accountNumber: transaction.sourceAccountNumber,
+        name: transaction.sourceAccountName ?? undefined,
+        owner: transaction.sourcePersonName ?? undefined,
       });
       const dst = formatAccountDisplayName({
         accountType: transaction.destinationAccountType ?? 'bank',
         accountAlias: transaction.destinationAccountAlias,
         bankName: transaction.destinationAccountBank,
         accountNumber: transaction.destinationAccountNumber,
+        name: transaction.destinationAccountName ?? undefined,
+        owner: transaction.destinationPersonName ?? undefined,
       });
-      return `${src} → ${dst}`;
+      return `${src}\n↓\n${dst}`;
     }
     if (transaction.type === 'income') {
       return formatAccountDisplayName({
@@ -1345,6 +1363,8 @@ function TransactionMetadataForm({
         accountAlias: transaction.destinationAccountAlias,
         bankName: transaction.destinationAccountBank,
         accountNumber: transaction.destinationAccountNumber,
+        name: transaction.destinationAccountName ?? undefined,
+        owner: transaction.destinationPersonName ?? undefined,
       });
     }
     if (transaction.type === 'expense') {
@@ -1353,6 +1373,8 @@ function TransactionMetadataForm({
         accountAlias: transaction.sourceAccountAlias,
         bankName: transaction.sourceAccountBank,
         accountNumber: transaction.sourceAccountNumber,
+        name: transaction.sourceAccountName ?? undefined,
+        owner: transaction.sourcePersonName ?? undefined,
       });
     }
     return formatAccountDisplayName({
@@ -1360,6 +1382,8 @@ function TransactionMetadataForm({
       accountAlias: transaction.sourceAccountAlias,
       bankName: transaction.sourceAccountBank,
       accountNumber: transaction.sourceAccountNumber,
+      name: transaction.sourceAccountName ?? undefined,
+      owner: transaction.sourcePersonName ?? undefined,
     });
   })();
 
@@ -1573,6 +1597,8 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
                     accountAlias: transaction.sourceAccountAlias,
                     bankName: transaction.sourceAccountBank,
                     accountNumber: transaction.sourceAccountNumber,
+                    name: transaction.sourceAccountName ?? undefined,
+                    owner: transaction.sourcePersonName ?? undefined,
                   })}
                   icon="📤"
                 />
@@ -1583,6 +1609,8 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
                     accountAlias: transaction.destinationAccountAlias,
                     bankName: transaction.destinationAccountBank,
                     accountNumber: transaction.destinationAccountNumber,
+                    name: transaction.destinationAccountName ?? undefined,
+                    owner: transaction.destinationPersonName ?? undefined,
                   })}
                   icon="📥"
                 />
@@ -1596,6 +1624,8 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
                   accountAlias: transaction.destinationAccountAlias,
                   bankName: transaction.destinationAccountBank,
                   accountNumber: transaction.destinationAccountNumber,
+                  name: transaction.destinationAccountName ?? undefined,
+                  owner: transaction.destinationPersonName ?? undefined,
                 })}
                 icon="📥"
               />
@@ -1608,6 +1638,8 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
                   accountAlias: transaction.sourceAccountAlias,
                   bankName: transaction.sourceAccountBank,
                   accountNumber: transaction.sourceAccountNumber,
+                  name: transaction.sourceAccountName ?? undefined,
+                  owner: transaction.sourcePersonName ?? undefined,
                 })}
                 icon="📤"
               />

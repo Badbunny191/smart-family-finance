@@ -28,6 +28,7 @@ type AccountRow = {
   accountNumber: string | null;
   bankName: string | null;
   currentBalance: number;
+  owner?: string | null;
 };
 
 type PersonWithAccounts = {
@@ -274,6 +275,7 @@ export default async function DashboardPage() {
       accountNumber: row.accountNumber,
       bankName: row.bankName,
       currentBalance: Number(row.balance) || 0,
+      owner: row.personName,
     });
   }
 
@@ -312,6 +314,7 @@ export default async function DashboardPage() {
       accountNumber: row.accountNumber,
       bankName: row.bankName,
       currentBalance: Number(row.balance) || 0,
+      owner: row.personName,
     });
   }
 
