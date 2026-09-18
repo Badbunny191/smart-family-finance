@@ -10,7 +10,7 @@ import { accounts, persons, transactions } from '@/db/schema';
 import { getDb } from '@/db/client';
 import { createAuth } from '@/lib/auth';
 import { getD1 } from '@/lib/cloudflare';
-import { formatCurrency } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency } from '@/lib/utils';
 import { PersonAccordionCard } from './_components/person-accordion-card';
 
 // Alias for self-join (source and destination accounts)
@@ -24,6 +24,8 @@ type AccountRow = {
   id: string;
   name: string;
   accountType: 'cash' | 'bank';
+  accountAlias: string | null;
+  accountNumber: string | null;
   bankName: string | null;
   currentBalance: number;
 };
@@ -128,7 +130,15 @@ export default async function DashboardPage() {
         note: transactions.note,
         createdAt: transactions.createdAt,
         sourceAccountName: sourceAccountAlias.name,
+        sourceAccountAlias: sourceAccountAlias.accountAlias,
+        sourceAccountBank: sourceAccountAlias.bankName,
+        sourceAccountNumber: sourceAccountAlias.accountNumber,
+        sourceAccountType: sourceAccountAlias.accountType,
         destinationAccountName: destinationAccountAlias.name,
+        destinationAccountAlias: destinationAccountAlias.accountAlias,
+        destinationAccountBank: destinationAccountAlias.bankName,
+        destinationAccountNumber: destinationAccountAlias.accountNumber,
+        destinationAccountType: destinationAccountAlias.accountType,
         adjustmentDirection: transactions.adjustmentDirection,
       })
       .from(transactions)
@@ -150,6 +160,8 @@ export default async function DashboardPage() {
         accountId: accounts.id,
         accountName: accounts.name,
         accountType: accounts.accountType,
+        accountNumber: accounts.accountNumber,
+        accountAlias: accounts.accountAlias,
         bankName: accounts.bankName,
         balance: accounts.currentBalance,
       })
@@ -171,6 +183,8 @@ export default async function DashboardPage() {
         accountId: accounts.id,
         accountName: accounts.name,
         accountType: accounts.accountType,
+        accountNumber: accounts.accountNumber,
+        accountAlias: accounts.accountAlias,
         bankName: accounts.bankName,
         balance: accounts.currentBalance,
       })
@@ -194,8 +208,8 @@ export default async function DashboardPage() {
   type MonthlyMetricsRow = { type: string; total: number } | null;
   type PendingRow = { total: number; count: number } | null;
   type MonthlyAdjustmentsRow = { total: number } | null;
-  type PersonalAccountRow = { personId: string; personName: string; accountId: string; accountName: string; accountType: 'cash' | 'bank'; bankName: string | null; balance: number } | null;
-  type BusinessAccountRow = { personId: string; personName: string; accountId: string; accountName: string; accountType: 'cash' | 'bank'; bankName: string | null; balance: number } | null;
+  type PersonalAccountRow = { personId: string; personName: string; accountId: string; accountName: string; accountType: 'cash' | 'bank'; accountNumber: string | null; accountAlias: string | null; bankName: string | null; balance: number } | null;
+  type BusinessAccountRow = { personId: string; personName: string; accountId: string; accountName: string; accountType: 'cash' | 'bank'; accountNumber: string | null; accountAlias: string | null; bankName: string | null; balance: number } | null;
 
   const typedAccountMetrics = accountMetrics as AccountMetricsRow[];
   const typedMonthlyMetrics = monthlyMetrics as MonthlyMetricsRow[];
@@ -256,6 +270,8 @@ export default async function DashboardPage() {
       id: row.accountId,
       name: row.accountName,
       accountType: row.accountType,
+      accountAlias: row.accountAlias,
+      accountNumber: row.accountNumber,
       bankName: row.bankName,
       currentBalance: Number(row.balance) || 0,
     });
@@ -292,6 +308,8 @@ export default async function DashboardPage() {
       id: row.accountId,
       name: row.accountName,
       accountType: row.accountType,
+      accountAlias: row.accountAlias,
+      accountNumber: row.accountNumber,
       bankName: row.bankName,
       currentBalance: Number(row.balance) || 0,
     });
@@ -312,7 +330,29 @@ export default async function DashboardPage() {
     monthlyIncome,
     monthlyExpense,
     monthlyAdjustmentTotal,
-    recentTransactions: (recentRows ?? []) as { id: string; type: 'income' | 'expense' | 'transfer' | 'adjustment'; amount: number; date: Date; title: string; status: string; sourceAccountId: string | null; destinationAccountId: string | null; note: string | null; createdAt: Date; sourceAccountName: string | null; destinationAccountName: string | null; adjustmentDirection: 'increase' | 'decrease' | null }[],
+    recentTransactions: (recentRows ?? []) as {
+      id: string;
+      type: 'income' | 'expense' | 'transfer' | 'adjustment';
+      amount: number;
+      date: Date;
+      title: string;
+      status: string;
+      sourceAccountId: string | null;
+      destinationAccountId: string | null;
+      note: string | null;
+      createdAt: Date;
+      sourceAccountName: string | null;
+      sourceAccountAlias: string | null;
+      sourceAccountBank: string | null;
+      sourceAccountNumber: string | null;
+      sourceAccountType: 'bank' | 'cash' | null;
+      destinationAccountName: string | null;
+      destinationAccountAlias: string | null;
+      destinationAccountBank: string | null;
+      destinationAccountNumber: string | null;
+      destinationAccountType: 'bank' | 'cash' | null;
+      adjustmentDirection: 'increase' | 'decrease' | null;
+    }[],
     pending: {
       total: Number(typedPendingResult?.[0]?.total) || 0,
       count: Number(typedPendingResult?.[0]?.count) || 0
@@ -572,17 +612,28 @@ export default async function DashboardPage() {
                   </svg>
                 );
 
-                // Account display based on transaction type
-                // Income: show destination account (where money goes in)
-                // Expense: show source account (where money goes out)
-                // Transfer: show source → destination
+                const sourceLabel = tx.sourceAccountId
+                  ? formatAccountDisplayName({
+                      accountType: tx.sourceAccountType ?? 'bank',
+                      accountAlias: tx.sourceAccountAlias,
+                      bankName: tx.sourceAccountBank,
+                      accountNumber: tx.sourceAccountNumber,
+                    })
+                  : null;
+                const destLabel = tx.destinationAccountId
+                  ? formatAccountDisplayName({
+                      accountType: tx.destinationAccountType ?? 'bank',
+                      accountAlias: tx.destinationAccountAlias,
+                      bankName: tx.destinationAccountBank,
+                      accountNumber: tx.destinationAccountNumber,
+                    })
+                  : null;
+
                 const accountDisplay = tx.type === 'transfer'
-                  ? (tx.sourceAccountName && tx.destinationAccountName
-                    ? `${tx.sourceAccountName} → ${tx.destinationAccountName}`
-                    : tx.sourceAccountName || tx.destinationAccountName || '')
+                  ? (sourceLabel && destLabel ? `${sourceLabel} → ${destLabel}` : sourceLabel || destLabel || '')
                   : tx.type === 'income'
-                    ? (tx.destinationAccountName || tx.sourceAccountName || '')
-                    : (tx.sourceAccountName || '');
+                    ? (destLabel || sourceLabel || '')
+                    : (sourceLabel || '');
 
                 return (
                   <article key={tx.id} className="surface-card flex items-start gap-3 overflow-hidden p-4">

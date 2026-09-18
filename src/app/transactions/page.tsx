@@ -5,6 +5,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
+import { formatAccountDisplayName } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
 
@@ -22,22 +23,22 @@ const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
 ];
 const SORT_PREFERENCE_KEY = 'transactionSortOrder';
 
-// Account display helper
-const formatAccountLabel = (account: { name: string; bankName: string | null; accountNumber: string | null; accountType: 'bank' | 'cash'; isBusinessAccount: boolean; accountAlias?: string | null }) => {
-  // Cash account
-  if (account.accountType === 'cash') {
-    return `💵 เงินสด`;
-  }
-  
-  // Bank account with alias
-  if (account.accountAlias) {
-    return account.accountAlias;
-  }
-  
-  // Bank account without alias - show bank + last 4 digits
-  const bankDisplay = account.bankName || 'ไม่ระบุธนาคาร';
-  const numberDisplay = account.accountNumber ? ` • ${account.accountNumber.slice(-4)}` : '';
-  return `${bankDisplay}${numberDisplay}`;
+// Account display helper — delegates to shared formatter
+const formatAccountLabel = (account: {
+  name: string;
+  bankName: string | null;
+  accountNumber: string | null;
+  accountType: 'bank' | 'cash';
+  isBusinessAccount: boolean;
+  accountAlias?: string | null;
+}) => {
+  return formatAccountDisplayName({
+    accountType: account.accountType,
+    accountAlias: account.accountAlias,
+    bankName: account.bankName,
+    accountNumber: account.accountNumber,
+    name: account.name,
+  });
 };
 
 // Sort transactions helper
@@ -84,12 +85,14 @@ type Transaction = {
   sourceAccountBank: string | null;
   sourceAccountNumber: string | null;
   sourceAccountType: 'bank' | 'cash' | null;
+  sourceAccountAlias?: string | null;
   sourceIsBusinessAccount: boolean | null;
   destinationAccountId: string | null;
   destinationAccountName: string | null;
   destinationAccountBank: string | null;
   destinationAccountNumber: string | null;
   destinationAccountType: 'bank' | 'cash' | null;
+  destinationAccountAlias?: string | null;
   destinationIsBusinessAccount: boolean | null;
   note: string | null;
   adjustmentReason: string | null;
@@ -345,14 +348,24 @@ function TransactionsContent() {
     await loadData();
   };
 
-  const updateMetadata = async (categoryId: string, businessStatus: '' | BusinessStatus) => {
+  const updateMetadata = async (data: {
+    title: string;
+    note: string;
+    categoryId: string;
+    businessStatus: '' | BusinessStatus;
+  }) => {
     if (!editingTransaction) return;
     setIsUpdating(true);
 
     const response = await fetch(`/api/transactions/${editingTransaction.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ categoryId: categoryId || null, businessStatus: businessStatus || null }),
+      body: JSON.stringify({
+        title: data.title || null,
+        note: data.note || null,
+        categoryId: data.categoryId || null,
+        businessStatus: data.businessStatus || null,
+      }),
     });
 
     setIsUpdating(false);
@@ -391,7 +404,13 @@ function TransactionsContent() {
     if (!accountId) return 'ไม่ระบุบัญชี';
     const account = accounts.find((item) => item.id === accountId);
     if (!account) return accountNames.get(accountId) || 'ไม่ระบุบัญชี';
-    return `${account.name}${account.accountNumber ? ` (${account.accountNumber})` : ''}`;
+    return formatAccountDisplayName({
+      accountType: account.accountType,
+      accountAlias: account.accountAlias,
+      bankName: account.bankName,
+      accountNumber: account.accountNumber,
+      name: account.name,
+    });
   };
 
   // Filter transactions
@@ -930,24 +949,22 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
     return '👤 บัญชีส่วนตัว';
   };
 
-  // Format account label for display
-  const formatAccountDisplay = (name: string | null, bank: string | null, number: string | null) => {
-    if (!name) return 'ไม่ระบุบัญชี';
-    const bankDisplay = bank || 'ไม่ระบุธนาคาร';
-    const numberDisplay = number ? ` • ${number.slice(-4)}` : '';
-    return `${bankDisplay}${numberDisplay}`;
-  };
-
   const getAccountInfo = (account: typeof transaction) => {
     const name = account.type === 'income' ? transaction.destinationAccountName : transaction.sourceAccountName;
     const bank = account.type === 'income' ? transaction.destinationAccountBank : transaction.sourceAccountBank;
     const number = account.type === 'income' ? transaction.destinationAccountNumber : transaction.sourceAccountNumber;
+    const alias = account.type === 'income' ? transaction.destinationAccountAlias : transaction.sourceAccountAlias;
     const isBusiness = account.type === 'income' ? transaction.destinationIsBusinessAccount : transaction.sourceIsBusinessAccount;
     const accType = account.type === 'income' ? transaction.destinationAccountType : transaction.sourceAccountType;
 
     if (!name) return null;
     const badge = getAccountBadge(isBusiness, accType);
-    const display = formatAccountDisplay(name, bank, number);
+    const display = formatAccountDisplayName({
+      accountType: accType ?? 'bank',
+      accountAlias: alias,
+      bankName: bank,
+      accountNumber: number,
+    });
     return { badge, display, icon: account.type === 'income' ? '📥' : '📤', label: account.type === 'income' ? 'เงินเข้า' : 'เงินออก' };
   };
 
@@ -1023,11 +1040,12 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
                 {getAccountBadge(transaction.sourceIsBusinessAccount, transaction.sourceAccountType)}
               </p>
               <p className="text-sm font-medium text-slate-900">
-                {formatAccountDisplay(
-                  transaction.sourceAccountName,
-                  transaction.sourceAccountBank,
-                  transaction.sourceAccountNumber
-                )}
+                {formatAccountDisplayName({
+                  accountType: transaction.sourceAccountType ?? 'bank',
+                  accountAlias: transaction.sourceAccountAlias,
+                  bankName: transaction.sourceAccountBank,
+                  accountNumber: transaction.sourceAccountNumber,
+                })}
               </p>
             </div>
           )}
@@ -1041,11 +1059,12 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
                 {getAccountBadge(transaction.destinationIsBusinessAccount, transaction.destinationAccountType)}
               </p>
               <p className="text-sm font-medium text-slate-900">
-                {formatAccountDisplay(
-                  transaction.destinationAccountName,
-                  transaction.destinationAccountBank,
-                  transaction.destinationAccountNumber
-                )}
+                {formatAccountDisplayName({
+                  accountType: transaction.destinationAccountType ?? 'bank',
+                  accountAlias: transaction.destinationAccountAlias,
+                  bankName: transaction.destinationAccountBank,
+                  accountNumber: transaction.destinationAccountNumber,
+                })}
               </p>
             </div>
           )}
@@ -1231,12 +1250,12 @@ function AccountSelect({ value, accounts, onChange }: { value: string; accounts:
   const personalAccounts = accounts.filter(a => !a.isBusinessAccount);
 
   const formatAccountOption = (account: Account) => {
-    if (account.accountType === 'cash') {
-      return `💵 ${account.name}`;
-    }
-    const bankDisplay = account.bankName || 'ไม่ระบุธนาคาร';
-    const accountNumberDisplay = account.accountNumber || '';
-    return `${account.name} (${bankDisplay}) - ${accountNumberDisplay}`;
+    return `💵 ${formatAccountDisplayName({
+      accountType: account.accountType,
+      accountAlias: account.accountAlias,
+      bankName: account.bankName,
+      accountNumber: account.accountNumber,
+    })}`;
   };
 
   return (
@@ -1271,31 +1290,148 @@ function BusinessStatusSelect({ value, onChange }: { value: '' | BusinessStatus;
   );
 }
 
-function TransactionMetadataForm({ transaction, categories, onClose, onSubmit, isSaving }: { transaction: Transaction; categories: Category[]; onClose: () => void; onSubmit: (categoryId: string, businessStatus: '' | BusinessStatus) => Promise<void>; isSaving: boolean }) {
+function TransactionMetadataForm({
+  transaction,
+  categories,
+  onClose,
+  onSubmit,
+  isSaving,
+}: {
+  transaction: Transaction;
+  categories: Category[];
+  onClose: () => void;
+  onSubmit: (data: {
+    title: string;
+    note: string;
+    categoryId: string;
+    businessStatus: '' | BusinessStatus;
+  }) => Promise<void>;
+  isSaving: boolean;
+}) {
+  const [title, setTitle] = useState(transaction.title || '');
+  const [note, setNote] = useState(transaction.note || '');
   const [categoryId, setCategoryId] = useState(transaction.categoryId || '');
-  const [businessStatus, setBusinessStatus] = useState<'' | BusinessStatus>(transaction.businessStatus || '');
+  const [businessStatus, setBusinessStatus] = useState<'' | BusinessStatus>(
+    transaction.businessStatus || ''
+  );
+
+  const typeLabels: Record<TransactionType, string> = {
+    income: 'รายรับ',
+    expense: 'รายจ่าย',
+    transfer: 'โอนเงิน',
+    adjustment: 'ปรับยอดบัญชี',
+  };
+
+  // Account label for locked-fields display
+  const lockedAccount = (() => {
+    if (transaction.type === 'transfer') {
+      const src = formatAccountDisplayName({
+        accountType: transaction.sourceAccountType ?? 'bank',
+        accountAlias: transaction.sourceAccountAlias,
+        bankName: transaction.sourceAccountBank,
+        accountNumber: transaction.sourceAccountNumber,
+      });
+      const dst = formatAccountDisplayName({
+        accountType: transaction.destinationAccountType ?? 'bank',
+        accountAlias: transaction.destinationAccountAlias,
+        bankName: transaction.destinationAccountBank,
+        accountNumber: transaction.destinationAccountNumber,
+      });
+      return `${src} → ${dst}`;
+    }
+    if (transaction.type === 'income') {
+      return formatAccountDisplayName({
+        accountType: transaction.destinationAccountType ?? 'bank',
+        accountAlias: transaction.destinationAccountAlias,
+        bankName: transaction.destinationAccountBank,
+        accountNumber: transaction.destinationAccountNumber,
+      });
+    }
+    if (transaction.type === 'expense') {
+      return formatAccountDisplayName({
+        accountType: transaction.sourceAccountType ?? 'bank',
+        accountAlias: transaction.sourceAccountAlias,
+        bankName: transaction.sourceAccountBank,
+        accountNumber: transaction.sourceAccountNumber,
+      });
+    }
+    return formatAccountDisplayName({
+      accountType: transaction.sourceAccountType ?? 'bank',
+      accountAlias: transaction.sourceAccountAlias,
+      bankName: transaction.sourceAccountBank,
+      accountNumber: transaction.sourceAccountNumber,
+    });
+  })();
+
+  const amountPrefix = transaction.type === 'income' ? '+' : transaction.type === 'expense' ? '-' : '';
+  const amountColor = transaction.type === 'income'
+    ? 'text-emerald-700'
+    : transaction.type === 'expense'
+      ? 'text-rose-700'
+      : transaction.type === 'transfer'
+        ? 'text-indigo-700'
+        : 'text-orange-700';
+
+  const thaiDate = new Date(transaction.date).toLocaleDateString('th-TH', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 
   return (
     <div className="fixed inset-0 z-30 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5">
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void onSubmit(categoryId, businessStatus);
+          void onSubmit({
+            title: title.trim(),
+            note: note.trim(),
+            categoryId,
+            businessStatus,
+          });
         }}
         className="flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-white shadow-xl sm:max-w-md sm:rounded-2xl"
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <div className="w-11" />
-          <h2 className="text-lg font-bold text-slate-900">หมวดหมู่และสถานะ</h2>
+          <h2 className="text-lg font-bold text-slate-900">แก้ไขรายการ</h2>
           <button type="button" onClick={onClose} aria-label="ปิดฟอร์ม" className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
             <X size={20} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {/* Editable fields */}
+          <FormLabel label="ชื่อรายการ">
+            <input
+              type="text"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="ชื่อรายการ"
+              maxLength={200}
+              required
+              className="form-input"
+            />
+          </FormLabel>
+
+          <FormLabel label="หมายเหตุ">
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="เพิ่มรายละเอียดเพิ่มเติม (ถ้ามี)"
+              rows={3}
+              maxLength={1000}
+              className="form-input min-h-20 w-full resize-none p-3 leading-relaxed"
+            />
+          </FormLabel>
+
           {transaction.type !== 'transfer' && (
             <FormLabel label="หมวดหมู่">
-              <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} className="form-input">
+              <select
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value)}
+                className="form-input"
+              >
                 <option value="">ไม่ระบุ</option>
                 {categories.map((category) => (
                   <option key={category.id} value={category.id}>{category.name}</option>
@@ -1307,6 +1443,36 @@ function TransactionMetadataForm({ transaction, categories, onClose, onSubmit, i
           <FormLabel label="สถานะ">
             <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} />
           </FormLabel>
+
+          {/* Locked fields — read-only summary */}
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              ข้อมูลที่ไม่สามารถแก้ไขได้
+            </p>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-slate-500">จำนวนเงิน</p>
+                <p className={`text-lg font-bold ${amountColor}`}>
+                  {amountPrefix}{Math.abs(transaction.amount).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">บัญชี</p>
+                <p className="text-sm font-medium text-slate-800">{lockedAccount}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">ประเภท</p>
+                <p className="text-sm font-medium text-slate-800">{typeLabels[transaction.type]}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">วันที่</p>
+                <p className="text-sm font-medium text-slate-800">{thaiDate}</p>
+              </div>
+            </div>
+            <p className="mt-3 text-[11px] italic text-slate-400">
+              หากต้องการเปลี่ยนแปลงข้อมูลเหล่านี้ กรุณาลบรายการเดิมแล้วสร้างใหม่
+            </p>
+          </div>
         </div>
 
         <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
@@ -1354,13 +1520,6 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
   const canEdit = transaction.type !== 'adjustment' || isAdmin;
   const canDelete = transaction.type !== 'adjustment' || isAdmin;
 
-  const formatAccount = (name: string | null, bank: string | null, number: string | null) => {
-    if (!name) return 'ไม่ระบุบัญชี';
-    const bankDisplay = bank || 'ไม่ระบุธนาคาร';
-    const numberDisplay = number ? ` • ${number.slice(-4)}` : '';
-    return `${bankDisplay}${numberDisplay}`;
-  };
-
   return (
     <div className="fixed inset-0 z-40 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5" onClick={onClose}>
       <div className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
@@ -1407,12 +1566,22 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
               <>
                 <DetailRow
                   label="จากบัญชี"
-                  value={formatAccount(transaction.sourceAccountName, transaction.sourceAccountBank, transaction.sourceAccountNumber)}
+                  value={formatAccountDisplayName({
+                    accountType: transaction.sourceAccountType ?? 'bank',
+                    accountAlias: transaction.sourceAccountAlias,
+                    bankName: transaction.sourceAccountBank,
+                    accountNumber: transaction.sourceAccountNumber,
+                  })}
                   icon="📤"
                 />
                 <DetailRow
                   label="ไปยังบัญชี"
-                  value={formatAccount(transaction.destinationAccountName, transaction.destinationAccountBank, transaction.destinationAccountNumber)}
+                  value={formatAccountDisplayName({
+                    accountType: transaction.destinationAccountType ?? 'bank',
+                    accountAlias: transaction.destinationAccountAlias,
+                    bankName: transaction.destinationAccountBank,
+                    accountNumber: transaction.destinationAccountNumber,
+                  })}
                   icon="📥"
                 />
               </>
@@ -1420,14 +1589,24 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
             {transaction.type === 'income' && (
               <DetailRow
                 label="เข้าบัญชี"
-                value={formatAccount(transaction.destinationAccountName, transaction.destinationAccountBank, transaction.destinationAccountNumber)}
+                value={formatAccountDisplayName({
+                  accountType: transaction.destinationAccountType ?? 'bank',
+                  accountAlias: transaction.destinationAccountAlias,
+                  bankName: transaction.destinationAccountBank,
+                  accountNumber: transaction.destinationAccountNumber,
+                })}
                 icon="📥"
               />
             )}
             {transaction.type === 'expense' && (
               <DetailRow
                 label="จากบัญชี"
-                value={formatAccount(transaction.sourceAccountName, transaction.sourceAccountBank, transaction.sourceAccountNumber)}
+                value={formatAccountDisplayName({
+                  accountType: transaction.sourceAccountType ?? 'bank',
+                  accountAlias: transaction.sourceAccountAlias,
+                  bankName: transaction.sourceAccountBank,
+                  accountNumber: transaction.sourceAccountNumber,
+                })}
                 icon="📤"
               />
             )}

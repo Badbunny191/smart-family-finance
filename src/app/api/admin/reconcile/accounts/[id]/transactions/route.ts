@@ -32,7 +32,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { id: accountId } = await params;
 
     const accountRow = await db
-      .select({ id: accounts.id, name: accounts.name })
+      .select({
+        id: accounts.id,
+        name: accounts.name,
+        accountAlias: accounts.accountAlias,
+        bankName: accounts.bankName,
+        accountNumber: accounts.accountNumber,
+        accountType: accounts.accountType,
+      })
       .from(accounts)
       .where(and(eq(accounts.id, accountId), isNull(accounts.deletedAt)))
       .limit(1);

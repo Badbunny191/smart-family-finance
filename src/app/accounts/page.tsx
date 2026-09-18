@@ -7,13 +7,14 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
+import { formatAccountDisplayName } from '@/lib/utils';
 
 type Person = { id: string; name: string };
 type Property = { id: string; name: string };
-type Account = { id: string; name: string; accountAlias: string | null; bankName: string | null; accountNumber: string | null; personId: string; personName: string; propertyId: string | null; propertyName: string | null; accountType: 'bank' | 'cash'; isBusinessAccount: boolean; openingBalance: number; currentBalance: number };
-type AccountForm = { name: string; accountAlias: string; bankName: string; accountNumber: string; personId: string; propertyId: string; accountType: 'bank' | 'cash'; isBusinessAccount: boolean; openingBalance: string; currentBalance: string };
+type Account = { id: string; name: string; bankName: string | null; accountNumber: string | null; personId: string; personName: string; propertyId: string | null; propertyName: string | null; accountType: 'bank' | 'cash'; isBusinessAccount: boolean; openingBalance: number; currentBalance: number };
+type AccountForm = { name: string; bankName: string; accountNumber: string; personId: string; propertyId: string; accountType: 'bank' | 'cash'; isBusinessAccount: boolean; openingBalance: string; currentBalance: string };
 type AccountUsage = { transactionCount: number };
-const emptyForm: AccountForm = { name: '', accountAlias: '', bankName: '', accountNumber: '', personId: '', propertyId: '', accountType: 'bank', isBusinessAccount: false, openingBalance: '0', currentBalance: '0' };
+const emptyForm: AccountForm = { name: '', bankName: '', accountNumber: '', personId: '', propertyId: '', accountType: 'bank', isBusinessAccount: false, openingBalance: '0', currentBalance: '0' };
 
 export default function AccountsPage() {
   return (
@@ -98,7 +99,6 @@ function AccountsContent() {
     setEditingId(account.id); 
     setForm({ 
       name: account.name, 
-      accountAlias: account.accountAlias || '', 
       bankName: account.bankName || '', 
       accountNumber: account.accountNumber || '', 
       personId: account.personId, 
@@ -120,7 +120,6 @@ function AccountsContent() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         ...form,
-        accountAlias: form.accountAlias || null,
         bankName: form.bankName || null,
         accountNumber: form.accountNumber || null,
         propertyId: form.propertyId || null,
@@ -231,7 +230,7 @@ function AccountsContent() {
             }
             // Search filter
             if (normalizedSearch !== '') {
-              const haystack = `${account.name} ${account.accountAlias ?? ''} ${account.bankName ?? ''} ${account.accountNumber ?? ''}`.toLowerCase();
+              const haystack = `${account.name} ${account.bankName ?? ''} ${account.accountNumber ?? ''}`.toLowerCase();
               if (!haystack.includes(normalizedSearch)) return false;
             }
             return true;
@@ -256,25 +255,30 @@ function AccountsContent() {
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <h2 className="truncate font-semibold text-slate-900">{account.accountAlias || account.name}</h2>
+                        <h2 className="truncate font-semibold text-slate-900">
+                          {formatAccountDisplayName({
+                            accountType: account.accountType,
+                            name: account.name,
+                            bankName: account.bankName,
+                            accountNumber: account.accountNumber,
+                          })}
+                        </h2>
                         {account.isBusinessAccount ? (
                           <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">ธุรกิจ</span>
                         ) : (
                           <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">ส่วนตัว</span>
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">{account.bankName || (account.accountType === 'bank' ? 'ธนาคาร' : 'เงินสด')}</p>
+                      <p className="mt-1 truncate text-xs text-slate-500">เจ้าของบัญชี: {account.personName}</p>
                     </div>
                   </div>
-                  {account.accountNumber && <p className="mt-3 truncate text-xs text-slate-500">เลขบัญชี {account.accountNumber}</p>}
-                  <p className="mt-2 truncate text-xs text-slate-500">เจ้าของบัญชี: {account.personName}</p>
                   <p className="mt-5 truncate text-2xl font-bold tracking-tight text-slate-900">{account.currentBalance.toLocaleString('th-TH', { minimumFractionDigits: 2 })} <span className="text-sm font-medium text-slate-500">บาท</span></p>
                 </Link>
                 <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                  <button type="button" onClick={() => openEdit(account)} aria-label={`แก้ไข ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
+                  <button type="button" onClick={() => openEdit(account)} aria-label={`แก้ไข ${account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600">
                     <Pencil size={18} />
                   </button>
-                  <button type="button" onClick={() => void handleDeleteClick(account)} disabled={isChecking} aria-label={`ลบ ${account.accountAlias || account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
+                  <button type="button" onClick={() => void handleDeleteClick(account)} disabled={isChecking} aria-label={`ลบ ${account.name}`} className="touch-button grid min-w-11 place-items-center rounded-xl bg-rose-50 text-rose-600 disabled:opacity-50">
                     {isChecking ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
                   </button>
                 </div>

@@ -24,6 +24,11 @@ export type Severity = 'low' | 'medium' | 'high';
 export interface ReconcileAccountRow {
   accountId: string;
   accountName: string;
+  /** Bank account fields used by formatAccountDisplayName (R2). */
+  accountAlias: string | null;
+  bankName: string | null;
+  accountNumber: string | null;
+  accountType: 'bank' | 'cash';
   openingBalance: number;
   storedBalance: number;
   expectedBalance: number;
@@ -64,6 +69,10 @@ export async function runReconciliation(
     .select({
       id: accounts.id,
       name: accounts.name,
+      accountAlias: accounts.accountAlias,
+      bankName: accounts.bankName,
+      accountNumber: accounts.accountNumber,
+      accountType: accounts.accountType,
       openingBalance: accounts.openingBalance,
       currentBalance: accounts.currentBalance,
     })
@@ -142,6 +151,10 @@ export async function runReconciliation(
     return {
       accountId: acc.id,
       accountName: acc.name,
+      accountAlias: acc.accountAlias ?? null,
+      bankName: acc.bankName ?? null,
+      accountNumber: acc.accountNumber ?? null,
+      accountType: acc.accountType,
       openingBalance: acc.openingBalance,
       storedBalance: acc.currentBalance,
       expectedBalance: expected,

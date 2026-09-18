@@ -4,6 +4,7 @@ import {
   ArrowLeftRight,
   Building2,
   LayoutDashboard,
+  Send,
   Settings,
   Tags,
   Users,
@@ -16,6 +17,7 @@ const primaryItems = [
   { href: '/dashboard', label: 'หน้าหลัก', icon: LayoutDashboard },
   { href: '/transactions', label: 'รายการ', icon: ArrowLeftRight },
   { href: '/accounts', label: 'บัญชี', icon: WalletCards },
+  { href: '/settings/share-report', label: 'แชร์รายงานการเงิน', icon: Send },
 ];
 
 const secondaryItems = [

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
-import { formatCurrency } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
 
@@ -34,9 +34,15 @@ type Transaction = {
   sourceAccountId: string | null;
   sourceAccountName: string | null;
   sourceAccountBank: string | null;
+  sourceAccountNumber: string | null;
+  sourceAccountType: 'bank' | 'cash' | null;
+  sourceAccountAlias: string | null;
   destinationAccountId: string | null;
   destinationAccountName: string | null;
   destinationAccountBank: string | null;
+  destinationAccountNumber: string | null;
+  destinationAccountType: 'bank' | 'cash' | null;
+  destinationAccountAlias: string | null;
   note: string | null;
   adjustmentReason: string | null;
   adjustmentDirection: 'increase' | 'decrease' | null;
@@ -337,27 +343,55 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
     if (tx.type === 'transfer') {
       if (tx.sourceAccountId === accountId) {
         // Transfer Out: บัญชีนี้ → บัญชีปลายทาง
+        const destLabel = tx.destinationAccountId
+          ? formatAccountDisplayName({
+              accountType: tx.destinationAccountType ?? 'bank',
+              accountAlias: tx.destinationAccountAlias,
+              bankName: tx.destinationAccountBank,
+              accountNumber: tx.destinationAccountNumber,
+            })
+          : 'บัญชีอื่น';
+        const selfLabel = account
+          ? formatAccountDisplayName({
+              accountType: account.accountType,
+              accountAlias: account.accountAlias,
+              bankName: account.bankName,
+              accountNumber: account.accountNumber,
+            })
+          : 'บัญชีนี้';
         return {
           direction: 'out' as const,
           icon: <ArrowUpRight size={18} />,
           iconBg: 'bg-indigo-50 text-indigo-700',
           amountColor: 'text-indigo-700',
           amountPrefix: '-',
-          accountLabel: tx.destinationAccountName 
-            ? `${account?.name || 'บัญชีนี้'} → ${tx.destinationAccountName}`
-            : `${account?.name || 'บัญชีนี้'} → บัญชีอื่น`,
+          accountLabel: `${selfLabel} → ${destLabel}`,
         };
       } else {
         // Transfer In: บัญชีต้นทาง → บัญชีนี้
+        const selfLabel = account
+          ? formatAccountDisplayName({
+              accountType: account.accountType,
+              accountAlias: account.accountAlias,
+              bankName: account.bankName,
+              accountNumber: account.accountNumber,
+            })
+          : 'บัญชีนี้';
+        const srcLabel = tx.sourceAccountId
+          ? formatAccountDisplayName({
+              accountType: tx.sourceAccountType ?? 'bank',
+              accountAlias: tx.sourceAccountAlias,
+              bankName: tx.sourceAccountBank,
+              accountNumber: tx.sourceAccountNumber,
+            })
+          : 'บัญชีอื่น';
         return {
           direction: 'in' as const,
           icon: <ArrowDownLeft size={18} />,
           iconBg: 'bg-indigo-50 text-indigo-700',
           amountColor: 'text-indigo-700',
           amountPrefix: '+',
-          accountLabel: tx.sourceAccountName 
-            ? `${tx.sourceAccountName} → ${account?.name || 'บัญชีนี้'}`
-            : `บัญชีอื่น → ${account?.name || 'บัญชีนี้'}`,
+          accountLabel: `${srcLabel} → ${selfLabel}`,
         };
       }
     } else if (tx.type === 'income') {
@@ -453,7 +487,14 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
                 {account?.isBusinessAccount ? '🏢 บัญชีธุรกิจ' : '👤 บัญชีส่วนตัว'}
               </p>
               <h1 className="text-lg font-bold text-slate-900">
-                {account?.accountAlias || account?.name || 'กำลังโหลด...'}
+                {account
+                  ? formatAccountDisplayName({
+                      accountType: account.accountType,
+                      accountAlias: account.accountAlias,
+                      bankName: account.bankName,
+                      accountNumber: account.accountNumber,
+                    })
+                  : 'กำลังโหลด...'}
               </h1>
             </div>
           </div>
@@ -477,8 +518,8 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
             <p className="mt-2 text-[2rem] font-bold tracking-tight">
               {formatCurrency(account.currentBalance)}
             </p>
-            {account.bankName && (
-              <p className="mt-2 text-sm text-emerald-200">{account.bankName}</p>
+            {account.accountNumber && (
+              <p className="mt-2 text-sm text-emerald-200">เลขบัญชี {account.accountNumber}</p>
             )}
           </div>
         )}

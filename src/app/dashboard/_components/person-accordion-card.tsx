@@ -3,13 +3,15 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight, PiggyBank, Building2 } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency } from '@/lib/utils';
 
 // Types
 type AccountRow = {
   id: string;
   name: string;
   accountType: 'cash' | 'bank';
+  accountAlias?: string | null;
+  accountNumber?: string | null;
   bankName: string | null;
   currentBalance: number;
 };
@@ -138,10 +140,15 @@ function PersonAccordionRow({
               <div className="flex items-center gap-3">
                 <AccountIcon type={account.accountType} />
                 <div>
-                  <p className="font-medium text-slate-800">{account.name}</p>
-                  {account.bankName && (
-                    <p className="text-xs text-slate-500">{account.bankName}</p>
-                  )}
+                  <p className="font-medium text-slate-800">
+                    {formatAccountDisplayName({
+                      accountType: account.accountType,
+                      accountAlias: account.accountAlias,
+                      bankName: account.bankName,
+                      accountNumber: account.accountNumber,
+                      name: account.name,
+                    })}
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">

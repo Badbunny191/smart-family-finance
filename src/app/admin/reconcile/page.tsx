@@ -18,6 +18,7 @@ import {
 import Link from 'next/link';
 import { MobileNav } from '@/components/mobile-nav';
 import { useSession } from '@/lib/auth-client';
+import { formatAccountDisplayName } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,10 @@ type Severity = 'low' | 'medium' | 'high';
 interface ReconcileAccountRow {
   accountId: string;
   accountName: string;
+  accountAlias: string | null;
+  bankName: string | null;
+  accountNumber: string | null;
+  accountType: 'bank' | 'cash';
   openingBalance: number;
   storedBalance: number;
   expectedBalance: number;
@@ -84,6 +89,10 @@ interface TxRow {
 
 interface RepairResult {
   accountId: string;
+  accountAlias: string | null;
+  bankName: string | null;
+  accountNumber: string | null;
+  accountType: 'bank' | 'cash';
   accountName: string;
   oldBalance: number;
   newBalance: number;
@@ -500,7 +509,12 @@ export default function AdminReconcilePage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-semibold text-slate-900 truncate">
-                          {acc.accountName}
+                          {formatAccountDisplayName({
+                            accountType: acc.accountType,
+                            accountAlias: acc.accountAlias,
+                            bankName: acc.bankName,
+                            accountNumber: acc.accountNumber,
+                          })}
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">
                           เริ่มต้น: {fmt(acc.openingBalance)}
@@ -544,7 +558,14 @@ export default function AdminReconcilePage() {
           <div className="surface-card px-5 py-5">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-slate-900">
-                {analysis?.account?.accountName ?? 'กำลังโหลด...'}
+                {analysis?.account
+                  ? formatAccountDisplayName({
+                      accountType: analysis.account.accountType,
+                      accountAlias: analysis.account.accountAlias,
+                      bankName: analysis.account.bankName,
+                      accountNumber: analysis.account.accountNumber,
+                    })
+                  : 'กำลังโหลด...'}
               </h2>
               <button
                 type="button"
@@ -674,7 +695,12 @@ export default function AdminReconcilePage() {
                     <div className="space-y-1 text-sm text-slate-700">
                       <p>
                         <span className="font-medium">บัญชี:</span>{' '}
-                        {analysis.account.accountName}
+                        {formatAccountDisplayName({
+                          accountType: analysis.account.accountType,
+                          accountAlias: analysis.account.accountAlias,
+                          bankName: analysis.account.bankName,
+                          accountNumber: analysis.account.accountNumber,
+                        })}
                       </p>
                       <p>
                         <span className="font-medium">ยอดเดิม:</span>{' '}

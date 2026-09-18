@@ -41,10 +41,9 @@ export default function ShareReportPage() {
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [previewHeight, setPreviewHeight] = useState(800);
   const reportRef = useRef<HTMLDivElement>(null);
   const { showToast } = useToast();
-
-  const categoryIconMap = (icon: string | null | undefined) => icon ?? null;
 
   // Cache: fetch once
   useEffect(() => {
@@ -53,7 +52,7 @@ export default function ShareReportPage() {
         const all = await fetch('/api/transactions');
         if (!all.ok) throw new Error('ไม่สามารถโหลดข้อมูลรายการได้');
         const data = await all.json();
-        // Map response to TransactionRow (it's already in the same shape)
+        // Map response to TransactionRow — preserve categoryIcon from API
         const rows: TransactionRow[] = (data as Array<Record<string, unknown>>).map(
           (row) => ({
             id: String(row.id),
@@ -61,11 +60,13 @@ export default function ShareReportPage() {
             amount: Number(row.amount),
             date: String(row.date),
             title: String(row.title),
+            status: (row.status as TransactionRow['status']) ?? 'completed',
             propertyId: (row.propertyId as string | null) ?? null,
             propertyName: (row.propertyName as string | null) ?? null,
             categoryId: (row.categoryId as string | null) ?? null,
             categoryName: (row.categoryName as string | null) ?? null,
-            categoryIcon: categoryIconMap(null),
+            // ✅ FIX: use real categoryIcon from API (was hardcoded null before)
+            categoryIcon: (row.categoryIcon as string | null) ?? null,
           })
         );
         setTransactions(rows);
@@ -78,14 +79,41 @@ export default function ShareReportPage() {
     load();
   }, [showToast]);
 
+  // Validate custom date range
+  const dateRangeError = useMemo<string | null>(() => {
+    if (period !== 'custom') return null;
+    if (!customStart || !customEnd) return 'กรุณาระบุวันเริ่มและวันสิ้นสุด';
+    if (customStart > customEnd) {
+      return 'วันเริ่มต้องมาก่อนหรือเท่ากับวันสิ้นสุด';
+    }
+    return null;
+  }, [period, customStart, customEnd]);
+
   const report: Report = useMemo(() => {
+    if (dateRangeError) {
+      // Return empty report to avoid building with invalid range
+      return buildReport([], period, new Date());
+    }
     const customRange =
-      period === 'custom' ? { start: customStart, end: customEnd } : undefined;
+      period === 'custom' && !dateRangeError
+        ? { start: customStart, end: customEnd }
+        : undefined;
     return buildReport(transactions, period, new Date(), customRange);
-  }, [transactions, period, customStart, customEnd]);
+  }, [transactions, period, customStart, customEnd, dateRangeError]);
+
+  // Measure preview height after layout (avoids 0 / wrong-crop preview)
+  useEffect(() => {
+    if (!reportRef.current) return;
+    const el = reportRef.current;
+    setPreviewHeight(Math.max(el.scrollHeight, 320));
+  }, [report, isLoading]);
 
   const handleShare = useCallback(async () => {
     if (!reportRef.current) return;
+    if (dateRangeError) {
+      showToast(dateRangeError, 'error');
+      return;
+    }
     setIsCapturing(true);
 
     try {
@@ -129,10 +157,14 @@ export default function ShareReportPage() {
     } finally {
       setIsCapturing(false);
     }
-  }, [period, report.periodLabel, showToast]);
+  }, [period, report.periodLabel, showToast, dateRangeError]);
 
   const handleDownload = useCallback(async () => {
     if (!reportRef.current) return;
+    if (dateRangeError) {
+      showToast(dateRangeError, 'error');
+      return;
+    }
     setIsCapturing(true);
 
     try {
@@ -152,7 +184,7 @@ export default function ShareReportPage() {
     } finally {
       setIsCapturing(false);
     }
-  }, [period, showToast]);
+  }, [period, showToast, dateRangeError]);
 
   return (
     <main className="app-shell min-h-screen pb-32 md:pb-24">
@@ -177,8 +209,8 @@ export default function ShareReportPage() {
         <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
           <Calendar size={14} /> ช่วงเวลา
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          {periods.slice(0, 3).map((p) => (
+        <div className="grid grid-cols-4 gap-2">
+          {periods.map((p) => (
             <button
               key={p.value}
               type="button"
@@ -193,17 +225,6 @@ export default function ShareReportPage() {
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={() => setPeriod('custom')}
-          className={`mt-2 w-full rounded-xl px-3 py-3 text-sm font-semibold transition-colors ${
-            period === 'custom'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'bg-white text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          📅 กำหนดช่วงเอง
-        </button>
         {period === 'custom' && (
           <div className="mt-3 grid grid-cols-2 gap-2">
             <label className="block">
@@ -211,6 +232,7 @@ export default function ShareReportPage() {
               <input
                 type="date"
                 value={customStart}
+                max={customEnd || undefined}
                 onChange={(e) => setCustomStart(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none"
               />
@@ -220,16 +242,24 @@ export default function ShareReportPage() {
               <input
                 type="date"
                 value={customEnd}
+                min={customStart || undefined}
                 onChange={(e) => setCustomEnd(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-500 focus:outline-none"
               />
             </label>
           </div>
         )}
-        <p className="mt-3 text-xs text-slate-500">
-          {report.income.items.length} รายรับ • {report.expense.items.length} รายจ่าย
-          {' • '}{report.expense.byProperty.length} กลุ่มทรัพย์สิน
-        </p>
+        {dateRangeError ? (
+          <p className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 p-2.5 text-xs text-rose-700">
+            <span>⚠️</span>
+            <span>{dateRangeError}</span>
+          </p>
+        ) : (
+          <p className="mt-3 text-xs text-slate-500">
+            {report.income.items.length} รายรับ • {report.expense.items.length} รายจ่าย
+            {' • '}{report.expense.byProperty.length} กลุ่มทรัพย์สิน
+          </p>
+        )}
       </section>
 
       {/* Preview Section - Mobile-first, scrollable card preview */}
@@ -239,37 +269,75 @@ export default function ShareReportPage() {
             Preview
           </p>
           {isLoading && (
-            <Loader2 size={14} className="animate-spin text-slate-400" />
+            <span className="flex items-center gap-1.5 text-xs text-slate-400">
+              <Loader2 size={14} className="animate-spin" />
+              กำลังโหลด...
+            </span>
           )}
         </div>
 
-        {/* Preview shown at scaled-down size to fit mobile screen */}
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+        {isLoading ? (
+          // ✅ Skeleton placeholder while loading
+          <div
+            className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 p-4 space-y-3"
+            aria-label="กำลังโหลดตัวอย่างรายงาน"
+            role="status"
+          >
+            <div className="h-6 w-1/3 animate-pulse rounded bg-slate-200" />
+            <div className="h-10 w-2/3 animate-pulse rounded bg-slate-200" />
+            <div className="space-y-2 pt-2">
+              <div className="h-4 w-full animate-pulse rounded bg-slate-200" />
+              <div className="h-4 w-5/6 animate-pulse rounded bg-slate-200" />
+              <div className="h-4 w-4/6 animate-pulse rounded bg-slate-200" />
+            </div>
+            <div className="h-px w-full bg-slate-200 my-2" />
+            <div className="h-6 w-1/3 animate-pulse rounded bg-slate-200" />
+            <div className="h-10 w-2/3 animate-pulse rounded bg-slate-200" />
+            <div className="space-y-2 pt-2">
+              <div className="h-4 w-full animate-pulse rounded bg-slate-200" />
+              <div className="h-4 w-5/6 animate-pulse rounded bg-slate-200" />
+            </div>
+          </div>
+        ) : dateRangeError ? (
+          // Error state for invalid date range
+          <div className="overflow-hidden rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center">
+            <div className="text-3xl mb-2">⚠️</div>
+            <p className="text-sm font-semibold text-rose-900">
+              ไม่สามารถสร้างรายงานได้
+            </p>
+            <p className="mt-1 text-xs text-rose-700">{dateRangeError}</p>
+          </div>
+        ) : (
+          // Real preview
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+            <div
+              style={{
+                transform: 'scale(0.5)',
+                transformOrigin: 'top left',
+                width: '720px',
+                height: `${Math.ceil((previewHeight + 16) / 2)}px`,
+              }}
+            >
+              <ShareableReport report={report} />
+            </div>
+          </div>
+        )}
+
+        {/* Hidden full-size component for capture (only when there's a valid report) */}
+        {!isLoading && !dateRangeError && (
           <div
             style={{
-              transform: 'scale(0.5)',
-              transformOrigin: 'top left',
-              width: '720px',
-              height: `${(reportRef.current?.scrollHeight ?? 800)}px`,
+              position: 'fixed',
+              top: '-99999px',
+              left: '-99999px',
+              pointerEvents: 'none',
             }}
           >
-            <ShareableReport report={report} />
+            <div ref={reportRef}>
+              <ShareableReport report={report} />
+            </div>
           </div>
-        </div>
-
-        {/* Hidden full-size component for capture */}
-        <div
-          style={{
-            position: 'fixed',
-            top: '-99999px',
-            left: '-99999px',
-            pointerEvents: 'none',
-          }}
-        >
-          <div ref={reportRef}>
-            <ShareableReport report={report} />
-          </div>
-        </div>
+        )}
       </section>
 
       {/* Action Buttons - Sticky bottom */}
@@ -278,7 +346,7 @@ export default function ShareReportPage() {
           <button
             type="button"
             onClick={handleDownload}
-            disabled={isCapturing || isLoading}
+            disabled={isCapturing || isLoading || !!dateRangeError}
             className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
           >
             {isCapturing ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
@@ -287,7 +355,7 @@ export default function ShareReportPage() {
           <button
             type="button"
             onClick={handleShare}
-            disabled={isCapturing || isLoading}
+            disabled={isCapturing || isLoading || !!dateRangeError}
             className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-[#06C755] font-semibold text-white transition-colors hover:bg-[#05b04c] disabled:opacity-50"
           >
             {isCapturing ? <Loader2 size={18} className="animate-spin" /> : <Share2 size={18} />}

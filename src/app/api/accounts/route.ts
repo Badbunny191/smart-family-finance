@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
       .select({
         id: accounts.id,
         name: accounts.name,
-        accountAlias: accounts.accountAlias,
+        accountName: accounts.name,
         bankName: accounts.bankName,
         accountNumber: accounts.accountNumber,
         personId: accounts.personId,

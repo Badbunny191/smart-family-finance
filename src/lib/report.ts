@@ -2,9 +2,82 @@
  * Financial Report Generator
  *
  * Generates a shareable financial report (daily/weekly/monthly) for LINE sharing
+ *
+ * IMPORTANT: Only transactions with status === 'completed' affect real money balance.
+ * Pending and cancelled transactions are excluded (consistent with financial engine rules).
  */
 
 export type ReportPeriod = 'today' | 'week' | 'month' | 'custom';
+
+/**
+ * Central resolver for category icon rendering in LINE Report.
+ *
+ * The categories table stores icon as a Lucide icon name (e.g. "Banknote").
+ * The LINE Report renderer cannot render Lucide SVGs reliably across devices,
+ * so we map each Lucide name to a universal emoji before rendering.
+ *
+ * Keep this map in sync with CATEGORY_ICONS in src/components/category-icon.tsx.
+ *
+ * Behavior:
+ * - null/empty  -> fallback (📥 income / 💸 expense)
+ * - Lucide name -> mapped emoji
+ * - Already emoji (legacy data before icon migration) -> pass-through
+ * - Unknown     -> fallback
+ */
+const ICON_NAME_TO_EMOJI: Record<string, string> = {
+  // Finance
+  Banknote: '💰',
+  Wallet: '👛',
+  CreditCard: '💳',
+  PiggyBank: '🐷',
+  Landmark: '🏦',
+  // Property
+  House: '🏠',
+  Building2: '🏢',
+  Key: '🔑',
+  // Utilities
+  Wifi: '📶',
+  Zap: '⚡',
+  Droplets: '💧',
+  Wrench: '🔧',
+  // Lifestyle
+  ShoppingCart: '🛒',
+  UtensilsCrossed: '🍴',
+  Car: '🚗',
+  Fuel: '⛽',
+  // General
+  Package: '📦',
+  ReceiptText: '🧾',
+  Briefcase: '💼',
+  CirclePlus: '➕',
+};
+
+/**
+ * Quick heuristic: emoji characters usually have codepoint > U+2000
+ * on the first character. Lucide icon names are ASCII letters (A-Z).
+ */
+function isLikelyEmoji(s: string): boolean {
+  if (!s) return false;
+  const code = s.codePointAt(0) ?? 0;
+  // ASCII letters/digits (Lucide names) are <= 0x7A
+  return code > 0x2000;
+}
+
+/**
+ * Resolve a raw categoryIcon value (from DB) into a renderable emoji.
+ * - null/undefined -> fallback
+ * - Lucide name    -> mapped emoji
+ * - Already emoji  -> pass-through (legacy data)
+ * - Unknown        -> fallback
+ */
+export function resolveIcon(
+  rawIcon: string | null | undefined,
+  fallback: string
+): string {
+  if (!rawIcon) return fallback;
+  if (isLikelyEmoji(rawIcon)) return rawIcon;
+  return ICON_NAME_TO_EMOJI[rawIcon] ?? fallback;
+}
 
 export type TransactionRow = {
   id: string;
@@ -12,6 +85,7 @@ export type TransactionRow = {
   amount: number;
   date: string; // ISO string
   title: string;
+  status?: 'pending' | 'completed' | 'cancelled' | null;
   propertyId: string | null;
   propertyName: string | null;
   categoryId: string | null;
@@ -22,7 +96,10 @@ export type TransactionRow = {
 export type Property = { id: string; name: string };
 
 export type ReportItem = {
-  date: string; // formatted Thai date "02 ส.ค. 2569"
+  /** epoch ms - for reliable date sorting */
+  dateMs: number;
+  /** formatted Thai date "02 ส.ค. 2569" - for display */
+  dateDisplay: string;
   title: string;
   icon: string;
   amount: number;
@@ -49,6 +126,8 @@ export type Report = {
     items: ReportItem[];
     byProperty: PropertyGroup[];
   };
+  /** Net = income.total - expense.total */
+  net: number;
 };
 
 /**
@@ -80,13 +159,10 @@ export function getPeriodRange(
     }
     case 'week': {
       // Start of week = Monday (ISO week standard, also Thai convention)
-      // getDay(): Sun=0, Mon=1, Tue=2, ..., Sat=6
-      // To shift to Monday start: treat Sun(0) as 7
       const dayOfWeek = start.getDay();
       const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
       start.setDate(start.getDate() - daysSinceMonday);
 
-      // End of week = Sunday end-of-day
       endOfWeek = new Date(start);
       endOfWeek.setDate(start.getDate() + 6);
       endOfWeek.setHours(23, 59, 59, 999);
@@ -102,7 +178,6 @@ export function getPeriodRange(
     }
     case 'custom': {
       if (!customRange?.start || !customRange?.end) {
-        // Fallback to month if no range set
         start.setDate(1);
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         endOfMonth.setHours(23, 59, 59, 999);
@@ -123,7 +198,11 @@ export function getPeriodRange(
 }
 
 /**
- * Build report from transactions
+ * Build report from transactions.
+ *
+ * Business Rule (aligned with financial engine):
+ * - Only `status === 'completed'` transactions are included.
+ * - `pending` and `cancelled` are excluded (they don't affect real balance).
  */
 export function buildReport(
   transactions: TransactionRow[],
@@ -133,13 +212,14 @@ export function buildReport(
 ): Report {
   const { start, end, label } = getPeriodRange(period, reference, customRange);
 
-  // Filter only completed income/expense in date range
+  // Filter: completed income/expense in date range
   const filtered = transactions.filter((tx) => {
     const txDate = new Date(tx.date);
     return (
       txDate >= start &&
       txDate <= end &&
-      (tx.type === 'income' || tx.type === 'expense')
+      (tx.type === 'income' || tx.type === 'expense') &&
+      tx.status === 'completed'
     );
   });
 
@@ -147,31 +227,33 @@ export function buildReport(
   const incomeTxs = filtered.filter((tx) => tx.type === 'income');
   const expenseTxs = filtered.filter((tx) => tx.type === 'expense');
 
-  // Build items
+  // Build items - sort by Date object (epoch ms), not by formatted string
   const incomeItems: ReportItem[] = incomeTxs
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .map((tx) => ({
-      date: formatThaiDate(new Date(tx.date), 'short'),
+      dateMs: new Date(tx.date).getTime(),
+      dateDisplay: formatThaiDate(new Date(tx.date), 'short'),
       title: tx.title,
-      icon: tx.categoryIcon || '📥',
+      icon: resolveIcon(tx.categoryIcon, '📥'),
       amount: tx.amount,
-    }));
+    }))
+    .sort((a, b) => a.dateMs - b.dateMs);
 
   const expenseItems: ReportItem[] = expenseTxs
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .map((tx) => ({
-      date: formatThaiDate(new Date(tx.date), 'short'),
+      dateMs: new Date(tx.date).getTime(),
+      dateDisplay: formatThaiDate(new Date(tx.date), 'short'),
       title: tx.title,
-      icon: tx.categoryIcon || '💸',
+      icon: resolveIcon(tx.categoryIcon, '💸'),
       amount: tx.amount,
-    }));
+    }))
+    .sort((a, b) => a.dateMs - b.dateMs);
 
   // Group expense by property
   const propertyGroupsMap = new Map<string, PropertyGroup>();
 
   for (const tx of expenseTxs) {
     const propId = tx.propertyId || '__unassigned__';
-    const propName = tx.propertyName || 'ทั่วไป';
+    const propName = tx.propertyName || 'ไม่ได้ผูกทรัพย์สิน';
 
     if (!propertyGroupsMap.has(propId)) {
       propertyGroupsMap.set(propId, {
@@ -185,9 +267,10 @@ export function buildReport(
     const group = propertyGroupsMap.get(propId)!;
     group.total += tx.amount;
     group.items.push({
-      date: formatThaiDate(new Date(tx.date), 'short'),
+      dateMs: new Date(tx.date).getTime(),
+      dateDisplay: formatThaiDate(new Date(tx.date), 'short'),
       title: tx.title,
-      icon: tx.categoryIcon || '💸',
+      icon: resolveIcon(tx.categoryIcon, '💸'),
       amount: tx.amount,
     });
   }
@@ -196,10 +279,13 @@ export function buildReport(
   const byProperty = Array.from(propertyGroupsMap.values()).sort(
     (a, b) => b.total - a.total
   );
-  // Sort items within each group by date ASC
+  // Sort items within each group by epoch ms ASC (correct chronological order)
   byProperty.forEach((g) => {
-    g.items.sort((a, b) => a.date.localeCompare(b.date));
+    g.items.sort((a, b) => a.dateMs - b.dateMs);
   });
+
+  const incomeTotal = incomeTxs.reduce((sum, tx) => sum + tx.amount, 0);
+  const expenseTotal = expenseTxs.reduce((sum, tx) => sum + tx.amount, 0);
 
   return {
     period,
@@ -207,14 +293,15 @@ export function buildReport(
     startDate: start,
     endDate: end,
     income: {
-      total: incomeTxs.reduce((sum, tx) => sum + tx.amount, 0),
+      total: incomeTotal,
       items: incomeItems,
     },
     expense: {
-      total: expenseTxs.reduce((sum, tx) => sum + tx.amount, 0),
+      total: expenseTotal,
       items: expenseItems,
       byProperty,
     },
+    net: incomeTotal - expenseTotal,
   };
 }
 
@@ -251,11 +338,21 @@ function getThaiMonthName(month: number): string {
 }
 
 /**
- * Format currency
+ * Format currency (no fractional digits when .00, preserves meaningful decimals)
  */
 export function formatCurrencyShort(amount: number): string {
   return amount.toLocaleString('th-TH', {
     minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * Format currency with 2 fixed decimal places (used for summary totals)
+ */
+export function formatCurrencyExact(amount: number): string {
+  return amount.toLocaleString('th-TH', {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 }

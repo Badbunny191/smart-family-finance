@@ -40,6 +40,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .select({
         id: accounts.id,
         name: accounts.name,
+        accountAlias: accounts.accountAlias,
+        bankName: accounts.bankName,
+        accountNumber: accounts.accountNumber,
+        accountType: accounts.accountType,
         openingBalance: accounts.openingBalance,
         currentBalance: accounts.currentBalance,
       })

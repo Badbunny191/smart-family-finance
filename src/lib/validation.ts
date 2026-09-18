@@ -94,6 +94,10 @@ export const transactionMetadataSchema = z.object({
     .enum(['pending', 'received'])
     .nullable()
     .optional(),
+  // Editable metadata only — financial fields (amount, type, accounts, date)
+  // are intentionally NOT allowed via PATCH to preserve financial integrity.
+  title: z.string().trim().min(1).max(200).optional(),
+  note: z.string().trim().max(1000).nullable().optional(),
 });
 
 export function validationError(error: z.ZodError) {

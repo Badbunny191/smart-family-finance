@@ -69,6 +69,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .select({
         id: accounts.id,
         name: accounts.name,
+        accountAlias: accounts.accountAlias,
+        bankName: accounts.bankName,
+        accountNumber: accounts.accountNumber,
+        accountType: accounts.accountType,
         currentBalance: accounts.currentBalance,
       })
       .from(accounts)
@@ -108,6 +112,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (Math.abs(discrepancy) <= RECONCILE_EPSILON) {
       return NextResponse.json({
         accountId,
+        accountAlias: accountRow[0].accountAlias,
+        bankName: accountRow[0].bankName,
+        accountNumber: accountRow[0].accountNumber,
+        accountType: accountRow[0].accountType,
+        accountName: accountRow[0].name,
         oldBalance,
         newBalance,
         discrepancy: 0,
@@ -147,6 +156,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({
       accountId,
+      accountAlias: accountRow[0].accountAlias,
+      bankName: accountRow[0].bankName,
+      accountNumber: accountRow[0].accountNumber,
+      accountType: accountRow[0].accountType,
       accountName: accountRow[0].name,
       oldBalance,
       newBalance,
