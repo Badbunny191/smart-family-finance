@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { accounts, categories, persons, properties, transactions, users } from '@/db/schema';
 import { getRequestContext, handleApiError, isAdmin } from '@/lib/api-auth';
@@ -18,13 +18,135 @@ export async function GET(request: NextRequest) {
   try {
     const { db } = await getRequestContext(request);
     const { searchParams } = new URL(request.url);
+
+    // Pagination params
+    const pageParam = searchParams.get('page');
+    const limitParam = searchParams.get('limit');
+
+    // Filter params
     const type = searchParams.get('type');
     const businessStatus = searchParams.get('businessStatus');
     const categoryId = searchParams.get('categoryId');
+    const accountId = searchParams.get('accountId');
+    const dateFrom = searchParams.get('dateFrom');
+    const dateTo = searchParams.get('dateTo');
+
+    // Build filters array
     const filters = [isNull(transactions.deletedAt)];
-    if (type === 'income' || type === 'expense' || type === 'transfer' || type === 'adjustment') filters.push(eq(transactions.type, type));
-    if (businessStatus === 'pending' || businessStatus === 'received') filters.push(eq(transactions.businessStatus, businessStatus));
-    if (categoryId) filters.push(eq(transactions.categoryId, categoryId));
+
+    // Type filter
+    if (type === 'income' || type === 'expense' || type === 'transfer' || type === 'adjustment') {
+      filters.push(eq(transactions.type, type));
+    }
+
+    // Business status filter
+    if (businessStatus === 'pending' || businessStatus === 'received') {
+      filters.push(eq(transactions.businessStatus, businessStatus));
+    }
+
+    // Category filter
+    if (categoryId) {
+      filters.push(eq(transactions.categoryId, categoryId));
+    }
+
+    // Account filter (source OR destination)
+    if (accountId) {
+      filters.push(
+        or(
+          eq(transactions.sourceAccountId, accountId),
+          eq(transactions.destinationAccountId, accountId)
+        )!
+      );
+    }
+
+    // Date range filter
+    if (dateFrom) {
+      const fromDate = new Date(dateFrom);
+      fromDate.setHours(0, 0, 0, 0);
+      filters.push(gte(transactions.date, fromDate));
+    }
+    if (dateTo) {
+      const toDate = new Date(dateTo);
+      toDate.setHours(23, 59, 59, 999);
+      filters.push(lte(transactions.date, toDate));
+    }
+
+    // Pagination: only apply if BOTH page and limit are provided
+    const page = pageParam ? Math.max(1, parseInt(pageParam, 10)) : null;
+    const limit = limitParam ? Math.min(100, Math.max(1, parseInt(limitParam, 10))) : null;
+
+    if (page !== null && limit !== null) {
+      // Paginated response
+      const offset = (page - 1) * limit;
+
+      // Get total count
+      const countResult = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(transactions)
+        .where(and(...filters));
+      const total = Number(countResult[0]?.count ?? 0);
+      const totalPages = Math.ceil(total / limit);
+
+      // Get paginated data
+      const rows = await db
+        .select({
+          id: transactions.id,
+          type: transactions.type,
+          amount: transactions.amount,
+          date: transactions.date,
+          title: transactions.title,
+          status: transactions.status,
+          createdAt: transactions.createdAt,
+          propertyId: transactions.propertyId,
+          propertyName: properties.name,
+          categoryId: transactions.categoryId,
+          categoryName: categories.name,
+          categoryIcon: categories.icon,
+          businessStatus: transactions.businessStatus,
+          sourceAccountId: transactions.sourceAccountId,
+          sourceAccountName: sourceAcc.name,
+          sourceAccountAlias: sourceAcc.accountAlias,
+          sourceAccountBank: sourceAcc.bankName,
+          sourceAccountNumber: sourceAcc.accountNumber,
+          sourceAccountType: sourceAcc.accountType,
+          sourceIsBusinessAccount: sourceAcc.isBusinessAccount,
+          sourcePersonName: sourceOwner.name,
+          destinationAccountId: transactions.destinationAccountId,
+          destinationAccountName: destAcc.name,
+          destinationAccountAlias: destAcc.accountAlias,
+          destinationAccountBank: destAcc.bankName,
+          destinationAccountNumber: destAcc.accountNumber,
+          destinationAccountType: destAcc.accountType,
+          destinationIsBusinessAccount: destAcc.isBusinessAccount,
+          destinationPersonName: destOwner.name,
+          note: transactions.note,
+          adjustmentReason: transactions.adjustmentReason,
+          adjustmentDirection: transactions.adjustmentDirection,
+          createdByUserName: txCreatedBy.name,
+        })
+        .from(transactions)
+        .leftJoin(categories, eq(transactions.categoryId, categories.id))
+        .leftJoin(properties, eq(transactions.propertyId, properties.id))
+        .leftJoin(sourceAcc, eq(transactions.sourceAccountId, sourceAcc.id))
+        .leftJoin(sourceOwner, eq(sourceAcc.personId, sourceOwner.id))
+        .leftJoin(destAcc, eq(transactions.destinationAccountId, destAcc.id))
+        .leftJoin(destOwner, eq(destAcc.personId, destOwner.id))
+        .leftJoin(txCreatedBy, eq(transactions.createdByUserId, txCreatedBy.id))
+        .where(and(...filters))
+        .orderBy(desc(transactions.date), desc(transactions.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      return NextResponse.json({
+        data: rows,
+        total,
+        page,
+        limit,
+        totalPages,
+      });
+    }
+
+    // Legacy response: return all rows (backward compatible)
     const rows = await db
       .select({
         id: transactions.id,
@@ -71,6 +193,7 @@ export async function GET(request: NextRequest) {
       .leftJoin(txCreatedBy, eq(transactions.createdByUserId, txCreatedBy.id))
       .where(and(...filters))
       .orderBy(desc(transactions.date), desc(transactions.createdAt));
+
     return NextResponse.json(rows);
   } catch (error) {
     return handleApiError(error);

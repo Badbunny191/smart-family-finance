@@ -229,6 +229,13 @@ function TransactionsContent() {
   const { showToast } = useToast();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const PAGE_LIMIT = 50;
+
   // Date range calculation
   const getDateRange = (filter: DateFilterOption): { start: Date; end: Date } => {
     const now = new Date();
@@ -270,27 +277,97 @@ function TransactionsContent() {
     return `${formatThai(start)} - ${formatThai(end)}`;
   };
 
-  const loadData = async () => {
-    const responses = await Promise.all([
-      fetch('/api/transactions'),
-      fetch('/api/properties'),
-      fetch('/api/accounts'),
-      fetch('/api/categories'),
-    ]);
-
-    if (responses.some((response) => !response.ok)) {
-      throw new Error('โหลดข้อมูลไม่สำเร็จ');
+  const loadData = async (isLoadMore = false) => {
+    if (isLoadMore) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+      setCurrentPage(1);
+      // Clear records when filter changes (not load more)
+      setTransactions([]);
     }
 
-    setTransactions(await responses[0].json());
-    setProperties(await responses[1].json());
-    setAccounts(await responses[2].json());
-    setCategories(await responses[3].json());
+    try {
+      // Build filter params for server-side filtering
+      const filterParams = new URLSearchParams();
+      filterParams.set('page', isLoadMore ? String(currentPage + 1) : '1');
+      filterParams.set('limit', String(PAGE_LIMIT));
+
+      // Add filter params only when not 'all'
+      if (selectedType !== 'all') {
+        filterParams.set('type', selectedType);
+      }
+      if (selectedBusinessStatus !== 'all') {
+        filterParams.set('businessStatus', selectedBusinessStatus);
+      }
+      if (selectedCategory !== 'all') {
+        filterParams.set('categoryId', selectedCategory);
+      }
+      if (selectedAccount !== 'all') {
+        filterParams.set('accountId', selectedAccount);
+      }
+      // Date range filter
+      filterParams.set('dateFrom', dateRangeStart.toISOString());
+      filterParams.set('dateTo', dateRangeEnd.toISOString());
+
+      const responses = await Promise.all([
+        fetch(`/api/transactions?${filterParams.toString()}`),
+        fetch('/api/properties'),
+        fetch('/api/accounts'),
+        fetch('/api/categories'),
+      ]);
+
+      if (responses.some((response) => !response.ok)) {
+        throw new Error('โหลดข้อมูลไม่สำเร็จ');
+      }
+
+      const transactionsResponse = await responses[0].json() as Transaction[] | { data: Transaction[]; page: number; totalPages: number; total: number };
+      const isPaginated = !Array.isArray(transactionsResponse) && 'data' in transactionsResponse;
+      const newTransactions: Transaction[] = isPaginated ? transactionsResponse.data : transactionsResponse;
+      const pagination = isPaginated
+        ? {
+            page: transactionsResponse.page,
+            totalPages: transactionsResponse.totalPages,
+            total: transactionsResponse.total,
+          }
+        : null;
+
+      if (pagination) {
+        if (isLoadMore) {
+          setTransactions(prev => [...prev, ...newTransactions]);
+          setCurrentPage(pagination.page);
+          setTotalPages(pagination.totalPages);
+          setTotalRecords(pagination.total);
+        } else {
+          setTransactions(newTransactions);
+          setCurrentPage(pagination.page);
+          setTotalPages(pagination.totalPages);
+          setTotalRecords(pagination.total);
+        }
+      } else {
+        setTransactions(newTransactions);
+        setTotalRecords(newTransactions.length);
+      }
+
+      setProperties(await responses[1].json());
+      setAccounts(await responses[2].json());
+      setCategories(await responses[3].json());
+    } finally {
+      setIsLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  const loadMore = () => {
+    if (currentPage < totalPages && !isLoadingMore) {
+      loadData(true);
+    }
   };
 
   useEffect(() => {
+    // Reload when filters change - this replaces the client-side filter with server-side
     loadData().catch((error: Error) => setErrorMessage(error.message)).finally(() => setIsLoading(false));
-  }, []);
+  }, [selectedType, selectedBusinessStatus, selectedCategory, selectedAccount, selectedDateFilter]);
 
   const openCreate = (type: TransactionType = 'expense') => {
     setForm({
@@ -420,36 +497,18 @@ function TransactionsContent() {
     });
   };
 
-  // Filter transactions
+  // Search filter (client-side only - complex text matching)
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const visibleTransactions = transactions.filter((transaction) => {
-    // Date filter
-    const txDate = new Date(transaction.date);
-    const inDateRange = txDate >= dateRangeStart && txDate <= dateRangeEnd;
-
-    // Type filter
-    const typeMatch = selectedType === 'all' || transaction.type === selectedType;
-
-    // Status filter
-    const statusMatch = selectedBusinessStatus === 'all' || transaction.businessStatus === selectedBusinessStatus;
-
-    // Category filter
-    const categoryMatch = selectedCategory === 'all' || transaction.categoryId === selectedCategory;
-
-    // Account filter - match if account appears as source OR destination
-    const accountMatch = selectedAccount === 'all' ||
-      transaction.sourceAccountId === selectedAccount ||
-      transaction.destinationAccountId === selectedAccount;
-
-    // Search filter
+    // Search filter - client-side only (full-text search not implemented on server)
     const searchMatch = normalizedSearch === '' ||
       transaction.title.toLowerCase().includes(normalizedSearch) ||
       (transaction.note?.toLowerCase().includes(normalizedSearch) ?? false);
 
-    return inDateRange && typeMatch && statusMatch && categoryMatch && accountMatch && searchMatch;
+    return searchMatch;
   });
 
-  // Sort by date descending
+  // Sort by date descending (client-side only - Phase 1b scope)
   const sortedTransactions = useMemo(() => {
     return sortTransactions(visibleTransactions, sortOrder);
   }, [visibleTransactions, sortOrder]);
@@ -534,7 +593,12 @@ function TransactionsContent() {
             {formatDateRange(dateRangeStart, dateRangeEnd)}
           </span>
           <span>•</span>
-          <span>พบ {sortedTransactions.length} รายการ</span>
+          <span>
+            {sortedTransactions.length} รายการ
+            {totalRecords > sortedTransactions.length && (
+              <span className="ml-1">จาก {totalRecords.toLocaleString('th-TH')}</span>
+            )}
+          </span>
         </div>
       </header>
 
@@ -547,19 +611,47 @@ function TransactionsContent() {
         ) : sortedTransactions.length === 0 ? (
           <EmptyState />
         ) : (
-          sortedTransactions.map((transaction) => (
-            <TransactionCard
-              key={transaction.id}
-              transaction={transaction}
-              onEdit={setEditingTransaction}
-              onView={setViewingTransaction}
-              onReceived={markBusinessReceived}
-              onDelete={deleteTransaction}
-              isDeleting={isDeleting === transaction.id}
-              isMarkingReceived={isMarkingReceived === transaction.id}
-              isAdmin={isAdmin}
-            />
-          ))
+          <>
+            {sortedTransactions.map((transaction) => (
+              <TransactionCard
+                key={transaction.id}
+                transaction={transaction}
+                onEdit={setEditingTransaction}
+                onView={setViewingTransaction}
+                onReceived={markBusinessReceived}
+                onDelete={deleteTransaction}
+                isDeleting={isDeleting === transaction.id}
+                isMarkingReceived={isMarkingReceived === transaction.id}
+                isAdmin={isAdmin}
+              />
+            ))}
+
+            {/* Load More Button */}
+            {currentPage < totalPages && (
+              <div className="py-4 text-center">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:opacity-50"
+                >
+                  {isLoadingMore ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      กำลังโหลด...
+                    </>
+                  ) : (
+                    <>
+                      โหลดรายการเพิ่มเติม
+                      <span className="text-slate-400">
+                        ({Math.min(currentPage * PAGE_LIMIT, totalRecords)}/{totalRecords.toLocaleString('th-TH')})
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </section>
 
