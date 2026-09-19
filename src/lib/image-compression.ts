@@ -32,7 +32,7 @@ export interface CompressionOptions {
 
 const DEFAULT_OPTIONS: Required<CompressionOptions> = {
   maxDimension: 1600,
-  quality: 0.85,
+  quality: 0.9,
   outputFormat: 'webp',
 };
 
@@ -174,6 +174,19 @@ export async function compressImage(
       opts.quality
     );
   });
+
+  // If compressed size >= original, use original file instead
+  if (blob.size >= originalSize) {
+    const originalDataUrl = await blobToDataUrl(file);
+    return {
+      blob: file,
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      originalSize,
+      compressedSize: originalSize,
+      dataUrl: originalDataUrl,
+    };
+  }
 
   // Generate data URL for preview
   const dataUrl = await blobToDataUrl(blob);

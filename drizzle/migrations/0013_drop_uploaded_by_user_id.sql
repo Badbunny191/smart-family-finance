@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS `attachments_new` (
   `created_at` integer NOT NULL,
   `updated_at` integer NOT NULL,
   `deleted_at` integer,
-  FOREIGN KEY (`transaction_id`) REFERENCES `transactions`(`id`) ON DELETE CASCADE
+  FOREIGN KEY (`transaction_id`) REFERENCES `transactions`(`id`) ON DELETE NO ACTION
 );
 
 -- Step 2: Copy data from old table

@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ArrowRightLeft, CircleMinus, CirclePlus, Filter, Loader2, Pencil, Search, SlidersHorizontal, Trash2, X, Paperclip } from 'lucide-react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ArrowRightLeft, CircleMinus, CirclePlus, Filter, Loader2, Maximize2, Pencil, Search, SlidersHorizontal, Trash2, X, Paperclip } from 'lucide-react';
 import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
 import { formatAccountDisplayName, formatAccountForSelector } from '@/lib/utils';
+import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
 
@@ -507,6 +508,8 @@ function TransactionsContent() {
     categoryId: string;
     businessStatus: '' | BusinessStatus;
     propertyId: string;
+    newAttachments: AttachmentPickerFile[];
+    deletedAttachmentIds: string[];
   }) => {
     if (!editingTransaction) return;
     setIsUpdating(true);
@@ -523,15 +526,58 @@ function TransactionsContent() {
       }),
     });
 
-    setIsUpdating(false);
-
     if (!response.ok) {
+      setIsUpdating(false);
       const payload = (await response.json()) as { error?: string };
       showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
       return;
     }
 
-    showToast('บันทึกข้อมูลสำเร็จ', 'success');
+    // Handle attachments: upload new files
+    let uploadError = false;
+    if (data.newAttachments.length > 0) {
+      const uploadResults = await Promise.allSettled(
+        data.newAttachments.map(async (file) => {
+          const formData = new FormData();
+          formData.append('transactionId', editingTransaction.id);
+          formData.append('imageData', file.preview.dataUrl);
+          formData.append('fileName', file.file.name);
+
+          const uploadResponse = await fetch('/api/attachments', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!uploadResponse.ok) {
+            const errorData = (await uploadResponse.json()) as { error?: string };
+            throw new Error(errorData.error || `อัปโหลด ${file.file.name} ล้มเหลว`);
+          }
+          return file.file.name;
+        })
+      );
+
+      const failed = uploadResults.filter(r => r.status === 'rejected');
+      if (failed.length > 0) {
+        uploadError = true;
+      }
+    }
+
+    // Handle attachments: delete removed files
+    if (data.deletedAttachmentIds.length > 0) {
+      await Promise.allSettled(
+        data.deletedAttachmentIds.map(async (id) => {
+          await fetch(`/api/attachments/${id}`, { method: 'DELETE' });
+        })
+      );
+    }
+
+    setIsUpdating(false);
+
+    if (uploadError) {
+      showToast('บันทึกข้อมูลสำเร็จ แต่อัปโหลดรูปบางรูปล้มเหลว', 'error');
+    } else {
+      showToast('บันทึกข้อมูลสำเร็จ', 'success');
+    }
     await loadData();
     setEditingTransaction(null);
   };
@@ -1534,6 +1580,27 @@ function BusinessStatusSelect({ value, onChange }: { value: '' | BusinessStatus;
   );
 }
 
+// Helper function for blob to data URL
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('Failed to read blob'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Attachment type for existing attachments
+interface Attachment {
+  id?: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  width?: number;
+  height?: number;
+  dataUrl: string;
+}
+
 function TransactionMetadataForm({
   transaction,
   categories,
@@ -1552,6 +1619,8 @@ function TransactionMetadataForm({
     categoryId: string;
     businessStatus: '' | BusinessStatus;
     propertyId: string;
+    newAttachments: AttachmentPickerFile[];
+    deletedAttachmentIds: string[];
   }) => Promise<void>;
   isSaving: boolean;
 }) {
@@ -1562,6 +1631,60 @@ function TransactionMetadataForm({
     transaction.businessStatus || ''
   );
   const [propertyId, setPropertyId] = useState(transaction.propertyId || '');
+  const [existingAttachments, setExistingAttachments] = useState<Attachment[]>([]);
+  const [removedAttachmentIds, setRemovedAttachmentIds] = useState<Set<string>>(new Set());
+  const [pendingFiles, setPendingFiles] = useState<AttachmentPickerFile[]>([]);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+
+  // Load existing attachments
+  useEffect(() => {
+    const loadAttachments = async () => {
+      try {
+        const response = await fetch(`/api/attachments?transactionId=${transaction.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          // Fetch image URLs for each attachment
+          const attachmentsWithUrls = await Promise.all(
+            (data as Attachment[]).map(async (att) => {
+              try {
+                const imgResponse = await fetch(`/api/attachments/${att.id}/image`);
+                if (imgResponse.ok) {
+                  const blob = await imgResponse.blob();
+                  const dataUrl = await blobToDataUrl(blob);
+                  return { ...att, dataUrl };
+                }
+              } catch {
+                // Skip failed images
+              }
+              return { ...att, dataUrl: '' };
+            })
+          );
+          setExistingAttachments(attachmentsWithUrls);
+        }
+      } catch {
+        // Ignore errors
+      }
+    };
+    loadAttachments();
+  }, [transaction.id]);
+
+  // Filter to show attachments that haven't been removed
+  const visibleAttachments = existingAttachments.filter(att => att.id && !removedAttachmentIds.has(att.id));
+
+  // Calculate max for pending files (5 max - visible existing)
+  const maxPendingFiles = 5 - visibleAttachments.length;
+
+  const removeExistingAttachment = (id: string) => {
+    setRemovedAttachmentIds(prev => new Set([...prev, id]));
+  };
+
+  const restoreAttachment = (id: string) => {
+    setRemovedAttachmentIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
 
   const typeLabels: Record<TransactionType, string> = {
     income: 'รายรับ',
@@ -1647,6 +1770,8 @@ function TransactionMetadataForm({
             categoryId,
             businessStatus,
             propertyId,
+            newAttachments: pendingFiles,
+            deletedAttachmentIds: Array.from(removedAttachmentIds),
           });
         }}
         className="flex max-h-[88dvh] w-full flex-col rounded-t-3xl bg-white shadow-xl sm:max-w-md sm:rounded-2xl"
@@ -1751,13 +1876,116 @@ function TransactionMetadataForm({
               <Paperclip size={16} className="text-slate-500" />
               <span className="text-sm font-medium text-slate-700">รูปภาพประกอบ</span>
             </div>
-            <AttachmentManager
-              transactionId={transaction.id}
-              maxAttachments={5}
-              onAttachmentsChange={() => {}}
-            />
+
+            {/* Existing Attachments */}
+            {visibleAttachments.length > 0 && (
+              <div className="mb-3 space-y-2">
+                <p className="text-xs text-slate-500">ไฟล์ที่มีอยู่ ({visibleAttachments.length})</p>
+                {visibleAttachments.map((att, index) => (
+                  <div key={att.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
+                    {att.dataUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setLightboxImage(att.dataUrl)}
+                        className="group relative h-12 w-12 overflow-hidden rounded"
+                      >
+                        <img src={att.dataUrl} alt="" className="h-full w-full object-cover" />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                          <Maximize2 size={16} className="text-white" />
+                        </div>
+                      </button>
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded bg-slate-100 text-slate-400">
+                        <Paperclip size={20} />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="truncate text-sm font-medium text-slate-700"
+                        title={att.fileName}
+                      >
+                        รูปภาพ {index + 1}
+                      </p>
+                      <p className="text-xs text-slate-500">{formatFileSize(att.fileSize)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => att.id && removeExistingAttachment(att.id)}
+                      className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                      title="ลบ"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Pending New Files */}
+            {pendingFiles.length > 0 && (
+              <div className="mb-3 space-y-2">
+                <p className="text-xs text-green-600">รูปใหม่ที่รออัปโหลด ({pendingFiles.length})</p>
+                {pendingFiles.map((file, index) => (
+                  <div key={file.id} className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50/50 p-2">
+                    <div className="relative h-12 w-12 overflow-hidden rounded">
+                      <img src={file.preview.dataUrl} alt="" className="h-full w-full object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="truncate text-sm font-medium text-slate-700"
+                        title={file.file.name}
+                      >
+                        รูปภาพใหม่ {index + 1}
+                      </p>
+                      <p className="text-xs text-green-600">
+                        {formatFileSize(file.preview.originalSize)} → {formatFileSize(file.preview.compressedSize)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPendingFiles(prev => prev.filter(f => f.id !== file.id))}
+                      className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-500"
+                      title="ลบ"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add More Files */}
+            {maxPendingFiles > 0 && (
+              <AttachmentPicker
+                selectedFiles={pendingFiles}
+                onFilesChange={setPendingFiles}
+                maxAttachments={5}
+              />
+            )}
           </div>
         </div>
+
+        {/* Lightbox for attachment preview */}
+        {lightboxImage && (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
+            onClick={() => setLightboxImage(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxImage(null)}
+              className="absolute right-4 top-4 z-10 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
+            >
+              <X size={24} />
+            </button>
+            <img
+              src={lightboxImage}
+              alt="Preview"
+              className="max-h-[90vh] max-w-[90vw] object-contain"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
 
         <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="grid grid-cols-2 gap-3">
@@ -2020,7 +2248,7 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
               const imgResponse = await fetch(`/api/attachments/${att.id}/image`);
               if (imgResponse.ok) {
                 const blob = await imgResponse.blob();
-                const url = URL.createObjectURL(blob);
+                const url = await blobToDataUrl(blob);
                 urls.set(att.id, url);
               }
             } catch {
@@ -2039,8 +2267,7 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
     loadAttachments();
 
     return () => {
-      // Cleanup URLs on unmount
-      imageUrls.forEach((url) => URL.revokeObjectURL(url));
+      // No cleanup needed for data URLs
     };
   }, [transactionId]);
 
@@ -2082,16 +2309,19 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
                 type="button"
                 onClick={() => setSelectedIndex(index)}
                 className="relative aspect-square overflow-hidden rounded-lg bg-slate-100"
+                title={att.fileName}
               >
                 {imageUrl ? (
                   <img
                     src={imageUrl}
-                    alt={att.fileName}
+                    alt={`รูปภาพ ${index + 1}: ${att.fileName}`}
                     className="h-full w-full object-cover"
+                    loading="lazy"
                   />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center text-slate-400">
+                  <div className="flex h-full flex-col items-center justify-center text-slate-400">
                     <Paperclip size={20} />
+                    <span className="mt-1 text-xs">รูป {index + 1}</span>
                   </div>
                 )}
               </button>
@@ -2142,12 +2372,24 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
           )}
 
           {/* Image */}
-          <img
-            src={imageUrls.get(attachments[selectedIndex].id) || ''}
-            alt={attachments[selectedIndex].fileName}
-            className="max-h-[85vh] max-w-[90vw] object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {(() => {
+            const currentImageUrl = imageUrls.get(attachments[selectedIndex].id);
+            if (!currentImageUrl) {
+              return (
+                <div className="flex h-64 w-64 items-center justify-center">
+                  <Loader2 size={32} className="animate-spin text-white" />
+                </div>
+              );
+            }
+            return (
+              <img
+                src={currentImageUrl}
+                alt={attachments[selectedIndex].fileName}
+                className="max-h-[85vh] max-w-[90vw] object-contain"
+                onClick={(e) => e.stopPropagation()}
+              />
+            );
+          })()}
 
           {/* Image Info */}
           <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/60 px-4 py-2 text-white">
