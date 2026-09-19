@@ -1,0 +1,10 @@
+.env
+.env.*
+*.pem
+*.key
+*.cert
+*.sqlite
+*.db
+credentials.json
+node_modules/
+.git/

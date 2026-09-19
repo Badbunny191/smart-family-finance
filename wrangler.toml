@@ -24,6 +24,7 @@ name = "smart-family-finance-test"
 binding = "DB"
 database_name = "testd1"
 database_id = "811d6580-9cfc-46e2-a18b-2f50f37949f9"
+migrations_dir = "drizzle/migrations"
 
 [[env.test.r2_buckets]]
 binding = "BUCKET"

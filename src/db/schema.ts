@@ -235,9 +235,6 @@ export const attachments = sqliteTable(
     fileSize: integer('file_size').notNull(),
     width: integer('width'),
     height: integer('height'),
-    uploadedByUserId: text('uploaded_by_user_id')
-      .notNull()
-      .references(() => users.id),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
     deletedAt: integer('deleted_at', { mode: 'timestamp' }),
@@ -389,6 +386,5 @@ export const transactionsRelations = relations(transactions, ({ one, many }) => 
 
 export const attachmentsRelations = relations(attachments, ({ one }) => ({
   transaction: one(transactions, { fields: [attachments.transactionId], references: [transactions.id] }),
-  uploadedByUser: one(users, { fields: [attachments.uploadedByUserId], references: [users.id] }),
   ocrResult: one(ocrResults, { fields: [attachments.id], references: [ocrResults.attachmentId] }),
 }));

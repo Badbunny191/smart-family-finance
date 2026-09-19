@@ -82,6 +82,14 @@ export function serverErrorResponse(error?: Error) {
  * Handle API errors with type-safe error classes
  */
 export function handleApiError(error: unknown) {
+  // Always log errors for debugging
+  console.error('[API Error]', {
+    name: error instanceof Error ? error.name : typeof error,
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : new Error().stack,
+    timestamp: new Date().toISOString(),
+  });
+
   if (error instanceof UnauthorizedError) {
     return unauthorizedResponse();
   }
@@ -91,8 +99,5 @@ export function handleApiError(error: unknown) {
   if (error instanceof ValidationError) {
     return NextResponse.json({ error: error.errors }, { status: 400 });
   }
-  if (error instanceof Error) {
-    return serverErrorResponse(error);
-  }
-  return serverErrorResponse();
+  return serverErrorResponse(error instanceof Error ? error : undefined);
 }

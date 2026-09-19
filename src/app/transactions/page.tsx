@@ -1,10 +1,12 @@
 ﻿'use client';
 
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ArrowRightLeft, CircleMinus, CirclePlus, Filter, Loader2, Pencil, Search, SlidersHorizontal, Trash2, X } from 'lucide-react';
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ArrowRightLeft, CircleMinus, CirclePlus, Filter, Loader2, Pencil, Search, SlidersHorizontal, Trash2, X, Paperclip } from 'lucide-react';
+import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
+import { AttachmentManager } from '@/components/ui/attachment-manager';
+import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
 import { formatAccountDisplayName, formatAccountForSelector } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -218,6 +220,8 @@ function TransactionsContent() {
   const [isMarkingReceived, setIsMarkingReceived] = useState<string | null>(null);
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
+  const [savedTransactionId, setSavedTransactionId] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<AttachmentPickerFile[]>([]);
   const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>('month');
   const [customDateFrom, setCustomDateFrom] = useState<string>(() => {
     // Default: first day of current month
@@ -408,6 +412,9 @@ function TransactionsContent() {
 
   const saveTransaction = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    // Double-submit prevention
+    if (isSaving) return;
     setIsSaving(true);
 
     const response = await fetch('/api/transactions', {
@@ -426,17 +433,56 @@ function TransactionsContent() {
       }),
     });
 
-    setIsSaving(false);
-
     if (!response.ok) {
+      setIsSaving(false);
       const payload = (await response.json()) as { error?: string };
       showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
       return;
     }
 
-    showToast('บันทึกข้อมูลสำเร็จ', 'success');
-    await loadData();
+    const result = (await response.json()) as { id: string };
+    const transactionId = result.id;
+
+    // Upload attachments if any
+    if (selectedFiles.length > 0) {
+      const uploadResults = await Promise.allSettled(
+        selectedFiles.map(async (file) => {
+          const formData = new FormData();
+          formData.append('transactionId', transactionId);
+          formData.append('imageData', file.preview.dataUrl);
+          formData.append('fileName', file.file.name);
+
+          const uploadResponse = await fetch('/api/attachments', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!uploadResponse.ok) {
+            const errorData = (await uploadResponse.json()) as { error?: string };
+            throw new Error(errorData.error || `อัปโหลด ${file.file.name} ล้มเหลว`);
+          }
+
+          return file.file.name;
+        })
+      );
+
+      // Check for failures
+      const failed = uploadResults.filter(r => r.status === 'rejected');
+      if (failed.length > 0) {
+        showToast(`อัปโหลดรูปล้มเหลว ${failed.length} รายการ`, 'error');
+      } else {
+        showToast('บันทึกข้อมูลและรูปภาพสำเร็จ', 'success');
+      }
+    } else {
+      showToast('บันทึกข้อมูลสำเร็จ', 'success');
+    }
+
+    // Clear form state
+    setSelectedFiles([]);
+    setSavedTransactionId(null);
     setIsFormOpen(false);
+    setIsSaving(false);
+    await loadData();
   };
 
   const deleteTransaction = async (id: string) => {
@@ -778,7 +824,12 @@ function TransactionsContent() {
           properties={properties}
           accounts={accounts}
           categories={availableCategories}
-          onClose={() => setIsFormOpen(false)}
+          selectedFiles={selectedFiles}
+          onFilesChange={setSelectedFiles}
+          onClose={() => {
+            setIsFormOpen(false);
+            setSelectedFiles([]);
+          }}
           onSubmit={saveTransaction}
           isSaving={isSaving}
         />
@@ -1288,7 +1339,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
   );
 }
 
-function TransactionForm({ form, setForm, properties, accounts, categories, onClose, onSubmit, isSaving }: { form: FormState; setForm: (form: FormState) => void; properties: Property[]; accounts: Account[]; categories: Category[]; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>; isSaving: boolean }) {
+function TransactionForm({ form, setForm, properties, accounts, categories, selectedFiles, onFilesChange, onClose, onSubmit, isSaving }: { form: FormState; setForm: (form: FormState) => void; properties: Property[]; accounts: Account[]; categories: Category[]; selectedFiles: AttachmentPickerFile[]; onFilesChange: (files: AttachmentPickerFile[]) => void; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => Promise<void>; isSaving: boolean }) {
   const update = (values: Partial<FormState>) => setForm({ ...form, ...values });
   const isTransfer = form.type === 'transfer';
   const sameAccountSelected =
@@ -1296,6 +1347,11 @@ function TransactionForm({ form, setForm, properties, accounts, categories, onCl
     !!form.sourceAccountId &&
     !!form.destinationAccountId &&
     form.sourceAccountId === form.destinationAccountId;
+
+  const handleClose = useCallback(() => {
+    onFilesChange([]);
+    onClose();
+  }, [onFilesChange, onClose]);
 
   return (
     <div className="fixed inset-0 z-30 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5">
@@ -1391,13 +1447,20 @@ function TransactionForm({ form, setForm, properties, accounts, categories, onCl
             </div>
           </FormLabel>
 
+          {/* Attachments Section */}
+          <AttachmentPicker
+            selectedFiles={selectedFiles}
+            onFilesChange={onFilesChange}
+            maxAttachments={5}
+          />
+
           {sameAccountSelected && <p className="mt-3 text-sm text-rose-600">บัญชีต้นทางและปลายทางต้องไม่ใช่บัญชีเดียวกัน</p>}
         </div>
 
         {/* Sticky Footer with Cancel and Save Buttons */}
         <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <div className="grid grid-cols-2 gap-3">
-            <button type="button" onClick={onClose} disabled={isSaving} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 disabled:opacity-50">ยกเลิก</button>
+            <button type="button" onClick={handleClose} disabled={isSaving} className="h-12 w-full rounded-xl border border-slate-200 font-semibold text-slate-700 disabled:opacity-50">ยกเลิก</button>
             <button type="submit" disabled={isSaving} className="h-12 w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 font-semibold text-white disabled:opacity-50">
               {isSaving ? <><Loader2 size={18} className="animate-spin" /> กำลังบันทึกรายการ...</> : 'บันทึก'}
             </button>
@@ -1681,6 +1744,19 @@ function TransactionMetadataForm({
               หากต้องการเปลี่ยนแปลงข้อมูลเหล่านี้ กรุณาลบรายการเดิมแล้วสร้างใหม่
             </p>
           </div>
+
+          {/* Attachments Section */}
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Paperclip size={16} className="text-slate-500" />
+              <span className="text-sm font-medium text-slate-700">รูปภาพประกอบ</span>
+            </div>
+            <AttachmentManager
+              transactionId={transaction.id}
+              maxAttachments={5}
+              onAttachmentsChange={() => {}}
+            />
+          </div>
         </div>
 
         <div className="sticky bottom-0 border-t border-slate-100 bg-white px-5 py-4 pb-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
@@ -1848,6 +1924,9 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
               </div>
             )}
           </div>
+
+          {/* Attachment Gallery */}
+          <AttachmentGallery transactionId={transaction.id} />
         </div>
 
         {/* Footer - Action Buttons */}
@@ -1901,5 +1980,185 @@ function DetailRow({ label, value, icon }: { label: string; value: string; icon:
         <p className="mt-0.5 text-sm font-medium text-slate-900">{value}</p>
       </div>
     </div>
+  );
+}
+
+// Attachment Gallery Component for Detail View
+function AttachmentGallery({ transactionId }: { transactionId: string }) {
+  const [attachments, setAttachments] = useState<Array<{
+    id: string;
+    fileName: string;
+    fileType: string;
+    fileSize: number;
+    width?: number;
+    height?: number;
+  }>>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    const loadAttachments = async () => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`/api/attachments?transactionId=${transactionId}`);
+        if (response.ok) {
+          const data = (await response.json()) as Array<{
+            id: string;
+            fileName: string;
+            fileType: string;
+            fileSize: number;
+            width?: number;
+            height?: number;
+          }>;
+          setAttachments(data);
+
+          // Load image URLs
+          const urls = new Map<string, string>();
+          for (const att of data) {
+            try {
+              const imgResponse = await fetch(`/api/attachments/${att.id}/image`);
+              if (imgResponse.ok) {
+                const blob = await imgResponse.blob();
+                const url = URL.createObjectURL(blob);
+                urls.set(att.id, url);
+              }
+            } catch {
+              // Skip failed images
+            }
+          }
+          setImageUrls(urls);
+        }
+      } catch {
+        // Ignore errors
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadAttachments();
+
+    return () => {
+      // Cleanup URLs on unmount
+      imageUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [transactionId]);
+
+  if (isLoading) {
+    return (
+      <div className="mt-4">
+        <div className="mb-2 flex items-center gap-2">
+          <Paperclip size={16} className="text-slate-500" />
+          <span className="text-sm font-medium text-slate-700">รูปภาพประกอบ</span>
+        </div>
+        <div className="flex h-20 items-center justify-center">
+          <Loader2 size={20} className="animate-spin text-slate-400" />
+        </div>
+      </div>
+    );
+  }
+
+  if (attachments.length === 0) {
+    return null;
+  }
+
+  return (
+    <>
+      <div className="mt-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Paperclip size={16} className="text-slate-500" />
+          <span className="text-sm font-medium text-slate-700">
+            รูปภาพประกอบ ({attachments.length})
+          </span>
+        </div>
+
+        {/* Thumbnail Grid */}
+        <div className="grid grid-cols-4 gap-2">
+          {attachments.map((att, index) => {
+            const imageUrl = imageUrls.get(att.id);
+            return (
+              <button
+                key={att.id}
+                type="button"
+                onClick={() => setSelectedIndex(index)}
+                className="relative aspect-square overflow-hidden rounded-lg bg-slate-100"
+              >
+                {imageUrl ? (
+                  <img
+                    src={imageUrl}
+                    alt={att.fileName}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-slate-400">
+                    <Paperclip size={20} />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Lightbox Modal */}
+      {selectedIndex !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+          onClick={() => setSelectedIndex(null)}
+        >
+          {/* Close Button */}
+          <button
+            type="button"
+            onClick={() => setSelectedIndex(null)}
+            className="absolute right-4 top-4 z-10 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
+          >
+            <X size={24} />
+          </button>
+
+          {/* Navigation Arrows */}
+          {selectedIndex > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedIndex(selectedIndex - 1);
+              }}
+              className="absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
+            >
+              <ArrowLeftRight size={24} className="rotate-180" />
+            </button>
+          )}
+          {selectedIndex < attachments.length - 1 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedIndex(selectedIndex + 1);
+              }}
+              className="absolute right-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
+            >
+              <ArrowLeftRight size={24} />
+            </button>
+          )}
+
+          {/* Image */}
+          <img
+            src={imageUrls.get(attachments[selectedIndex].id) || ''}
+            alt={attachments[selectedIndex].fileName}
+            className="max-h-[85vh] max-w-[90vw] object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {/* Image Info */}
+          <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/60 px-4 py-2 text-white">
+            <span className="text-sm">
+              {selectedIndex + 1} / {attachments.length}
+            </span>
+            <span className="mx-2 text-slate-400">•</span>
+            <span className="text-sm">{attachments[selectedIndex].fileName}</span>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
