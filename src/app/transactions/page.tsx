@@ -135,12 +135,14 @@ const businessStatusLabels: Record<BusinessStatus, string> = {
 };
 
 // Date filter types
-type DateFilterOption = 'today' | '7days' | 'month' | 'all';
+type DateFilterOption = 'today' | '7days' | '30days' | 'month' | 'custom' | 'all';
 
 const dateFilterLabels: Record<DateFilterOption, string> = {
   today: 'วันนี้',
   '7days': '7 วัน',
+  '30days': '30 วัน',
   month: 'เดือนนี้',
+  custom: 'กำหนดเอง',
   all: 'ทั้งหมด',
 };
 
@@ -217,6 +219,8 @@ function TransactionsContent() {
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
   const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>('month');
+  const [customDateFrom, setCustomDateFrom] = useState<string>('');
+  const [customDateTo, setCustomDateTo] = useState<string>('');
   const [sortOrder, setSortOrder] = useState<SortOrder>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(SORT_PREFERENCE_KEY);
@@ -237,14 +241,14 @@ function TransactionsContent() {
   const PAGE_LIMIT = 50;
 
   // Date range calculation
-  const getDateRange = (filter: DateFilterOption): { start: Date; end: Date } => {
+  const getDateRange = (filter: DateFilterOption, customFrom?: string, customTo?: string): { start: Date; end: Date } => {
     const now = new Date();
     const end = new Date(now);
     end.setHours(23, 59, 59, 999);
-    
+
     const start = new Date(now);
     start.setHours(0, 0, 0, 0);
-    
+
     switch (filter) {
       case 'today':
         // Same day
@@ -252,18 +256,32 @@ function TransactionsContent() {
       case '7days':
         start.setDate(start.getDate() - 6);
         break;
+      case '30days':
+        start.setDate(start.getDate() - 29);
+        break;
       case 'month':
         start.setDate(1);
+        break;
+      case 'custom':
+        // Use custom dates if provided
+        if (customFrom) {
+          start.setTime(new Date(customFrom).getTime());
+          start.setHours(0, 0, 0, 0);
+        }
+        if (customTo) {
+          end.setTime(new Date(customTo).getTime());
+          end.setHours(23, 59, 59, 999);
+        }
         break;
       case 'all':
         start.setFullYear(2000, 0, 1); // Far past
         break;
     }
-    
+
     return { start, end };
   };
 
-  const { start: dateRangeStart, end: dateRangeEnd } = getDateRange(selectedDateFilter);
+  const { start: dateRangeStart, end: dateRangeEnd } = getDateRange(selectedDateFilter, customDateFrom, customDateTo);
 
   // Format date range for display
   const formatDateRange = (start: Date, end: Date): string => {
@@ -367,7 +385,7 @@ function TransactionsContent() {
   useEffect(() => {
     // Reload when filters change - this replaces the client-side filter with server-side
     loadData().catch((error: Error) => setErrorMessage(error.message)).finally(() => setIsLoading(false));
-  }, [selectedType, selectedBusinessStatus, selectedCategory, selectedAccount, selectedDateFilter]);
+  }, [selectedType, selectedBusinessStatus, selectedCategory, selectedAccount, selectedDateFilter, customDateFrom, customDateTo]);
 
   const openCreate = (type: TransactionType = 'expense') => {
     setForm({
@@ -500,10 +518,34 @@ function TransactionsContent() {
   // Search filter (client-side only - complex text matching)
   const normalizedSearch = searchQuery.trim().toLowerCase();
   const visibleTransactions = transactions.filter((transaction) => {
-    // Search filter - client-side only (full-text search not implemented on server)
-    const searchMatch = normalizedSearch === '' ||
+    if (normalizedSearch === '') return true;
+
+    // Parse search as number (for amount matching)
+    const searchAsNumber = normalizedSearch.replace(/,/g, '');
+    const amountMatch = !isNaN(parseFloat(searchAsNumber));
+
+    // Normalize amount for comparison (1227 matches 1,227.00)
+    const transactionAmount = transaction.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const transactionAmountNoComma = transactionAmount.replace(/,/g, '');
+
+    const searchMatch =
+      // Title
       transaction.title.toLowerCase().includes(normalizedSearch) ||
-      (transaction.note?.toLowerCase().includes(normalizedSearch) ?? false);
+      // Note
+      (transaction.note?.toLowerCase().includes(normalizedSearch) ?? false) ||
+      // Category name
+      (transaction.categoryName?.toLowerCase().includes(normalizedSearch) ?? false) ||
+      // Source account name
+      (transaction.sourceAccountName?.toLowerCase().includes(normalizedSearch) ?? false) ||
+      // Destination account name
+      (transaction.destinationAccountName?.toLowerCase().includes(normalizedSearch) ?? false) ||
+      // Amount - exact or partial match on formatted amount
+      (amountMatch && (
+        transactionAmount.includes(searchAsNumber) ||
+        transactionAmountNoComma.includes(searchAsNumber) ||
+        normalizedSearch.includes(transactionAmount) ||
+        normalizedSearch.includes(transactionAmountNoComma)
+      ));
 
     return searchMatch;
   });
@@ -585,6 +627,25 @@ function TransactionsContent() {
             </button>
           ))}
         </div>
+
+        {/* Custom Date Range - Show when 'custom' is selected */}
+        {selectedDateFilter === 'custom' && (
+          <div className="flex gap-2 pb-3">
+            <input
+              type="date"
+              value={customDateFrom}
+              onChange={(e) => setCustomDateFrom(e.target.value)}
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            />
+            <span className="flex items-center text-slate-400">-</span>
+            <input
+              type="date"
+              value={customDateTo}
+              onChange={(e) => setCustomDateTo(e.target.value)}
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            />
+          </div>
+        )}
 
         {/* Row 3: Result Count */}
         <div className="flex items-center gap-2 pb-2 text-sm text-slate-500">
