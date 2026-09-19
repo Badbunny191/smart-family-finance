@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     const txRows = await db
       .select({ id: transactions.id })
       .from(transactions)
-      .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)))
+      .where(and(eq(transactions.id, txId), isNull(transactions.deletedAt)))
       .limit(1);
 
     if (!txRows[0]) {
@@ -190,7 +190,16 @@ export async function POST(request: NextRequest) {
       createdAt: now,
     }, { status: 201 });
   } catch (error) {
-    return handleApiError(error);
+    console.error('[ATTACHMENT UPLOAD ERROR]', error);
+
+    return NextResponse.json(
+      {
+        error: error instanceof Error
+          ? error.stack || error.message
+          : String(error),
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -237,11 +246,16 @@ function getImageDimensions(data: Uint8Array, mimeType: string): { width: number
     return (arr[offset] << 8) | arr[offset + 1];
   };
 
-  // PNG: bytes 16-24 contain width and height (big-endian)
+  // Helper: read 32-bit big-endian from Uint8Array
+  const readUInt32BE = (arr: Uint8Array, offset: number): number => {
+    return (arr[offset] << 24) | (arr[offset + 1] << 16) | (arr[offset + 2] << 8) | arr[offset + 3];
+  };
+
+  // PNG: bytes 16-24 contain width and height (big-endian, 4 bytes each)
   if (mimeType === 'png') {
     return {
-      width: readUInt16BE(data, 16),
-      height: readUInt16BE(data, 20),
+      width: readUInt32BE(data, 16),
+      height: readUInt32BE(data, 20),
     };
   }
 
