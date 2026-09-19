@@ -219,8 +219,16 @@ function TransactionsContent() {
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
   const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>('month');
-  const [customDateFrom, setCustomDateFrom] = useState<string>('');
-  const [customDateTo, setCustomDateTo] = useState<string>('');
+  const [customDateFrom, setCustomDateFrom] = useState<string>(() => {
+    // Default: first day of current month
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  });
+  const [customDateTo, setCustomDateTo] = useState<string>(() => {
+    // Default: today
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
   const [sortOrder, setSortOrder] = useState<SortOrder>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem(SORT_PREFERENCE_KEY);
@@ -522,32 +530,35 @@ function TransactionsContent() {
 
     // Parse search as number (for amount matching)
     const searchAsNumber = normalizedSearch.replace(/,/g, '');
-    const amountMatch = !isNaN(parseFloat(searchAsNumber));
+    const isNumericSearch = !isNaN(parseFloat(searchAsNumber)) && searchAsNumber.length > 0;
 
-    // Normalize amount for comparison (1227 matches 1,227.00)
-    const transactionAmount = transaction.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const transactionAmountNoComma = transactionAmount.replace(/,/g, '');
-
-    const searchMatch =
-      // Title
+    // Title, note, category, account names - direct string match
+    const textMatch =
       transaction.title.toLowerCase().includes(normalizedSearch) ||
-      // Note
       (transaction.note?.toLowerCase().includes(normalizedSearch) ?? false) ||
-      // Category name
       (transaction.categoryName?.toLowerCase().includes(normalizedSearch) ?? false) ||
-      // Source account name
       (transaction.sourceAccountName?.toLowerCase().includes(normalizedSearch) ?? false) ||
-      // Destination account name
-      (transaction.destinationAccountName?.toLowerCase().includes(normalizedSearch) ?? false) ||
-      // Amount - exact or partial match on formatted amount
-      (amountMatch && (
-        transactionAmount.includes(searchAsNumber) ||
-        transactionAmountNoComma.includes(searchAsNumber) ||
-        normalizedSearch.includes(transactionAmount) ||
-        normalizedSearch.includes(transactionAmountNoComma)
-      ));
+      (transaction.destinationAccountName?.toLowerCase().includes(normalizedSearch) ?? false);
 
-    return searchMatch;
+    // Amount matching - compare numeric values
+    let amountMatch = false;
+    if (isNumericSearch) {
+      const searchValue = Math.abs(parseFloat(searchAsNumber));
+      const transactionAmount = Math.abs(transaction.amount);
+      // Match if search value is found within transaction amount (with tolerance for decimal)
+      const transactionAmountFormatted = transactionAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const transactionAmountClean = transactionAmountFormatted.replace(/,/g, '');
+      const searchFormatted = searchValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const searchClean = searchFormatted.replace(/,/g, '');
+
+      amountMatch =
+        transactionAmountClean.includes(searchClean) ||
+        transactionAmountClean.startsWith(searchClean.split('.')[0]) ||
+        searchClean.includes(transactionAmountClean) ||
+        searchClean.split('.')[0] === transactionAmountClean.split('.')[0];
+    }
+
+    return textMatch || amountMatch;
   });
 
   // Sort by date descending (client-side only - Phase 1b scope)

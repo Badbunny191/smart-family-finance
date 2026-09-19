@@ -25,6 +25,9 @@ npm run build:cloudflare
 npx wrangler deploy
 ```
 
+```bash กรณี test
+npm run build:cloudflare
+npx wrangler deploy --env test
 ---
 
 ## ห้ามใช้
