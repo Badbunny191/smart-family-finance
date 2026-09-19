@@ -1,249 +1,273 @@
-# Deployment Guide
+จัด version ให้สวยขึ้นเลย เอาไว้แปะใน README หรือ docs/deployment.md
 
-> ⚠️ IMPORTANT
->
-> โปรเจกต์นี้ใช้:
->
-> - Next.js
-> - OpenNext
-> - Cloudflare Workers
+Deployment Guide
 
----
+⚠️ สำคัญ
 
-## Deploy ที่ถูกต้อง
+โปรเจกต์นี้ใช้
 
-### ✅ ใช้คำสั่งนี้
-
-```bash
+Next.js
+OpenNext
+Cloudflare Workers
+Cloudflare D1
+Cloudflare R2
+วิธี Deploy ที่ถูกต้อง
+Production
 npm run deploy
-```
+
 
 หรือ
 
-```bash
 npm run build:cloudflare
 npx wrangler deploy
-```
 
-```bash กรณี test
+Test Environment
 npm run build:cloudflare
 npx wrangler deploy --env test
----
 
-## ห้ามใช้
-
-```bash
+ห้ามใช้
 npm run build
 npx wrangler deploy
-```
 
-### เหตุผล
+เหตุผล
 
-`npm run build`
+คำสั่ง
 
-รันแค่:
+npm run build
 
-```bash
+
+รันเพียง
+
 next build
-```
+
 
 เท่านั้น
 
 ไม่ได้สร้าง OpenNext artifact ใหม่
 
-ทำให้ Cloudflare Worker อาจ deploy โค้ดเก่าได้
-แม้ว่า
+จึงมีโอกาสทำให้ Cloudflare Workers ถูก deploy ด้วย build เก่า แม้ว่า
 
-```bash
 git push
-```
+
 
 และ
 
-```bash
 wrangler deploy
-```
+
 
 จะสำเร็จแล้วก็ตาม
 
----
-
-## Clean Deploy
+Clean Deploy
 
 หาก Production แสดงผลไม่ตรงกับ Source Code
 
-ให้รัน
+ให้ล้าง build artifact ก่อน
 
-```bash
 rm -rf .next .open-next
 
 npm run deploy
-```
 
----
+Database Migration Checklist
 
-## วิธี Debug
+⚠️ บทเรียนสำคัญจาก Incident Attachment Upload (2026-09)
 
-ถ้า
+หากมีการแก้ไข
 
-```text
+Schema
+Migration
+Foreign Key
+Index
+D1 Structure
+
+ต้อง Apply Migration ทั้ง Test และ Production
+
+ลำดับที่ถูกต้อง
+Code Change
+    ↓
+Apply Migration (Test)
+    ↓
+Deploy Test
+    ↓
+Test ผ่าน
+    ↓
+Apply Migration (Production)
+    ↓
+Deploy Production
+
+
+ห้ามทำ
+
+Apply Migration แค่ Test
+
+แล้ว Deploy Production ทันที
+
+
+เพราะอาจเกิดปัญหา
+
+Code Version เท่ากัน
+
+แต่ Database Schema คนละเวอร์ชัน
+
+วิธี Debug Production
+
+หาก
+
 Source Code
 ≠
 Production UI
-```
 
-ห้ามสรุปว่าเป็น Browser Cache ทันที
+
+อย่าเพิ่งสรุปว่าเป็น Browser Cache
 
 ให้ตรวจตามลำดับนี้
 
-### 1. ตรวจ Git
-
-```bash
+1. ตรวจ Git
 git status
+
 git rev-parse HEAD
+
 git ls-remote origin refs/heads/main
-```
 
----
+2. ตรวจ Deployment
 
-### 2. ตรวจ Deployment
+Cloudflare Dashboard
 
-Cloudflare
-
-```text
 Workers & Pages
 → smart-family-finance
 → Deployments
-```
 
----
+3. ตรวจ Runtime Code จริง
 
-### 3. ตรวจ Runtime Code จริง
+Cloudflare Dashboard
 
-เปิด
-
-```text
 Workers
 → Active Deployment
 → Edit Code
-```
 
-ค้นหา
 
-```text
+ค้นหาคำสำคัญ เช่น
+
 awaiting_business_transfer
-```
-
-หรือ
-
-```text
 pending_payment
-```
-
-หรือ
-
-```text
 customer_paid
-```
 
-ถ้ายังเจอ
 
-แปลว่า Runtime ยังใช้ Build Artifact เก่า
+หากยังพบค่าเก่า
 
----
+แปลว่า Runtime ใช้ Build Artifact เก่า
 
-## Incident 2026-09-10
+Incident 2026-09-10
+อาการ
 
-### อาการ
+Production UI แสดง
 
-UI แสดง
-
-```text
 รับเงินแล้ว
 รอโอนเข้าธุรกิจ
 โอนเข้าธุรกิจแล้ว
 ปิดรายการแล้ว
-```
 
-ทั้งที่ Source Code ถูกแก้แล้ว
 
-เหลือ
+ทั้งที่ Source Code เหลือเพียง
 
-```text
 รอชำระ
 รับชำระแล้ว
-```
 
----
+สาเหตุ
 
-### สาเหตุจริง
-
-OpenNext Artifact เก่า
-ถูก Deploy ขึ้น Cloudflare Worker
+OpenNext Artifact เก่า ถูก Deploy ขึ้น Cloudflare Worker
 
 ไม่ใช่
 
-```text
 Browser Cache
 Cloudflare Cache
-```
 
----
-
-### วิธีแก้
-
-```bash
+วิธีแก้
 rm -rf .next .open-next
 
 npm run deploy
-```
 
----
+Incident 2026-09-19
+อาการ
+บันทึกข้อมูลสำเร็จ
+แต่อัปโหลดรูปล้มเหลว
 
-# Release v1.5.0
+สิ่งที่สงสัยตอนแรก
+React
+R2
+Upload API
+Image API
+Cloudflare Context
 
-✅ Simplify business_status
+Root Cause จริง
 
-```text
-pending
-received
-```
+Production D1 Schema ไม่ตรงกับ Test D1
 
-✅ Add isBusinessAccount
+พบว่า
 
-✅ D1 Migration Complete
-
-✅ OpenNext Deployment Fixed
-
-✅ Deploy Process Documented
+attachments.transaction_id
+REFERENCES transactions_old(id)
 
 
+แต่ตารางจริงคือ
+
+transactions
+
+
+จึงทำให้การ Insert Attachment ล้มเหลวด้วย
+
+D1_ERROR: no such table: transactions_old
+
+วิธีตรวจ
+npx wrangler d1 execute smart-family-finance-db --remote --command "PRAGMA foreign_key_list(attachments)"
+
+บทเรียน
+Code ผ่าน
+≠
+Production พร้อม
+
+ต้องตรวจ Migration และ Schema ด้วยเสมอ
+
+Release v1.6.0
+
+✅ Transaction Attachments
+
+✅ Cloudflare R2 Storage
+
+✅ Attachment Preview
+
+✅ Full Image Viewer
+
+✅ Attachment CRUD
+
+✅ Production D1 Schema Repair
+
+✅ Foreign Key Repair
+
+✅ Upload Flow Stabilization
 
 Lesson Learned
 
-หาก production พังหลังจากแก้โค้ด
+หาก
 
-และยังไม่ได้ commit
+Test ผ่าน
 
-ให้ restore กลับก่อน
-
-อย่าเพิ่ง optimize
-อย่าเพิ่ง refactor
-อย่าเพิ่งวิเคราะห์ performance
+แต่ Production พัง
 
 
-Investigation Result
+ให้ตรวจสิ่งเหล่านี้ก่อน
 
-Root cause:
-Next.js automatic route prefetching caused request fan-out.
+1. Migration Status
+2. Foreign Keys
+3. D1 Schema
+4. Production D1 vs Test D1
 
-Fix:
-Disabled Link prefetch on dashboard, sidebar and mobile navigation.
 
-Result:
-Normal usage stable.
-Route fan-out removed.
-Worker CPU pressure reduced.
+ก่อนจะเริ่มไล่
 
-Remaining issue:
-Extreme stress load (100 parallel requests) can still trigger Cloudflare CPU limits.
+React
+Performance
+R2
+Cloudflare Worker
+
+
+เพราะปัญหาอาจอยู่ที่ Database Schema ไม่ตรงกัน ไม่ใช่ที่ Code เสมอไป 🚀
