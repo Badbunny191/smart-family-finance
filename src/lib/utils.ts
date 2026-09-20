@@ -120,3 +120,44 @@ export function formatCurrency(amount: number): string {
     minimumFractionDigits: 2,
   }).format(amount);
 }
+
+// Buddhist Calendar date formatter (พ.ศ. ทุกครั้ง)
+function createBuddhistFormatter(options: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat('th-TH', { calendar: 'buddhist', ...options });
+}
+
+/**
+ * Format date as short format: 20 ก.ย. 2569
+ */
+export function formatDate(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return createBuddhistFormatter({ day: 'numeric', month: 'short', year: 'numeric' }).format(d);
+}
+
+/**
+ * Format date as full format: วันอาทิตย์ที่ 20 กันยายน พ.ศ. 2569
+ */
+export function formatDateFull(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return createBuddhistFormatter({
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(d);
+}
+
+/**
+ * Format date range: 1 ก.ย. 2569 - 20 ก.ย. 2569
+ * Returns single date if same day
+ */
+export function formatDateRange(start: Date | string, end: Date | string): string {
+  const s = typeof start === 'string' ? new Date(start) : start;
+  const e = typeof end === 'string' ? new Date(end) : end;
+
+  if (s.toDateString() === e.toDateString()) {
+    return formatDate(s);
+  }
+
+  return `${formatDate(s)} - ${formatDate(e)}`;
+}

@@ -10,7 +10,7 @@ import { accounts, persons, transactions } from '@/db/schema';
 import { getDb } from '@/db/client';
 import { createAuth } from '@/lib/auth';
 import { getD1 } from '@/lib/cloudflare';
-import { formatAccountDisplayName, formatCurrency } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency, formatDate } from '@/lib/utils';
 import { PersonAccordionCard } from './_components/person-accordion-card';
 
 // Alias for self-join (source and destination accounts)
@@ -646,7 +646,7 @@ export default async function DashboardPage() {
                         <div className="min-w-0">
                           <h3 className="truncate font-semibold text-slate-900">{tx.title}</h3>
                           <p className="mt-1 text-xs text-slate-500">
-                            {typeLabel} · {new Date(tx.date).toLocaleDateString('th-TH')}
+                            {typeLabel} · {formatDate(tx.date)}
                           </p>
                         </div>
                         <p className={`shrink-0 font-bold ${amountColor}`}>

@@ -18,7 +18,7 @@ import {
 import Link from 'next/link';
 import { MobileNav } from '@/components/mobile-nav';
 import { useSession } from '@/lib/auth-client';
-import { formatAccountDisplayName } from '@/lib/utils';
+import { formatAccountDisplayName, formatDate } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -231,11 +231,7 @@ function TxRow({ tx, accountId }: { tx: TxRow; accountId: string }) {
         <div className="mt-1 flex items-center justify-between">
           <span className="text-xs text-slate-500 truncate ml-5">{tx.title}</span>
           <span className="text-xs text-slate-400 shrink-0 ml-2">
-            {date.toLocaleDateString('th-TH', {
-              day: '2-digit',
-              month: 'short',
-              year: 'numeric',
-            })}
+            {formatDate(date)}
           </span>
         </div>
       </button>

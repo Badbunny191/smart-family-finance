@@ -7,7 +7,7 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
-import { formatAccountDisplayName, formatAccountForSelector } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull } from '@/lib/utils';
 import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -295,18 +295,6 @@ function TransactionsContent() {
   };
 
   const { start: dateRangeStart, end: dateRangeEnd } = getDateRange(selectedDateFilter, customDateFrom, customDateTo);
-
-  // Format date range for display
-  const formatDateRange = (start: Date, end: Date): string => {
-    const formatThai = (d: Date) => d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
-    
-    // Check if same day
-    if (start.toDateString() === end.toDateString()) {
-      return formatThai(start);
-    }
-    
-    return `${formatThai(start)} - ${formatThai(end)}`;
-  };
 
   const loadData = async (isLoadMore = false) => {
     if (isLoadMore) {
@@ -1250,8 +1238,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
   };
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDateFull(new Date(dateStr));
   };
 
   const amountColor = transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700';
@@ -1753,11 +1740,7 @@ function TransactionMetadataForm({
         ? 'text-indigo-700'
         : 'text-orange-700';
 
-  const thaiDate = new Date(transaction.date).toLocaleDateString('th-TH', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  const thaiDate = formatDateFull(new Date(transaction.date));
 
   return (
     <div className="fixed inset-0 z-30 flex items-end bg-slate-950/30 sm:items-center sm:justify-center sm:p-5">
@@ -2054,7 +2037,7 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
             </p>
             <h3 className="mt-2 text-lg font-semibold text-slate-900">{transaction.title}</h3>
             <p className="mt-1 text-sm text-slate-500">
-              {new Date(transaction.date).toLocaleDateString('th-TH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              {formatDateFull(new Date(transaction.date))}
             </p>
             {transaction.businessStatus && (
               <span className={`mt-2 inline-block rounded-full px-3 py-1 text-sm font-medium ${statusColors[transaction.businessStatus]}`}>
