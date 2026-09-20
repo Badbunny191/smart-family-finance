@@ -41,7 +41,37 @@ export async function GET(request: NextRequest) {
 
     // Business status filter
     if (businessStatus === 'pending' || businessStatus === 'received') {
-      filters.push(eq(transactions.businessStatus, businessStatus));
+      const overdue = searchParams.get('overdue');
+      
+      if (businessStatus === 'pending') {
+        if (overdue === 'true') {
+          // Overdue: deadline passed (date + 1 day 18:00 <= now)
+          // Bangkok time: convert UTC to Bangkok (+7h), add 1 day, set 18:00
+          // NOTE: Drizzle stores date as seconds (mode: 'timestamp'), no division needed
+          filters.push(
+            and(
+              eq(transactions.businessStatus, 'pending'),
+              sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+            )!
+          );
+        } else if (overdue === 'false') {
+          // Not overdue: deadline not passed (date + 1 day 18:00 > now)
+          // Bangkok time: convert UTC to Bangkok (+7h), add 1 day, set 18:00
+          // NOTE: Drizzle stores date as seconds (mode: 'timestamp'), no division needed
+          filters.push(
+            and(
+              eq(transactions.businessStatus, 'pending'),
+              // deadline = date + 7h (UTC->Bangkok) + 1 day + 18:00
+              sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+            )!
+          );
+        } else {
+          // All pending (no overdue filter)
+          filters.push(eq(transactions.businessStatus, 'pending'));
+        }
+      } else {
+        filters.push(eq(transactions.businessStatus, businessStatus));
+      }
     }
 
     // Category filter

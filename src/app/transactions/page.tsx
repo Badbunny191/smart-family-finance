@@ -7,7 +7,7 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
-import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, isOverdue, getBangkokDateString } from '@/lib/utils';
 import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -117,12 +117,10 @@ type FormState = {
   destinationAccountId: string;
   note: string;
 };
-
-const today = () => new Date().toISOString().slice(0, 10);
 const emptyForm: FormState = {
   type: 'expense',
   amount: '',
-  date: today(),
+  date: '', // Will be set by openCreate with Bangkok date
   title: '',
   propertyId: '',
   categoryId: '',
@@ -198,9 +196,20 @@ function TransactionsContent() {
   // Initialize filters from URL params
   const urlType = searchParams.get('type');
   const urlBusinessStatus = searchParams.get('businessStatus');
+  const urlOverdue = searchParams.get('overdue');
   const urlAccount = searchParams.get('account');
+  const urlDateFilter = searchParams.get('dateFilter');
   const validTypes: TransactionType[] = ['income', 'expense', 'transfer', 'adjustment'];
   const validStatuses: BusinessStatus[] = ['pending', 'received'];
+  const validDateFilters: DateFilterOption[] = ['today', '7days', '30days', 'month', 'all', 'custom'];
+
+  // Extended status filter for pending/overdue tabs - sync with URL params
+  const getInitialStatusFilter = (): 'all' | 'received' | 'pending' | 'overdue' => {
+    if (urlBusinessStatus === 'received') return 'received';
+    if (urlBusinessStatus === 'pending' && urlOverdue === 'true') return 'overdue';
+    if (urlBusinessStatus === 'pending' && urlOverdue === 'false') return 'pending';
+    return 'all';
+  };
 
   const [selectedType, setSelectedType] = useState<'all' | TransactionType>(
     urlType && validTypes.includes(urlType as TransactionType) ? urlType as TransactionType : 'all'
@@ -208,6 +217,8 @@ function TransactionsContent() {
   const [selectedBusinessStatus, setSelectedBusinessStatus] = useState<'all' | BusinessStatus>(
     urlBusinessStatus && validStatuses.includes(urlBusinessStatus as BusinessStatus) ? urlBusinessStatus as BusinessStatus : 'all'
   );
+  // Extended status filter for pending/overdue tabs on income type
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'received' | 'pending' | 'overdue'>(getInitialStatusFilter);
   const [selectedAccount, setSelectedAccount] = useState<string>(
     urlAccount || 'all'
   );
@@ -223,7 +234,17 @@ function TransactionsContent() {
   const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
   const [savedTransactionId, setSavedTransactionId] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<AttachmentPickerFile[]>([]);
-  const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>('month');
+  // Initialize from URL param (default: 'month' if not specified, but 'all' if overdue/pending filter is set)
+  const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>(() => {
+    if (urlDateFilter && validDateFilters.includes(urlDateFilter as DateFilterOption)) {
+      return urlDateFilter as DateFilterOption;
+    }
+    // If overdue/pending filter is set, default to 'all'
+    if (urlBusinessStatus === 'pending' || urlOverdue) {
+      return 'all';
+    }
+    return 'month';
+  });
   const [customDateFrom, setCustomDateFrom] = useState<string>(() => {
     // Default: first day of current month
     const now = new Date();
@@ -316,7 +337,19 @@ function TransactionsContent() {
       if (selectedType !== 'all') {
         filterParams.set('type', selectedType);
       }
-      if (selectedBusinessStatus !== 'all') {
+      // Handle status filter (pending/overdue tabs)
+      if (selectedStatusFilter !== 'all') {
+        if (selectedStatusFilter === 'received') {
+          filterParams.set('businessStatus', 'received');
+        } else if (selectedStatusFilter === 'pending') {
+          filterParams.set('businessStatus', 'pending');
+          filterParams.set('overdue', 'false');
+        } else if (selectedStatusFilter === 'overdue') {
+          filterParams.set('businessStatus', 'pending');
+          filterParams.set('overdue', 'true');
+        }
+      } else if (selectedBusinessStatus !== 'all') {
+        // Fallback to original business status filter
         filterParams.set('businessStatus', selectedBusinessStatus);
       }
       if (selectedCategory !== 'all') {
@@ -386,13 +419,13 @@ function TransactionsContent() {
   useEffect(() => {
     // Reload when filters change - this replaces the client-side filter with server-side
     loadData().catch((error: Error) => setErrorMessage(error.message)).finally(() => setIsLoading(false));
-  }, [selectedType, selectedBusinessStatus, selectedCategory, selectedAccount, selectedDateFilter, customDateFrom, customDateTo]);
+  }, [selectedType, selectedStatusFilter, selectedBusinessStatus, selectedCategory, selectedAccount, selectedDateFilter, customDateFrom, customDateTo]);
 
   const openCreate = (type: TransactionType = 'expense') => {
     setForm({
       ...emptyForm,
       type,
-      date: today(),
+      date: getBangkokDateString(), // Always use current Bangkok date
       businessStatus: '',
     });
     setErrorMessage(null);
@@ -701,6 +734,68 @@ function TransactionsContent() {
           </button>
         </div>
 
+        {/* Row 1.5: Status Filter Tabs (Pending/Overdue) - Only show for income type */}
+        {selectedType === 'income' && (
+          <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatusFilter('all');
+                setSelectedDateFilter('month');
+              }}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedStatusFilter === 'all'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              ทั้งหมด
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatusFilter('received');
+                setSelectedDateFilter('month');
+              }}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedStatusFilter === 'received'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              รับแล้ว
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatusFilter('pending');
+                setSelectedDateFilter('all');
+              }}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedStatusFilter === 'pending'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+              }`}
+            >
+              รอชำระ
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatusFilter('overdue');
+                setSelectedDateFilter('all');
+              }}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedStatusFilter === 'overdue'
+                  ? 'bg-rose-600 text-white'
+                  : 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+              }`}
+            >
+              เกินกำหนด
+            </button>
+          </div>
+        )}
+
         {/* Row 2: Date Filter Pills */}
         <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
           {(Object.keys(dateFilterLabels) as DateFilterOption[]).map((option) => (
@@ -836,6 +931,10 @@ function TransactionsContent() {
         setSelectedType={setSelectedType}
         selectedStatus={selectedBusinessStatus}
         setSelectedStatus={setSelectedBusinessStatus}
+        selectedStatusFilter={selectedStatusFilter}
+        setSelectedStatusFilter={setSelectedStatusFilter}
+        setSelectedBusinessStatus={setSelectedBusinessStatus}
+        setSelectedDateFilter={setSelectedDateFilter}
         selectedCategory={selectedCategory}
         setSelectedCategory={setSelectedCategory}
         selectedAccount={selectedAccount}
@@ -845,6 +944,7 @@ function TransactionsContent() {
         onClear={() => {
           setSelectedType('all');
           setSelectedBusinessStatus('all');
+          setSelectedStatusFilter('all');
           setSelectedCategory('all');
           setSelectedAccount('all');
         }}
@@ -908,6 +1008,10 @@ function FilterBottomSheet({
   setSelectedType,
   selectedStatus,
   setSelectedStatus,
+  selectedStatusFilter,
+  setSelectedStatusFilter,
+  setSelectedBusinessStatus,
+  setSelectedDateFilter,
   selectedCategory,
   setSelectedCategory,
   selectedAccount,
@@ -922,6 +1026,10 @@ function FilterBottomSheet({
   setSelectedType: (type: 'all' | TransactionType) => void;
   selectedStatus: 'all' | BusinessStatus;
   setSelectedStatus: (status: 'all' | BusinessStatus) => void;
+  selectedStatusFilter: 'all' | 'received' | 'pending' | 'overdue';
+  setSelectedStatusFilter: (filter: 'all' | 'received' | 'pending' | 'overdue') => void;
+  setSelectedBusinessStatus: (status: 'all' | BusinessStatus) => void;
+  setSelectedDateFilter: (filter: 'today' | '7days' | '30days' | 'month' | 'custom' | 'all') => void;
   selectedCategory: string;
   setSelectedCategory: (category: string) => void;
   selectedAccount: string;
@@ -940,10 +1048,11 @@ function FilterBottomSheet({
     { value: 'adjustment', label: 'ปรับยอด' },
   ];
 
-  const statusOptions: { value: 'all' | BusinessStatus; label: string }[] = [
+  const statusOptions: { value: 'all' | BusinessStatus | 'overdue'; label: string }[] = [
     { value: 'all', label: 'ทั้งหมด' },
     { value: 'pending', label: 'รอชำระ' },
     { value: 'received', label: 'รับชำระแล้ว' },
+    { value: 'overdue', label: 'เกินกำหนด' },
   ];
 
   const activeCategories = categories.filter(c => c.isActive);
@@ -996,20 +1105,43 @@ function FilterBottomSheet({
               <span>📊</span> สถานะ
             </h3>
             <div className="flex flex-wrap gap-2">
-              {statusOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setSelectedStatus(option.value)}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                    selectedStatus === option.value
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
+              {statusOptions.map((option) => {
+                const isActive = option.value === 'overdue'
+                  ? selectedStatusFilter === 'overdue'
+                  : selectedStatus === option.value;
+                const isOverdue = option.value === 'overdue';
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setSelectedStatusFilter(option.value === 'overdue' ? 'overdue' : (option.value as 'all' | BusinessStatus));
+                      if (option.value !== 'overdue') {
+                        setSelectedBusinessStatus(option.value === 'all' ? 'all' : (option.value as BusinessStatus));
+                        if (option.value === 'all') {
+                          setSelectedStatusFilter('all');
+                        } else if (option.value === 'pending') {
+                          setSelectedStatusFilter('pending');
+                        } else if (option.value === 'received') {
+                          setSelectedStatusFilter('received');
+                        }
+                      } else {
+                        setSelectedBusinessStatus('pending');
+                        setSelectedDateFilter('all');
+                      }
+                    }}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                      isActive
+                        ? isOverdue
+                          ? 'bg-rose-600 text-white'
+                          : 'bg-slate-900 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -1341,7 +1473,11 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
         )}
         {transaction.businessStatus && (
           <span className={`text-sm font-medium ${transaction.businessStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'}`}>
-            {statusLabels[transaction.businessStatus]}
+            {transaction.businessStatus === 'pending' && isOverdue(transaction.date) ? (
+              <span className="text-rose-600">🟥 เกินกำหนด</span>
+            ) : (
+              statusLabels[transaction.businessStatus]
+            )}
           </span>
         )}
       </div>

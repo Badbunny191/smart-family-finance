@@ -161,3 +161,80 @@ export function formatDateRange(start: Date | string, end: Date | string): strin
 
   return `${formatDate(s)} - ${formatDate(e)}`;
 }
+
+// ============================================================
+// OVERDUE CALCULATION (Asia/Bangkok timezone)
+// Deadline = transaction date + 1 day at 18:00
+// ============================================================
+
+const OVERDUE_HOUR = 18; // 18:00 Thailand time
+const OVERDUE_GRACE_MINUTES = 1; // 1 minute grace period after 18:00
+
+export function isOverdue(transactionDate: Date | string | null | undefined): boolean {
+  if (!transactionDate) return false;
+  
+  // Get current time in Asia/Bangkok timezone
+  const now = new Date();
+  const bangkokTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+  
+  // Parse transaction date (stored as UTC)
+  const txDate = new Date(transactionDate);
+  
+  // deadline = transactionDate + 1 day at 18:00 (Bangkok time)
+  const deadline = new Date(txDate);
+  deadline.setDate(deadline.getDate() + 1);
+  deadline.setHours(OVERDUE_HOUR, OVERDUE_GRACE_MINUTES, 0, 0);
+  
+  // Compare in Bangkok time
+  return bangkokTime > deadline;
+}
+
+export function getOverdueInfo(transactionDate: Date | string | null | undefined): { isOverdue: boolean; daysOverdue: number; hoursUntilDeadline: number } {
+  if (!transactionDate) {
+    return { isOverdue: false, daysOverdue: 0, hoursUntilDeadline: 24 };
+  }
+  
+  const now = new Date();
+  const bangkokTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
+  const txDate = new Date(transactionDate);
+  
+  const deadline = new Date(txDate);
+  deadline.setDate(deadline.getDate() + 1);
+  deadline.setHours(OVERDUE_HOUR, OVERDUE_GRACE_MINUTES, 0, 0);
+  
+  const isOverdue = bangkokTime > deadline;
+  
+  let hoursUntilDeadline = 0;
+  let daysOverdue = 0;
+  
+  if (isOverdue) {
+    const overdueMs = bangkokTime.getTime() - deadline.getTime();
+    daysOverdue = Math.floor(overdueMs / (1000 * 60 * 60 * 24));
+  } else {
+    const remainingMs = deadline.getTime() - bangkokTime.getTime();
+    hoursUntilDeadline = Math.floor(remainingMs / (1000 * 60 * 60));
+  }
+  
+  return { isOverdue, daysOverdue, hoursUntilDeadline };
+}
+
+// ============================================================
+// BANGKOK TIME HELPERS (used by both Client and Server)
+// ============================================================
+
+/**
+ * Get current date in Bangkok timezone (YYYY-MM-DD format)
+ */
+export function getBangkokDateString(): string {
+  const now = new Date();
+  return now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }); // en-CA gives YYYY-MM-DD
+}
+
+/**
+ * Get current datetime in Bangkok timezone as ISO string
+ */
+export function getBangkokISOString(): string {
+  const now = new Date();
+  const bangkokStr = now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok', hour12: false });
+  return new Date(bangkokStr).toISOString();
+}
