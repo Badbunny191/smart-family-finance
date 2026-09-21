@@ -6,11 +6,15 @@ export const runtime = 'nodejs';
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-// GET /api/attachments/[id]/image
+// GET /api/attachments/[id]/image?size=preview
+// size: 'original' (default) | 'preview'
 // Public endpoint - returns image if it exists (auth check is done at page level)
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
-  
+  const { searchParams } = new URL(request.url);
+  const size = searchParams.get('size') || 'original';
+  const isPreview = size === 'preview';
+
   try {
     const d1 = await getD1();
     const db = getDb(d1);
@@ -25,38 +29,44 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .limit(1);
 
     if (!rows[0]) {
-      console.log(`[Image API] Attachment not found: ${id}`);
       return NextResponse.json({ error: 'ไม่พบไฟล์' }, { status: 404 });
     }
 
     const { fileKey, fileType } = rows[0];
-    console.log(`[Image API] Found attachment ${id}, fileKey: ${fileKey}`);
 
-    // Get R2 bucket using dynamic import to avoid context issues
     const { getR2 } = await import('@/lib/cloudflare');
     const r2 = getR2();
 
-    const r2Object = await r2.get(fileKey);
+    let targetKey = fileKey;
+    let targetContentType = fileType || 'image/webp';
+
+    if (isPreview) {
+      const previewKey = fileKey.replace(/\.(\w+)$/, '_preview.webp');
+      const previewObject = await r2.get(previewKey);
+      if (previewObject) {
+        targetKey = previewKey;
+        targetContentType = 'image/webp';
+      }
+    }
+    const r2Object = await r2.get(targetKey);
+
     if (!r2Object) {
-      console.log(`[Image API] R2 object not found: ${fileKey}`);
       return NextResponse.json({ error: 'ไม่พบไฟล์ใน storage' }, { status: 404 });
     }
 
-    // Use arrayBuffer() for reliable data extraction
     const imageData = await r2Object.arrayBuffer();
 
-    console.log(`[Image API] Returning image ${id}, size: ${imageData.byteLength} bytes`);
-
-    return new Response(imageData, {
+    const response = new Response(imageData, {
       status: 200,
       headers: {
-        'Content-Type': fileType || 'image/webp',
+        'Content-Type': targetContentType,
         'Content-Length': String(imageData.byteLength),
         'Cache-Control': 'public, max-age=31536000',
       },
     });
+
+    return response;
   } catch (error) {
-    console.error(`[Image API] Error for ${id}:`, error);
     if (error instanceof Error) {
       if (error.message.includes('R2 binding') || error.message.includes('Cloudflare context')) {
         return NextResponse.json({ error: 'Storage service unavailable' }, { status: 503 });

@@ -472,6 +472,7 @@ function TransactionsContent() {
           const formData = new FormData();
           formData.append('transactionId', transactionId);
           formData.append('imageData', file.preview.dataUrl);
+          formData.append('previewData', file.preview.dataUrl);
           formData.append('fileName', file.file.name);
 
           const uploadResponse = await fetch('/api/attachments', {
@@ -562,6 +563,7 @@ function TransactionsContent() {
           const formData = new FormData();
           formData.append('transactionId', editingTransaction.id);
           formData.append('imageData', file.preview.dataUrl);
+          formData.append('previewData', file.preview.dataUrl);
           formData.append('fileName', file.file.name);
 
           const uploadResponse = await fetch('/api/attachments', {
@@ -1758,6 +1760,7 @@ function TransactionMetadataForm({
   const [removedAttachmentIds, setRemovedAttachmentIds] = useState<Set<string>>(new Set());
   const [pendingFiles, setPendingFiles] = useState<AttachmentPickerFile[]>([]);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [lightboxOriginalUrl, setLightboxOriginalUrl] = useState<string | null>(null);
 
   // Load existing attachments
   useEffect(() => {
@@ -1766,13 +1769,21 @@ function TransactionMetadataForm({
         const response = await fetch(`/api/attachments?transactionId=${transaction.id}`);
         if (response.ok) {
           const data = await response.json();
-          // Fetch image URLs for each attachment
+          // Fetch image URLs for each attachment - preview for grid, original for lightbox
           const attachmentsWithUrls = await Promise.all(
             (data as Attachment[]).map(async (att) => {
               try {
-                const imgResponse = await fetch(`/api/attachments/${att.id}/image`);
+                // Try preview first (800px), fallback to original
+                const imgResponse = await fetch(`/api/attachments/${att.id}/image?size=preview`);
                 if (imgResponse.ok) {
                   const blob = await imgResponse.blob();
+                  const dataUrl = await blobToDataUrl(blob);
+                  return { ...att, dataUrl };
+                }
+                // Fallback to original
+                const originalResponse = await fetch(`/api/attachments/${att.id}/image`);
+                if (originalResponse.ok) {
+                  const blob = await originalResponse.blob();
                   const dataUrl = await blobToDataUrl(blob);
                   return { ...att, dataUrl };
                 }
@@ -1790,6 +1801,16 @@ function TransactionMetadataForm({
     };
     loadAttachments();
   }, [transaction.id]);
+
+  // Get original URL for lightbox (fetched on demand)
+  const getOriginalUrl = async (attId: string): Promise<string> => {
+    const response = await fetch(`/api/attachments/${attId}/image`);
+    if (response.ok) {
+      const blob = await response.blob();
+      return blobToDataUrl(blob);
+    }
+    return '';
+  };
 
   // Filter to show attachments that haven't been removed
   const visibleAttachments = existingAttachments.filter(att => att.id && !removedAttachmentIds.has(att.id));
@@ -2005,7 +2026,14 @@ function TransactionMetadataForm({
                     {att.dataUrl ? (
                       <button
                         type="button"
-                        onClick={() => setLightboxImage(att.dataUrl)}
+                        onClick={async () => {
+                          // Fetch original for lightbox
+                          if (att.id) {
+                            const originalUrl = await getOriginalUrl(att.id);
+                            setLightboxOriginalUrl(originalUrl);
+                            setLightboxImage(att.dataUrl);
+                          }
+                        }}
                         className="group relative h-12 w-12 overflow-hidden rounded"
                       >
                         <img src={att.dataUrl} alt="" className="h-full w-full object-cover" />
@@ -2078,27 +2106,33 @@ function TransactionMetadataForm({
               <AttachmentPicker
                 selectedFiles={pendingFiles}
                 onFilesChange={setPendingFiles}
-                maxAttachments={5}
+                maxAttachments={maxPendingFiles}
               />
             )}
           </div>
         </div>
 
-        {/* Lightbox for attachment preview */}
+        {/* Lightbox for attachment preview - uses original for maximum quality */}
         {lightboxImage && (
           <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
-            onClick={() => setLightboxImage(null)}
+            onClick={() => {
+              setLightboxImage(null);
+              setLightboxOriginalUrl(null);
+            }}
           >
             <button
               type="button"
-              onClick={() => setLightboxImage(null)}
+              onClick={() => {
+                setLightboxImage(null);
+                setLightboxOriginalUrl(null);
+              }}
               className="absolute right-4 top-4 z-10 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
             >
               <X size={24} />
             </button>
             <img
-              src={lightboxImage}
+              src={lightboxOriginalUrl || lightboxImage}
               alt="Preview"
               className="max-h-[90vh] max-w-[90vw] object-contain"
               onClick={(e) => e.stopPropagation()}
@@ -2342,13 +2376,60 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
   }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
+  const [originalUrls, setOriginalUrls] = useState<Map<string, string>>(new Map());
+  const [loadedImages, setLoadedImages] = useState<Set<string>>(new Set());
+
+  // Load original URL for lightbox (max quality)
+  const loadOriginalUrl = async (attId: string): Promise<string> => {
+    // Check cache first
+    const cached = originalUrls.get(attId);
+    if (cached) return cached;
+
+    try {
+      const response = await fetch(`/api/attachments/${attId}/image`);
+      if (response.ok) {
+        const blob = await response.blob();
+        // Use URL.createObjectURL - much faster than blobToDataUrl
+        const url = URL.createObjectURL(blob);
+        setOriginalUrls((prev) => {
+          // Revoke old URL to prevent memory leak
+          const oldUrl = prev.get(attId);
+          if (oldUrl && oldUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(oldUrl);
+          }
+          const next = new Map(prev);
+          next.set(attId, url);
+          return next;
+        });
+        return url;
+      }
+    } catch {
+      // Ignore errors
+    }
+    return '';
+  };
+
+  // Handle lightbox open - load original for selected image
+  const handleOpenLightbox = async (index: number) => {
+    setSelectedIndex(index);
+    const att = attachments[index];
+    if (att) {
+      await loadOriginalUrl(att.id);
+    }
+  };
 
   useEffect(() => {
     const loadAttachments = async () => {
       setIsLoading(true);
+      setLoadedImages(new Set()); // Reset loaded state for new transaction
+      // Revoke any old blob URLs from previous transaction
+      originalUrls.forEach((url) => {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+      });
+      setOriginalUrls(new Map());
       try {
         const response = await fetch(`/api/attachments?transactionId=${transactionId}`);
+
         if (response.ok) {
           const data = (await response.json()) as Array<{
             id: string;
@@ -2358,27 +2439,11 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
             width?: number;
             height?: number;
           }>;
-          setAttachments(data);
 
-          // Load image URLs
-          const urls = new Map<string, string>();
-          for (const att of data) {
-            try {
-              const imgResponse = await fetch(`/api/attachments/${att.id}/image`);
-              if (imgResponse.ok) {
-                const blob = await imgResponse.blob();
-                const url = await blobToDataUrl(blob);
-                urls.set(att.id, url);
-              }
-            } catch {
-              // Skip failed images
-            }
-          }
-          setImageUrls(urls);
+          setAttachments(data);
+          setIsLoading(false);
         }
       } catch {
-        // Ignore errors
-      } finally {
         setIsLoading(false);
       }
     };
@@ -2386,7 +2451,10 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
     loadAttachments();
 
     return () => {
-      // No cleanup needed for data URLs
+      // Revoke all object URLs on unmount
+      originalUrls.forEach((url) => {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+      });
     };
   }, [transactionId]);
 
@@ -2418,38 +2486,54 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
           </span>
         </div>
 
-        {/* Thumbnail Grid */}
+        {/* Thumbnail Grid - browser handles fetch/decode/cache directly */}
         <div className="grid grid-cols-4 gap-2">
           {attachments.map((att, index) => {
-            const imageUrl = imageUrls.get(att.id);
+            const previewUrl = `/api/attachments/${att.id}/image?size=preview`;
+            const isLoaded = loadedImages.has(att.id);
             return (
               <button
                 key={att.id}
                 type="button"
-                onClick={() => setSelectedIndex(index)}
+                onClick={() => handleOpenLightbox(index)}
                 className="relative aspect-square overflow-hidden rounded-lg bg-slate-100"
                 title={att.fileName}
               >
-                {imageUrl ? (
-                  <img
-                    src={imageUrl}
-                    alt={`รูปภาพ ${index + 1}: ${att.fileName}`}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center text-slate-400">
-                    <Paperclip size={20} />
-                    <span className="mt-1 text-xs">รูป {index + 1}</span>
+                {/* Skeleton + Spinner - visible while image is loading */}
+                {!isLoaded && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-100">
+                    <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-slate-100 via-slate-200 to-slate-100" />
+                    <Loader2 size={20} className="relative z-10 animate-spin text-slate-400" />
+                    <span className="relative z-10 mt-1 text-xs text-slate-400">รูป {index + 1}</span>
                   </div>
                 )}
+                {/* Image - fades in when loaded */}
+                <img
+                  src={previewUrl}
+                  alt={`รูปภาพ ${index + 1}: ${att.fileName}`}
+                  className={`h-full w-full object-cover transition-opacity duration-200 ${
+                    isLoaded ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  loading="lazy"
+                  decoding="async"
+                  onLoad={() => {
+                    setLoadedImages((prev) => {
+                      const next = new Set(prev);
+                      next.add(att.id);
+                      return next;
+                    });
+                    if (index === 0) {
+                      // First image loaded
+                    }
+                  }}
+                />
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Lightbox Modal */}
+      {/* Lightbox Modal - uses original URLs for max quality */}
       {selectedIndex !== null && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
@@ -2470,7 +2554,7 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedIndex(selectedIndex - 1);
+                handleOpenLightbox(selectedIndex - 1);
               }}
               className="absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
             >
@@ -2482,7 +2566,7 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setSelectedIndex(selectedIndex + 1);
+                handleOpenLightbox(selectedIndex + 1);
               }}
               className="absolute right-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/20 p-2 text-white hover:bg-white/30"
             >
@@ -2490,10 +2574,11 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
             </button>
           )}
 
-          {/* Image */}
+          {/* Image - use original URL for lightbox */}
           {(() => {
-            const currentImageUrl = imageUrls.get(attachments[selectedIndex].id);
-            if (!currentImageUrl) {
+            const currentAtt = attachments[selectedIndex];
+            const originalUrl = originalUrls.get(currentAtt.id);
+            if (!originalUrl) {
               return (
                 <div className="flex h-64 w-64 items-center justify-center">
                   <Loader2 size={32} className="animate-spin text-white" />
@@ -2502,8 +2587,8 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
             }
             return (
               <img
-                src={currentImageUrl}
-                alt={attachments[selectedIndex].fileName}
+                src={originalUrl}
+                alt={currentAtt.fileName}
                 className="max-h-[85vh] max-w-[90vw] object-contain"
                 onClick={(e) => e.stopPropagation()}
               />

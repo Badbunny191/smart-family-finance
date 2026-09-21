@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
     let transactionId: string;
     let imageData: string;
     let fileName: string;
+    let previewData: string | undefined; // V1: optional preview from client
 
     const contentType = request.headers.get('content-type') || '';
 
@@ -71,16 +72,19 @@ export async function POST(request: NextRequest) {
       transactionId = formData.get('transactionId') as string;
       imageData = formData.get('imageData') as string;
       fileName = (formData.get('fileName') as string) || '';
+      previewData = formData.get('previewData') as string | undefined;
     } else {
       // Parse JSON
       const body = (await request.json()) as {
         transactionId?: string;
         imageData?: string;
         fileName?: string;
+        previewData?: string;
       };
       transactionId = body.transactionId || '';
       imageData = body.imageData || '';
       fileName = body.fileName || '';
+      previewData = body.previewData;
     }
 
     // Validate input
@@ -153,6 +157,7 @@ export async function POST(request: NextRequest) {
     // Upload to R2 using BUCKET binding
     const r2 = getR2();
 
+    // 1. Upload original to R2
     await r2.put(fileKey, compressedData, {
       httpMetadata: {
         contentType: `image/${mimeType}`,
@@ -161,6 +166,42 @@ export async function POST(request: NextRequest) {
         transactionId: txId,
       },
     });
+
+    // 2. Create and upload preview (800px max, WebP quality 80)
+    const previewKey = fileKey.replace(/\.(\w+)$/, '_preview.webp');
+
+    if (previewData) {
+      // Use client-compressed preview as actual preview
+      const previewMatches = previewData.match(/^data:image\/(\w+);base64,(.+)$/);
+      if (previewMatches) {
+        const previewBinary = atob(previewMatches[2]);
+        const previewBuffer = new Uint8Array(previewBinary.length);
+        for (let i = 0; i < previewBinary.length; i++) {
+          previewBuffer[i] = previewBinary.charCodeAt(i);
+        }
+        await r2.put(previewKey, previewBuffer, {
+          httpMetadata: {
+            contentType: 'image/webp',
+          },
+          customMetadata: {
+            transactionId: txId,
+            isPreview: 'true',
+          },
+        });
+      }
+    } else {
+      // Fallback: use original if no client preview provided
+      await r2.put(previewKey, compressedData, {
+        httpMetadata: {
+          contentType: `image/${mimeType}`,
+        },
+        customMetadata: {
+          transactionId: txId,
+          isPreview: 'true',
+          fallback: 'original',
+        },
+      });
+    }
 
     // Save to D1
     const now = new Date();

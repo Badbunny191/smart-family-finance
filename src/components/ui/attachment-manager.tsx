@@ -9,6 +9,10 @@ import {
   type CompressionResult,
 } from '@/lib/image-compression';
 
+// Preview compression options: 600px max, WebP quality 60
+const PREVIEW_MAX_DIMENSION = 600;
+const PREVIEW_QUALITY = 0.6;
+
 export interface Attachment {
   id?: string;
   fileName: string;
@@ -22,7 +26,8 @@ export interface Attachment {
 export interface PendingAttachment {
   id: string;
   file: File;
-  preview: CompressionResult;
+  originalPreview: CompressionResult; // 1600px WebP Q90 - for upload as original
+  previewImage: CompressionResult; // 800px WebP Q80 - for upload as preview
   status: 'pending' | 'uploading' | 'uploaded' | 'error';
   error?: string;
   serverId?: string;
@@ -58,12 +63,20 @@ export function AttachmentManager({
       const response = await fetch(`${apiEndpoint}?transactionId=${transactionId}`);
       if (response.ok) {
         const data = await response.json();
-        // Fetch image URLs for each attachment
+        // Fetch image URLs for each attachment - use preview for grid/list
         const attachmentsWithUrls = await Promise.all(
           (data as Attachment[]).map(async (att) => {
-            const imgResponse = await fetch(`${apiEndpoint}/${att.id}/image`);
+            // V1: Try preview first, fallback to original
+            const imgResponse = await fetch(`${apiEndpoint}/${att.id}/image?size=preview`);
             if (imgResponse.ok) {
               const blob = await imgResponse.blob();
+              const dataUrl = await blobToDataUrl(blob);
+              return { ...att, dataUrl };
+            }
+            // Fallback to original if preview fails
+            const originalResponse = await fetch(`${apiEndpoint}/${att.id}/image`);
+            if (originalResponse.ok) {
+              const blob = await originalResponse.blob();
               const dataUrl = await blobToDataUrl(blob);
               return { ...att, dataUrl };
             }
@@ -109,11 +122,25 @@ export function AttachmentManager({
         }
 
         try {
-          const preview = await compressImage(file);
+          // Create original preview (1600px, WebP Q90) - this will be uploaded as original
+          const originalPreview = await compressImage(file, {
+            maxDimension: 1600,
+            quality: 0.9,
+            outputFormat: 'webp',
+          });
+
+          // Create preview image (800px, WebP Q80) - this will be uploaded as preview
+          const previewImage = await compressImage(file, {
+            maxDimension: PREVIEW_MAX_DIMENSION,
+            quality: PREVIEW_QUALITY,
+            outputFormat: 'webp',
+          });
+
           newPending.push({
             id: crypto.randomUUID(),
             file,
-            preview,
+            originalPreview,
+            previewImage,
             status: 'pending',
           });
         } catch (error) {
@@ -166,7 +193,9 @@ export function AttachmentManager({
       pendingFiles.map(async (pending) => {
         const formData = new FormData();
         formData.append('transactionId', transactionId);
-        formData.append('imageData', pending.preview.dataUrl);
+        // V1: Original = 1600px Q90, Preview = 800px Q80
+        formData.append('imageData', pending.originalPreview.dataUrl); // original
+        formData.append('previewData', pending.previewImage.dataUrl); // preview (NEW)
         formData.append('fileName', pending.file.name);
 
         const response = await fetch(apiEndpoint, {
@@ -334,14 +363,17 @@ interface PendingFileCardProps {
 }
 
 function PendingFileCard({ pending, onRemove }: PendingFileCardProps) {
-  const { preview, status, error } = pending;
+  const { originalPreview, previewImage, status, error } = pending;
+
+  // Use previewImage (800px) for display, originalPreview (1600px) for upload
+  const displayPreview = previewImage;
 
   return (
     <div className="relative flex items-start gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
       {/* Preview Image */}
       <div className="relative w-20 h-20 flex-shrink-0 rounded-md overflow-hidden bg-gray-200">
         <img
-          src={preview.dataUrl}
+          src={displayPreview.dataUrl}
           alt="Preview"
           className="w-full h-full object-cover"
         />
@@ -411,18 +443,18 @@ function PendingFileCard({ pending, onRemove }: PendingFileCardProps) {
         </p>
         <div className="mt-1 text-xs text-gray-500 space-y-0.5">
           <div className="flex items-center gap-2">
-            <span>ก่อน: {formatFileSize(preview.originalSize)}</span>
+            <span>ก่อน: {formatFileSize(originalPreview.originalSize)}</span>
             <span>→</span>
             <span className="text-green-600 font-medium">
-              หลัง: {formatFileSize(preview.compressedSize)}
+              Original: {formatFileSize(originalPreview.compressedSize)}
             </span>
           </div>
           <div className="flex items-center gap-2">
             <span>
-              {preview.width}×{preview.height}
+              Original: {originalPreview.width}×{originalPreview.height}
             </span>
-            <span className="text-green-600">
-              {getCompressionRatio(preview.originalSize, preview.compressedSize)}
+            <span className="text-blue-600">
+              Preview: {previewImage.width}×{previewImage.height} ({previewImage.compressedSize < originalPreview.compressedSize ? '-' : ''}{getCompressionRatio(originalPreview.compressedSize, previewImage.compressedSize)})
             </span>
           </div>
         </div>
