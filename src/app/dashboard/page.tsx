@@ -146,6 +146,40 @@ export default async function DashboardPage() {
         sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
       )),
 
+    // QUERY 3c: Pending income DETAILS (for debug display)
+    db
+      .select({
+        id: transactions.id,
+        title: transactions.title,
+        date: transactions.date,
+        amount: transactions.amount,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'income'),
+        eq(transactions.businessStatus, 'pending'),
+        isNull(transactions.deletedAt),
+        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+      ))
+      .orderBy(transactions.date),
+
+    // QUERY 3d: Overdue income DETAILS (for debug display)
+    db
+      .select({
+        id: transactions.id,
+        title: transactions.title,
+        date: transactions.date,
+        amount: transactions.amount,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'income'),
+        eq(transactions.businessStatus, 'pending'),
+        isNull(transactions.deletedAt),
+        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+      ))
+      .orderBy(transactions.date),
+
     // QUERY 4: Recent transactions (include all types: income, expense, transfer, adjustment)
     db
       .select({
@@ -227,7 +261,7 @@ export default async function DashboardPage() {
   ]);
 
   // Extract results
-  const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, overdueResult, recentRows, personalAccountsRows, businessAccountsRows] = queryResults.map((result) =>
+  const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, overdueResult, pendingDetails, overdueDetails, recentRows, personalAccountsRows, businessAccountsRows] = queryResults.map((result) =>
     result.status === 'fulfilled' ? result.value : null
   );
 
@@ -237,6 +271,7 @@ export default async function DashboardPage() {
   type PendingRow = { total: number; count: number } | null;
   type OverdueRow = { total: number; count: number } | null;
   type MonthlyAdjustmentsRow = { total: number } | null;
+  type PendingDetailRow = { id: string; title: string; date: Date; amount: number } | null;
   type PersonalAccountRow = { personId: string; personName: string; accountId: string; accountName: string; accountType: 'cash' | 'bank'; accountNumber: string | null; accountAlias: string | null; bankName: string | null; balance: number } | null;
   type BusinessAccountRow = { personId: string; personName: string; accountId: string; accountName: string; accountType: 'cash' | 'bank'; accountNumber: string | null; accountAlias: string | null; bankName: string | null; balance: number } | null;
 
@@ -245,6 +280,8 @@ export default async function DashboardPage() {
   const typedPendingResult = pendingResult as PendingRow[];
   const typedOverdueResult = overdueResult as OverdueRow[];
   const typedMonthlyAdjustments = monthlyAdjustments as MonthlyAdjustmentsRow[];
+  const typedPendingDetails = (pendingDetails ?? []) as PendingDetailRow[];
+  const typedOverdueDetails = (overdueDetails ?? []) as PendingDetailRow[];
   const typedPersonalAccountsRows = (personalAccountsRows ?? []) as (PersonalAccountRow & { personId: string; accountId: string })[];
   const typedBusinessAccountsRows = (businessAccountsRows ?? []) as (BusinessAccountRow & { personId: string; accountId: string })[];
 
@@ -680,6 +717,53 @@ export default async function DashboardPage() {
             )}
           </section>
         )}
+
+        {/* ========================================
+            PENDING / OVERDUE DETAILS (Commented - for future debug)
+            ========================================
+          {typedPendingDetails.length > 0 && (
+            <section className="mt-4 rounded-xl border-2 border-blue-300 bg-blue-50 p-4">
+              <h3 className="mb-3 text-sm font-bold text-blue-700">🔍 Debug: Pending / Overdue Details</h3>
+              <div className="mb-3 text-xs text-blue-600">
+                ตอนนี้ Bangkok: {new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}
+              </div>
+              {typedPendingDetails.length > 0 && (
+                <div className="mb-4">
+                  <h4 className="mb-2 text-xs font-bold text-amber-700">🟡 Pending ({typedPendingDetails.length}):</h4>
+                  {typedPendingDetails.map((tx) => {
+                    const txDate = tx!.date;
+                    const bangkokDateStr = txDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+                    const deadline = new Date(`${bangkokDateStr}T11:00:00.000Z`);
+                    deadline.setDate(deadline.getDate() + 1);
+                    return (
+                      <div key={tx!.id} className="flex justify-between text-xs">
+                        <span>{tx!.title} ({txDate.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })})</span>
+                        <span className="text-amber-600">Deadline: {deadline.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', hour12: false })}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {typedOverdueDetails.length > 0 && (
+                <div>
+                  <h4 className="mb-2 text-xs font-bold text-rose-700">🔴 Overdue ({typedOverdueDetails.length}):</h4>
+                  {typedOverdueDetails.map((tx) => {
+                    const txDate = tx!.date;
+                    const bangkokDateStr = txDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+                    const deadline = new Date(`${bangkokDateStr}T11:00:00.000Z`);
+                    deadline.setDate(deadline.getDate() + 1);
+                    return (
+                      <div key={tx!.id} className="flex justify-between text-xs">
+                        <span>{tx!.title} ({txDate.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })})</span>
+                        <span className="text-rose-600">Deadline: {deadline.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', hour12: false })}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
+            ======================================== */}
 
         {/* ========================================
             RECENT TRANSACTIONS
