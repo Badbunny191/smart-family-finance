@@ -2,6 +2,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { attachments } from '@/db/schema';
 import { getRequestContext, handleApiError } from '@/lib/api-auth';
+import { getR2 } from '@/lib/cloudflare';
 
 export const runtime = 'nodejs';
 
@@ -39,15 +40,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 }
 
 // DELETE /api/attachments/[id]
+// Hard deletes: R2 original → R2 preview → D1 record
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { db } = await getRequestContext(request);
     const { id } = await params;
 
+    // Find attachment (include soft-deleted for recovery scenarios)
     const rows = await db
       .select()
       .from(attachments)
-      .where(and(eq(attachments.id, id), isNull(attachments.deletedAt)))
+      .where(eq(attachments.id, id))
       .limit(1);
 
     if (!rows[0]) {
@@ -56,38 +59,34 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const attachment = rows[0];
 
-    // Delete from R2
-    const r2Binding = (globalThis as { BUCKET?: R2Bucket }).BUCKET;
-    if (r2Binding) {
-      await r2Binding.delete(attachment.fileKey);
+    // Skip if already deleted
+    if (attachment.deletedAt) {
+      return NextResponse.json({ success: true, alreadyDeleted: true });
     }
 
-    // Soft delete in D1
-    await db
-      .update(attachments)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(attachments.id, id));
+    const r2 = getR2();
+    const fileKey = attachment.fileKey;
+
+    // [1] Delete original file from R2
+    try {
+      await r2.delete(fileKey);
+    } catch (error) {
+      console.warn(`[Attachment DELETE] R2 original file not found or already deleted: ${fileKey}`);
+    }
+
+    // [2] Delete preview file from R2
+    const previewKey = fileKey.replace(/\.(\w+)$/, '_preview.webp');
+    try {
+      await r2.delete(previewKey);
+    } catch (error) {
+      console.warn(`[Attachment DELETE] R2 preview file not found or already deleted: ${previewKey}`);
+    }
+
+    // [3] Hard delete from D1
+    await db.delete(attachments).where(eq(attachments.id, id));
 
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error);
   }
-}
-
-// Type definitions for R2 binding
-interface R2Bucket {
-  put(key: string, value: Uint8Array | ReadableStream, options?: {
-    httpMetadata?: { contentType?: string };
-    customMetadata?: Record<string, string>;
-  }): Promise<void>;
-  get(key: string): Promise<R2Object | null>;
-  delete(key: string): Promise<void>;
-  head(key: string): Promise<R2Object | null>;
-}
-
-interface R2Object {
-  body: ReadableStream;
-  httpMetadata: { contentType?: string };
-  customMetadata: Record<string, string>;
-  size: number;
 }

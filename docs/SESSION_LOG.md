@@ -966,3 +966,54 @@ Account Ledger
 - Per-image loading indicators
 - Progressive image appearance
 - Improved attachment gallery responsiveness
+
+### Hard Delete Policy (2026-09-21)
+**Delete Attachment:**
+1. Delete original file from R2
+2. Delete preview file from R2
+3. Hard delete attachment record from D1
+
+**Delete Transaction:**
+1. Find all attachments by transactionId
+2. Delete all original files from R2
+3. Delete all preview files from R2
+4. Hard delete attachment records from D1
+5. Soft delete transaction + rollback balances
+
+**Error Handling:**
+- If R2 file not found → log warning but continue
+- If attachment already deleted → return success
+- Transaction rollback still happens even if attachments fail
+
+## 2026-09-21 (Attachment Performance Update)
+
+✅ Completed
+
+### Attachment Performance Investigation
+
+#### Problem
+
+หลัง Deploy Attachment System
+
+พบปัญหา
+
+- เปิดรูปช้า
+- Lightbox ใช้เวลาหลายวินาที
+- บางกรณีใช้เวลามากกว่า 10 วินาที
+
+#### Investigation
+
+เพิ่ม Production Timing Logs เพื่อตรวจสอบ
+
+- Compression
+- Lightbox
+- Image API
+- Cloudflare R2
+- Database
+- Upload Pipeline
+
+#### Findings
+
+##### Compression
+
+ตรวจสอบแล้ว

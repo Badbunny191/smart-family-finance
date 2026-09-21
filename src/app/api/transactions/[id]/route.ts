@@ -1,9 +1,10 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
-import { accounts, categories, transactions } from '@/db/schema';
+import { accounts, attachments, categories, transactions } from '@/db/schema';
 import { getRequestContext, handleApiError, isAdmin } from '@/lib/api-auth';
 import { transactionMetadataSchema, validationError } from '@/lib/validation';
 import { getReverseImpact, getTransferReverseImpact, getBalanceImpact, getTransferImpact } from '@/lib/transaction-balance';
+import { getR2 } from '@/lib/cloudflare';
 
 export const runtime = 'nodejs';
 
@@ -140,6 +141,36 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'คุณไม่มีสิทธิ์ลบรายการปรับยอด' }, { status: 403 });
     }
 
+    // [1] Find all attachments for this transaction
+    const txAttachments = await db
+      .select({ id: attachments.id, fileKey: attachments.fileKey })
+      .from(attachments)
+      .where(eq(attachments.transactionId, id));
+
+    // [2] Delete all R2 files (original + preview) for each attachment
+    const r2 = getR2();
+    for (const att of txAttachments) {
+      // Delete original
+      try {
+        await r2.delete(att.fileKey);
+      } catch {
+        console.warn(`[Transaction DELETE] R2 original not found: ${att.fileKey}`);
+      }
+      // Delete preview
+      const previewKey = att.fileKey.replace(/\.(\w+)$/, '_preview.webp');
+      try {
+        await r2.delete(previewKey);
+      } catch {
+        console.warn(`[Transaction DELETE] R2 preview not found: ${previewKey}`);
+      }
+    }
+
+    // [3] Hard delete all attachment records from D1
+    if (txAttachments.length > 0) {
+      await db.delete(attachments).where(eq(attachments.transactionId, id));
+    }
+
+    // [4] Soft delete transaction + rollback balances
     await db.batch([
       db.update(transactions).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(transactions.id, id)),
       ...rollbackStatements(
