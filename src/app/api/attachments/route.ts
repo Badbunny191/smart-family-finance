@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'จำนวนไฟล์แนบสูงสุด 5 รูป' }, { status: 400 });
     }
 
-    // Parse base64 image
+    // Decode original (base64 → Uint8Array)
     const matches = imageData.match(/^data:image\/(\w+);base64,(.+)$/);
     if (!matches) {
       return NextResponse.json({ error: 'Invalid image data format' }, { status: 400 });
@@ -145,20 +145,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'ไฟล์มีขนาดใหญ่เกิน 10MB' }, { status: 400 });
     }
 
-    // Get image dimensions and compress
+    // Compress (server-side resize)
     const { width, height, compressedData } = await compressImage(buffer, mimeType);
 
     // Generate unique file key for R2
     const id = crypto.randomUUID();
     const extension = mimeType === 'jpeg' ? 'jpg' : mimeType;
     const fileKey = `attachments/${txId}/${id}.${extension}`;
+    const previewKey = fileKey.replace(/\.(\w+)$/, '_preview.webp');
     const fname = fileName || `image-${Date.now()}.${extension}`;
 
     // Upload to R2 using BUCKET binding
     const r2 = getR2();
 
-    // 1. Upload original to R2
-    await r2.put(fileKey, compressedData, {
+    // Upload original and preview to R2 in parallel
+    const uploadOriginalPromise = r2.put(fileKey, compressedData, {
       httpMetadata: {
         contentType: `image/${mimeType}`,
       },
@@ -167,31 +168,34 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // 2. Create and upload preview (800px max, WebP quality 80)
-    const previewKey = fileKey.replace(/\.(\w+)$/, '_preview.webp');
-
+    // Decode preview while original uploads
+    let previewBuffer: Uint8Array | null = null;
     if (previewData) {
-      // Use client-compressed preview as actual preview
       const previewMatches = previewData.match(/^data:image\/(\w+);base64,(.+)$/);
       if (previewMatches) {
         const previewBinary = atob(previewMatches[2]);
-        const previewBuffer = new Uint8Array(previewBinary.length);
+        previewBuffer = new Uint8Array(previewBinary.length);
         for (let i = 0; i < previewBinary.length; i++) {
           previewBuffer[i] = previewBinary.charCodeAt(i);
         }
-        await r2.put(previewKey, previewBuffer, {
-          httpMetadata: {
-            contentType: 'image/webp',
-          },
-          customMetadata: {
-            transactionId: txId,
-            isPreview: 'true',
-          },
-        });
       }
+    }
+
+    // Build preview upload promise
+    let uploadPreviewPromise: Promise<unknown>;
+    if (previewBuffer) {
+      uploadPreviewPromise = r2.put(previewKey, previewBuffer, {
+        httpMetadata: {
+          contentType: 'image/webp',
+        },
+        customMetadata: {
+          transactionId: txId,
+          isPreview: 'true',
+        },
+      });
     } else {
       // Fallback: use original if no client preview provided
-      await r2.put(previewKey, compressedData, {
+      uploadPreviewPromise = r2.put(previewKey, compressedData, {
         httpMetadata: {
           contentType: `image/${mimeType}`,
         },
@@ -202,6 +206,9 @@ export async function POST(request: NextRequest) {
         },
       });
     }
+
+    // Wait for both R2 PUTs in parallel
+    await Promise.all([uploadOriginalPromise, uploadPreviewPromise]);
 
     // Save to D1
     const now = new Date();

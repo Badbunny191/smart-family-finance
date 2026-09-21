@@ -9,9 +9,9 @@ import {
   type CompressionResult,
 } from '@/lib/image-compression';
 
-// Preview compression options: 600px max, WebP quality 60
-const PREVIEW_MAX_DIMENSION = 600;
-const PREVIEW_QUALITY = 0.6;
+// Preview compression options: 128px max, WebP quality 30 - EXTREME for testing
+const PREVIEW_MAX_DIMENSION = 128;
+const PREVIEW_QUALITY = 0.3;
 
 export interface Attachment {
   id?: string;
@@ -129,7 +129,7 @@ export function AttachmentManager({
             outputFormat: 'webp',
           });
 
-          // Create preview image (800px, WebP Q80) - this will be uploaded as preview
+          // Create preview image (128px, WebP Q30) - this will be uploaded as preview
           const previewImage = await compressImage(file, {
             maxDimension: PREVIEW_MAX_DIMENSION,
             quality: PREVIEW_QUALITY,
@@ -193,9 +193,8 @@ export function AttachmentManager({
       pendingFiles.map(async (pending) => {
         const formData = new FormData();
         formData.append('transactionId', transactionId);
-        // V1: Original = 1600px Q90, Preview = 800px Q80
-        formData.append('imageData', pending.originalPreview.dataUrl); // original
-        formData.append('previewData', pending.previewImage.dataUrl); // preview (NEW)
+        formData.append('imageData', pending.originalPreview.dataUrl);
+        formData.append('previewData', pending.previewImage.dataUrl);
         formData.append('fileName', pending.file.name);
 
         const response = await fetch(apiEndpoint, {

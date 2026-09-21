@@ -175,7 +175,24 @@ export async function compressImage(
     );
   });
 
-  // If compressed size >= original, use original file instead
+  // For PREVIEW: Always return resized blob (dimensions matter, not file size)
+  // For ORIGINAL: Apply fallback logic (compare output vs input)
+  const isPreviewGeneration = opts.maxDimension < 1000;
+  if (isPreviewGeneration) {
+    // Preview generation - always use resized blob, never fallback
+    // Even if file size is same, smaller dimensions = faster decoding
+    const dataUrl = await blobToDataUrl(blob);
+    return {
+      blob,
+      width,
+      height,
+      originalSize,
+      compressedSize: blob.size,
+      dataUrl,
+    };
+  }
+
+  // Original generation - keep fallback logic
   if (blob.size >= originalSize) {
     const originalDataUrl = await blobToDataUrl(file);
     return {
@@ -188,9 +205,8 @@ export async function compressImage(
     };
   }
 
-  // Generate data URL for preview
+  // Original generation - normal path
   const dataUrl = await blobToDataUrl(blob);
-
   return {
     blob,
     width,

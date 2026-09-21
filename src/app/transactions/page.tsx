@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ArrowRightLeft, CircleMinus, CirclePlus, Filter, Loader2, Maximize2, Pencil, Search, SlidersHorizontal, Trash2, X, Paperclip } from 'lucide-react';
-import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
+import { Suspense, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
@@ -471,8 +471,8 @@ function TransactionsContent() {
         selectedFiles.map(async (file) => {
           const formData = new FormData();
           formData.append('transactionId', transactionId);
-          formData.append('imageData', file.preview.dataUrl);
-          formData.append('previewData', file.preview.dataUrl);
+          formData.append('imageData', file.originalPreview.dataUrl);
+          formData.append('previewData', file.previewImage.dataUrl);
           formData.append('fileName', file.file.name);
 
           const uploadResponse = await fetch('/api/attachments', {
@@ -562,8 +562,8 @@ function TransactionsContent() {
         data.newAttachments.map(async (file) => {
           const formData = new FormData();
           formData.append('transactionId', editingTransaction.id);
-          formData.append('imageData', file.preview.dataUrl);
-          formData.append('previewData', file.preview.dataUrl);
+          formData.append('imageData', file.originalPreview.dataUrl);
+          formData.append('previewData', file.previewImage.dataUrl);
           formData.append('fileName', file.file.name);
 
           const uploadResponse = await fetch('/api/attachments', {
@@ -1761,6 +1761,9 @@ function TransactionMetadataForm({
   const [pendingFiles, setPendingFiles] = useState<AttachmentPickerFile[]>([]);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxOriginalUrl, setLightboxOriginalUrl] = useState<string | null>(null);
+  // In-memory cache: attachment id -> blob URL (Phase 5 optimization)
+  // Survives across lightbox open/close cycles within the same modal mount
+  const originalUrlsRef = useRef<Map<string, string>>(new Map());
 
   // Load existing attachments
   useEffect(() => {
@@ -1802,14 +1805,29 @@ function TransactionMetadataForm({
     loadAttachments();
   }, [transaction.id]);
 
-  // Get original URL for lightbox (fetched on demand)
+  // Get original URL for lightbox - uses Map cache to avoid re-fetch on repeat clicks
   const getOriginalUrl = async (attId: string): Promise<string> => {
-    const response = await fetch(`/api/attachments/${attId}/image`);
-    if (response.ok) {
-      const blob = await response.blob();
-      return blobToDataUrl(blob);
+    // Phase 5: Check in-memory Map cache first (Map<attId, blobUrl>)
+    const cached = originalUrlsRef.current.get(attId);
+    if (cached) {
+      // Cache hit - skip network and Blob conversion, return blob URL directly
+      return cached;
     }
-    return '';
+
+    try {
+      const response = await fetch(`/api/attachments/${attId}/image`);
+      if (!response.ok) return '';
+
+      const blob = await response.blob();
+      // Use Blob URL instead of dataUrl - ~33% smaller, faster decode
+      const blobUrl = URL.createObjectURL(blob);
+
+      // Store in Map cache (single fetch per attachment while modal is mounted)
+      originalUrlsRef.current.set(attId, blobUrl);
+      return blobUrl;
+    } catch {
+      return '';
+    }
   };
 
   // Filter to show attachments that haven't been removed
@@ -1817,6 +1835,16 @@ function TransactionMetadataForm({
 
   // Calculate max for pending files (5 max - visible existing)
   const maxPendingFiles = 5 - visibleAttachments.length;
+
+  // Phase 5: Revoke all blob URLs when Edit Modal unmounts (free memory)
+  useEffect(() => {
+    return () => {
+      originalUrlsRef.current.forEach((url) => {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+      });
+      originalUrlsRef.current.clear();
+    };
+  }, []);
 
   const removeExistingAttachment = (id: string) => {
     setRemovedAttachmentIds(prev => new Set([...prev, id]));
@@ -2075,7 +2103,7 @@ function TransactionMetadataForm({
                 {pendingFiles.map((file, index) => (
                   <div key={file.id} className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50/50 p-2">
                     <div className="relative h-12 w-12 overflow-hidden rounded">
-                      <img src={file.preview.dataUrl} alt="" className="h-full w-full object-cover" />
+                      <img src={file.previewImage.dataUrl} alt="" className="h-full w-full object-cover" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p
@@ -2085,7 +2113,7 @@ function TransactionMetadataForm({
                         รูปภาพใหม่ {index + 1}
                       </p>
                       <p className="text-xs text-green-600">
-                        {formatFileSize(file.preview.originalSize)} → {formatFileSize(file.preview.compressedSize)}
+                        {formatFileSize(file.originalPreview.originalSize)} → {formatFileSize(file.originalPreview.compressedSize)}
                       </p>
                     </div>
                     <button
@@ -2383,16 +2411,18 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
   const loadOriginalUrl = async (attId: string): Promise<string> => {
     // Check cache first
     const cached = originalUrls.get(attId);
-    if (cached) return cached;
+    if (cached) {
+      return cached;
+    }
 
     try {
       const response = await fetch(`/api/attachments/${attId}/image`);
+
       if (response.ok) {
         const blob = await response.blob();
-        // Use URL.createObjectURL - much faster than blobToDataUrl
         const url = URL.createObjectURL(blob);
+
         setOriginalUrls((prev) => {
-          // Revoke old URL to prevent memory leak
           const oldUrl = prev.get(attId);
           if (oldUrl && oldUrl.startsWith('blob:')) {
             URL.revokeObjectURL(oldUrl);
@@ -2401,10 +2431,11 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
           next.set(attId, url);
           return next;
         });
+
         return url;
       }
-    } catch {
-      // Ignore errors
+    } catch (error) {
+      console.error('Failed to load original image:', error);
     }
     return '';
   };
@@ -2591,6 +2622,7 @@ function AttachmentGallery({ transactionId }: { transactionId: string }) {
                 alt={currentAtt.fileName}
                 className="max-h-[85vh] max-w-[90vw] object-contain"
                 onClick={(e) => e.stopPropagation()}
+                onError={(e) => console.error('Lightbox image load error:', currentAtt.fileName, e)}
               />
             );
           })()}

@@ -9,10 +9,19 @@ import {
   type CompressionResult,
 } from '@/lib/image-compression';
 
+// Preview compression options: 128px max, WebP quality 30 - EXTREME for testing
+const PREVIEW_MAX_DIMENSION = 128;
+const PREVIEW_QUALITY = 0.3;
+
+// Original preview: 1600px max, WebP quality 90
+const ORIGINAL_MAX_DIMENSION = 1600;
+const ORIGINAL_QUALITY = 0.9;
+
 export interface AttachmentPickerFile {
   id: string;
   file: File;
-  preview: CompressionResult;
+  originalPreview: CompressionResult; // 1600px WebP Q90 - for upload as original
+  previewImage: CompressionResult; // 128px WebP Q30 - for upload as preview
 }
 
 export interface AttachmentPickerProps {
@@ -44,36 +53,54 @@ export function AttachmentPicker({
         return;
       }
 
-      // Limit to available slots
-      const filesToProcess = fileArray.slice(0, availableSlots);
-      setIsProcessing(true);
+        // Limit to available slots
+        const filesToProcess = fileArray.slice(0, availableSlots);
+        setIsProcessing(true);
 
-      try {
-        const newFiles: AttachmentPickerFile[] = [];
+        try {
+          // Parallel compression using Promise.all
+          const newFiles = (
+            await Promise.all(
+              filesToProcess.map(async (file) => {
+                if (!isSupportedImageType(file)) {
+                  alert(`ไม่รองรับไฟล์ ${file.name} รองรับเฉพาะ JPG, JPEG, PNG, WebP`);
+                  return null;
+                }
 
-        for (const file of filesToProcess) {
-          if (!isSupportedImageType(file)) {
-            alert(`ไม่รองรับไฟล์ ${file.name} รองรับเฉพาะ JPG, JPEG, PNG, WebP`);
-            continue;
-          }
+                try {
+                  // Create original preview (1600px, WebP Q90) - for upload as original
+                  const originalPreview = await compressImage(file, {
+                    maxDimension: ORIGINAL_MAX_DIMENSION,
+                    quality: ORIGINAL_QUALITY,
+                    outputFormat: 'webp',
+                  });
 
-          try {
-            const preview = await compressImage(file);
-            newFiles.push({
-              id: crypto.randomUUID(),
-              file,
-              preview,
-            });
-          } catch (error) {
-            alert(`ไม่สามารถประมวลผลไฟล์ ${file.name}: ${error}`);
-          }
+                  // Create preview image (128px, WebP Q30) - for upload as preview
+                  const previewImage = await compressImage(file, {
+                    maxDimension: PREVIEW_MAX_DIMENSION,
+                    quality: PREVIEW_QUALITY,
+                    outputFormat: 'webp',
+                  });
+
+                  return {
+                    id: crypto.randomUUID(),
+                    file,
+                    originalPreview,
+                    previewImage,
+                  };
+                } catch (error) {
+                  alert(`ไม่สามารถประมวลผลไฟล์ ${file.name}: ${error}`);
+                  return null;
+                }
+              })
+            )
+          ).filter((f): f is AttachmentPickerFile => f !== null);
+
+          onFilesChange([...selectedFiles, ...newFiles]);
+        } finally {
+          setIsProcessing(false);
         }
-
-        onFilesChange([...selectedFiles, ...newFiles]);
-      } finally {
-        setIsProcessing(false);
-      }
-    },
+      },
     [maxAttachments, selectedFiles, onFilesChange]
   );
 
@@ -118,7 +145,7 @@ export function AttachmentPicker({
         </span>
         {selectedFiles.length > 0 && (
           <span className="text-xs text-slate-500">
-            {formatFileSize(selectedFiles.reduce((acc, f) => acc + f.preview.compressedSize, 0))} รวม
+            {formatFileSize(selectedFiles.reduce((acc, f) => acc + f.originalPreview.compressedSize, 0))} รวม
           </span>
         )}
       </div>
@@ -203,9 +230,9 @@ export function AttachmentPicker({
               key={item.id}
               className="relative group bg-slate-100 rounded-xl overflow-hidden aspect-square"
             >
-              {/* Preview */}
+              {/* Preview - use previewImage for grid display */}
               <img
-                src={item.preview.dataUrl}
+                src={item.previewImage.dataUrl}
                 alt={item.file.name}
                 className="w-full h-full object-cover"
               />
@@ -235,10 +262,13 @@ export function AttachmentPicker({
               <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
                 <p className="text-xs text-white/90 truncate">{item.file.name}</p>
                 <p className="text-xs text-green-400">
-                  {formatFileSize(item.preview.originalSize)} → {formatFileSize(item.preview.compressedSize)}
+                  {formatFileSize(item.originalPreview.originalSize)} → {formatFileSize(item.originalPreview.compressedSize)}
                   <span className="ml-1 text-green-300">
-                    ({getCompressionRatio(item.preview.originalSize, item.preview.compressedSize)})
+                    ({getCompressionRatio(item.originalPreview.originalSize, item.originalPreview.compressedSize)})
                   </span>
+                </p>
+                <p className="text-xs text-blue-400">
+                  Preview: {formatFileSize(item.previewImage.compressedSize)}
                 </p>
               </div>
             </div>
