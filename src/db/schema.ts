@@ -334,6 +334,21 @@ export const lineAccounts = sqliteTable('line_accounts', {
   deletedAt: integer('deleted_at', { mode: 'timestamp' }),
 });
 
+// 13. NOTIFICATION SETTINGS (Per-user settings per notification type)
+export const notificationSettings = sqliteTable('notification_settings', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id),
+  notificationType: text('notification_type', {
+    enum: ['daily_summary', 'pending_reminder', 'overdue_alert'],
+  }).notNull(),
+  settings: text('settings').notNull().default('{}'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+});
+
 // --- DRIZZLE RELATIONS ---
 
 export const usersRelations = relations(users, ({ many, one }) => ({

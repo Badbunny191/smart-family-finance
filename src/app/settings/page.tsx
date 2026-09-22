@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, ChevronRight, Settings as SettingsIcon, Wrench } from 'lucide-react';
+import { ArrowLeft, Bell, ChevronRight, Settings as SettingsIcon, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import { MobileNav } from '@/components/mobile-nav';
 
@@ -12,6 +12,12 @@ interface SettingsItem {
 }
 
 const items: SettingsItem[] = [
+    {
+        href: '/settings/line',
+        label: 'LINE Notifications',
+        description: 'ตั้งค่าการแจ้งเตือนรายวันผ่าน LINE',
+        icon: Bell,
+    },
     {
         href: '/admin/reconcile',
         label: 'ตรวจสอบยอดบัญชี',
