@@ -7,10 +7,6 @@ main = ".open-next/worker.js"
 directory = ".open-next/assets"
 binding = "ASSETS"
 
-[triggers]
-# รันทุกนาที — handler จะเช็ค sendTime (Asia/Bangkok) เองแบบ HH:mm ตรงกัน
-crons = ["* * * * *"]
-
 [[d1_databases]]
 binding = "DB"
 database_name = "smart-family-finance-db"

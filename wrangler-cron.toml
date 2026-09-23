@@ -1,0 +1,29 @@
+name = "smart-family-finance-line-cron"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+main = "src/workers/line-cron-worker/index.ts"
+
+[triggers]
+# Run every minute - handler checks sendTime (Asia/Bangkok) itself
+# This worker is dedicated for LINE cron notifications
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "smart-family-finance-db"
+database_id = "d53cb4c2-8150-4fff-852f-7aa3390ffe2c"
+migrations_dir = "drizzle/migrations"
+
+# Optional: KV for deduplication (if needed in future)
+# [[kv_namespaces]]
+# binding = "LINE_KV"
+# id = "your-kv-namespace-id"
+
+[env.test]
+name = "smart-family-finance-line-cron-test"
+
+[[env.test.d1_databases]]
+binding = "DB"
+database_name = "testd1"
+database_id = "811d6580-9cfc-46e2-a18b-2f50f37949f9"
+migrations_dir = "drizzle/migrations"

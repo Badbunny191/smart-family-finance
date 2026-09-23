@@ -13,7 +13,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply smart-family-finance-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply smart-family-finance-db --remote",
-    "deploy": "echo '⚠️ NEXT+CF ONLY: Using opennextjs-cloudflare pipeline' && opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "deploy": "echo '⚠️ NEXT+CF ONLY: Using opennextjs-cloudflare pipeline' && opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy:cron": "wrangler deploy --config wrangler-cron.toml",
+    "dev:cron": "wrangler dev --config wrangler-cron.toml --local",
+    "tail:cron": "wrangler tail --config wrangler-cron.toml --format pretty"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

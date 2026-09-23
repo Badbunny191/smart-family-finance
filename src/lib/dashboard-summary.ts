@@ -69,7 +69,11 @@ export interface BusinessAccountSummary {
   balance: number;
 }
 
-// For LINE notification, we only need these fields
+// ============================================================
+// TYPES
+// ============================================================
+
+// LINE notification metrics interface
 export interface LineNotificationMetrics {
   totalBalance: number;
   monthlyIncome: number;

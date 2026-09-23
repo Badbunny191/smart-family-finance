@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ES2022",
+    "moduleResolution": "node",
+    "types": ["@cloudflare/workers-types"],
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/workers/**/*.ts"],
+  "exclude": ["node_modules", "src/lib", "src/app"]
+}
