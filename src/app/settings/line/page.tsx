@@ -7,7 +7,7 @@
  * - enable/disable notification
  * - sendTime
  * - showBalance / showIncome / showExpense / showNet / showPending / showOverdue
- * - Preview message (see what they'd receive)
+ * - Preview message (see what they'd receive) - both text and Flex Message
  * - Test send to this specific recipient
  */
 
@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   Clock,
   Eye,
+  Layout,
   Loader2,
   Send,
   Users,
@@ -83,6 +84,14 @@ interface PreviewResponse {
   settings: DailySummarySettings;
 }
 
+interface FlexPreviewResponse {
+  success: boolean;
+  flexMessage: any;
+  dateString: string;
+  recipient: { userId: string; displayName: string; lineUserId: string };
+  settings: DailySummarySettings;
+}
+
 const DEFAULT_SETTINGS: DailySummarySettings = {
   sendTime: '08:00',
   showBalance: true,
@@ -130,13 +139,21 @@ export default function LineSettingsPage() {
   });
   const [recipientSummary, setRecipientSummary] = useState({ total: 0, enabled: 0 });
 
-  // Preview modal state
+  // Preview modal state (text)
   const [previewModal, setPreviewModal] = useState<{
     open: boolean;
     recipient: Recipient | null;
     message: string;
     loading: boolean;
   }>({ open: false, recipient: null, message: '', loading: false });
+
+  // Flex Preview modal state
+  const [flexPreviewModal, setFlexPreviewModal] = useState<{
+    open: boolean;
+    recipient: Recipient | null;
+    flexMessage: any;
+    loading: boolean;
+  }>({ open: false, recipient: null, flexMessage: null, loading: false });
 
   // Expanded cards
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
@@ -178,7 +195,7 @@ export default function LineSettingsPage() {
     });
   };
 
-  // Preview message
+  // Preview message (text)
   const openPreview = async (recipient: Recipient) => {
     setPreviewModal({ open: true, recipient, message: '', loading: true });
     try {
@@ -205,11 +222,38 @@ export default function LineSettingsPage() {
     }
   };
 
+  // Preview Flex Message
+  const openFlexPreview = async (recipient: Recipient) => {
+    setFlexPreviewModal({ open: true, recipient, flexMessage: null, loading: true });
+    try {
+      const res = await fetch(`/api/settings/line/flex-preview/${recipient.userId}`, {
+        method: 'POST',
+      });
+      const json = (await res.json()) as FlexPreviewResponse;
+      if (json.success && json.flexMessage) {
+        setFlexPreviewModal((prev) => ({ ...prev, flexMessage: json.flexMessage, loading: false }));
+      } else {
+        setFlexPreviewModal((prev) => ({
+          ...prev,
+          flexMessage: null,
+          loading: false,
+        }));
+      }
+    } catch (err) {
+      console.error('[FlexPreview fetch error]', err);
+      setFlexPreviewModal((prev) => ({ ...prev, flexMessage: null, loading: false }));
+    }
+  };
+
   const closePreview = () => {
     setPreviewModal({ open: false, recipient: null, message: '', loading: false });
   };
 
-  // Test send per recipient
+  const closeFlexPreview = () => {
+    setFlexPreviewModal({ open: false, recipient: null, flexMessage: null, loading: false });
+  };
+
+  // Test send - now sends Flex Message
   const [testingUserId, setTestingUserId] = useState<string | null>(null);
   const handleTestSend = async (recipient: Recipient) => {
     setTestingUserId(recipient.userId);
@@ -217,9 +261,10 @@ export default function LineSettingsPage() {
       const res = await fetch(`/api/settings/line/test/${recipient.userId}`, {
         method: 'POST',
       });
-      const json = (await res.json()) as { success: boolean; error?: string };
+      const json = (await res.json()) as { success: boolean; messageType?: string; error?: string };
       if (json.success) {
-        showToast(`ส่งให้ ${recipient.displayName} สำเร็จ`, 'success');
+        const msgType = json.messageType === 'flex' ? 'Flex Message' : 'ข้อความ';
+        showToast(`📱 ส่ง ${msgType} ให้ ${recipient.displayName} สำเร็จ`, 'success');
       } else {
         showToast(`ส่งไม่สำเร็จ: ${json.error ?? 'ลองใหม่'}`, 'error');
       }
@@ -299,6 +344,7 @@ export default function LineSettingsPage() {
                   expanded={expandedCards.has(recipient.userId)}
                   onToggle={() => toggleCard(recipient.userId)}
                   onPreview={() => openPreview(recipient)}
+                  onFlexPreview={() => openFlexPreview(recipient)}
                   onTestSend={() => handleTestSend(recipient)}
                   testing={testingUserId === recipient.userId}
                 />
@@ -344,13 +390,23 @@ export default function LineSettingsPage() {
 
       <MobileNav />
 
-      {/* Preview Modal */}
+      {/* Preview Modal (Text) */}
       {previewModal.open && (
         <PreviewModal
           recipient={previewModal.recipient}
           message={previewModal.message}
           loading={previewModal.loading}
           onClose={closePreview}
+        />
+      )}
+
+      {/* Flex Message Preview Modal */}
+      {flexPreviewModal.open && (
+        <FlexPreviewModal
+          recipient={flexPreviewModal.recipient}
+          flexMessage={flexPreviewModal.flexMessage}
+          loading={flexPreviewModal.loading}
+          onClose={closeFlexPreview}
         />
       )}
     </main>
@@ -366,6 +422,7 @@ function RecipientCard({
   expanded,
   onToggle,
   onPreview,
+  onFlexPreview,
   onTestSend,
   testing,
 }: {
@@ -373,6 +430,7 @@ function RecipientCard({
   expanded: boolean;
   onToggle: () => void;
   onPreview: () => void;
+  onFlexPreview: () => void;
   onTestSend: () => void;
   testing: boolean;
 }) {
@@ -580,28 +638,37 @@ function RecipientCard({
           </div>
 
           {/* Action buttons — Preview + Test Send per recipient */}
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={onPreview}
               disabled={!enabled}
-              className="touch-button flex flex-1 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="touch-button flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Eye size={15} />
-              ดูตัวอย่าง
+              ข้อความ
+            </button>
+            <button
+              type="button"
+              onClick={onFlexPreview}
+              disabled={!enabled}
+              className="touch-button flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Layout size={15} />
+              Flex
             </button>
             <button
               type="button"
               onClick={onTestSend}
               disabled={!enabled || testing}
-              className="touch-button flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="touch-button col-span-2 flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {testing ? (
                 <Loader2 size={15} className="animate-spin" />
               ) : (
                 <Send size={15} />
               )}
-              {testing ? 'กำลังส่ง…' : `ส่งให้ ${recipient.displayName.split(' ')[0]}`}
+              {testing ? 'กำลังส่ง…' : `ส่ง Flex ให้ ${recipient.displayName.split(' ')[0]}`}
             </button>
           </div>
         </div>
@@ -659,6 +726,239 @@ function PreviewModal({
             <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-slate-700">
               {message}
             </pre>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-100 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="touch-button w-full rounded-2xl bg-slate-100 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-200"
+          >
+            ปิด
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// FLEX PREVIEW MODAL
+// ============================================================
+
+/**
+ * Generic Flex Message renderer (light theme)
+ * - Supports both single bubble and carousel
+ * - Uses inline JSON properties (no hard-coded colors)
+ */
+function FlexPreviewModal({
+  recipient,
+  flexMessage,
+  loading,
+  onClose,
+}: {
+  recipient: Recipient | null;
+  flexMessage: any;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  if (!recipient) return null;
+
+  /**
+   * Render a single text node based on its JSON properties.
+   */
+  const renderText = (textNode: any, key: string, parentBg: string): JSX.Element => {
+    const color = textNode.color || '#0F172A';
+    const sizeMap: Record<string, string> = {
+      xxs: 'text-[10px]',
+      xs: 'text-xs',
+      sm: 'text-sm',
+      md: 'text-base',
+      lg: 'text-lg',
+      xl: 'text-xl',
+      xxl: 'text-2xl',
+      '3xl': 'text-3xl',
+      '4xl': 'text-4xl',
+      '5xl': 'text-5xl',
+    };
+    const fontSize = sizeMap[textNode.size || 'md'] || 'text-base';
+    const fontWeight = textNode.weight === 'bold' ? 'font-bold' : 'font-normal';
+    const align = textNode.align === 'center' ? 'text-center' : textNode.align === 'end' ? 'text-right' : 'text-left';
+    const marginClass = textNode.margin === 'md' ? 'mt-3' : textNode.margin === 'sm' ? 'mt-2' : textNode.margin === 'lg' ? 'mt-4' : '';
+
+    return (
+      <p
+        key={key}
+        className={`${fontSize} ${fontWeight} ${align} ${marginClass}`}
+        style={{ color }}
+      >
+        {textNode.text}
+      </p>
+    );
+  };
+
+  /**
+   * Render a single box container.
+   * Recurses into contents (text or nested boxes or separator).
+   */
+  const renderBox = (box: any, key: string, depth: number): JSX.Element => {
+    const isVertical = box.layout === 'vertical';
+    const bg = box.backgroundColor || 'transparent';
+    const radius = box.cornerRadius || '0';
+    const padding = box.paddingAll || '0';
+    const spacingClass =
+      box.spacing === 'md' ? 'gap-3' :
+      box.spacing === 'sm' ? 'gap-2' :
+      box.spacing === 'lg' ? 'gap-4' : '';
+
+    const marginClass =
+      box.margin === 'md' ? 'mb-3 mt-3' :
+      box.margin === 'sm' ? 'mb-2 mt-2' :
+      box.margin === 'lg' ? 'mb-4 mt-4' : '';
+
+    if (!Array.isArray(box.contents) || box.contents.length === 0) {
+      return <div key={key} />;
+    }
+
+    return (
+      <div
+        key={key}
+        className={`${marginClass} ${isVertical ? 'flex flex-col' : 'flex flex-row items-center'} ${spacingClass}`}
+        style={{
+          backgroundColor: bg,
+          borderRadius: `${radius}`,
+          padding: `${padding}`,
+        }}
+      >
+        {box.contents.map((child: any, idx: number) => {
+          const childKey = `${key}-${idx}`;
+          if (child.type === 'text') return renderText(child, childKey, bg);
+          if (child.type === 'box') return renderBox(child, childKey, depth + 1);
+          if (child.type === 'separator') {
+            return (
+              <hr
+                key={childKey}
+                className={`${child.margin === 'md' ? 'my-3' : child.margin === 'sm' ? 'my-2' : ''} w-full border-0`}
+                style={{ height: '1px', backgroundColor: child.color || '#E2E8F0' }}
+              />
+            );
+          }
+          return null;
+        })}
+      </div>
+    );
+  };
+
+  /**
+   * Render a single bubble.
+   * Wraps the body in a phone-style preview container.
+   */
+  const renderBubble = (bubble: any, bubbleKey: string): JSX.Element | null => {
+    const bodyColor = bubble.body?.backgroundColor || '#FFFFFF';
+    const bodyPadding = bubble.body?.paddingAll || '16px';
+    if (!Array.isArray(bubble.body?.contents)) return null;
+
+    return (
+      <div
+        key={bubbleKey}
+        className="shrink-0 overflow-hidden"
+        style={{
+          width: '300px',
+          borderRadius: '16px',
+          backgroundColor: bodyColor,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: bodyColor,
+            padding: bodyPadding,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: bubble.body.spacing === 'md' ? '12px' : bubble.body.spacing === 'sm' ? '8px' : '12px',
+          }}
+        >
+          {bubble.body.contents.map((item: any, idx: number) => {
+            const itemKey = `${bubbleKey}-${idx}`;
+            if (item.type === 'box') return renderBox(item, itemKey, 1);
+            if (item.type === 'separator') {
+              return (
+                <hr
+                  key={itemKey}
+                  className="w-full border-0"
+                  style={{ height: '1px', backgroundColor: item.color || '#E2E8F0' }}
+                />
+              );
+            }
+            return null;
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  /**
+   * Render the entire flexMessage JSON.
+   * Handles both single bubble and carousel transparently.
+   */
+  const renderFlexPreview = (): JSX.Element | null => {
+    if (!flexMessage) return null;
+    const isCarousel = flexMessage.type === 'carousel' && Array.isArray(flexMessage.contents);
+    const isSingleBubble = flexMessage.type === 'bubble';
+
+    if (isSingleBubble) {
+      // Single bubble - show directly without horizontal scroll container
+      return renderBubble(flexMessage, 'bubble-0');
+    }
+
+    if (isCarousel) {
+      return (
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {flexMessage.contents.map((bubble: any, i: number) => renderBubble(bubble, `bubble-${i}`))}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+
+      {/* Modal */}
+      <div className="relative z-10 max-h-[85vh] w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl md:max-w-2xl md:rounded-3xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h3 className="font-semibold text-slate-800">ตัวอย่าง Flex Message</h3>
+            <p className="text-xs text-slate-500">สำหรับ {recipient.displayName}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1.5 hover:bg-slate-100"
+          >
+            <X size={18} className="text-slate-400" />
+          </button>
+        </div>
+
+        {/* Flex Message Preview */}
+        <div className="overflow-y-auto p-5" style={{ maxHeight: 'calc(85vh - 80px)' }}>
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="animate-spin text-slate-400" size={24} />
+            </div>
+          ) : flexMessage ? (
+            renderFlexPreview()
+          ) : (
+            <div className="py-8 text-center text-sm text-slate-500">
+              ไม่สามารถโหลดตัวอย่าง Flex Message ได้
+            </div>
           )}
         </div>
 

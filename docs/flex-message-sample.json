@@ -1,0 +1,568 @@
+{
+  "type": "carousel",
+  "contents": [
+    {
+      "type": "bubble",
+      "size": "mega",
+      "header": {
+        "type": "box",
+        "layout": "vertical",
+        "backgroundColor": "#0F172A",
+        "paddingTop": "16px",
+        "paddingLeft": "20px",
+        "paddingRight": "20px",
+        "paddingBottom": "12px",
+        "contents": [
+          {
+            "type": "text",
+            "text": "Smart Family Finance",
+            "weight": "bold",
+            "color": "#FFFFFF",
+            "size": "lg"
+          },
+          {
+            "type": "text",
+            "text": "วันพุธ 23 กันยายน 2569",
+            "color": "#94A3B8",
+            "size": "sm",
+            "margin": "4px 0px 0px 0px"
+          }
+        ]
+      },
+      "body": {
+        "type": "box",
+        "layout": "vertical",
+        "backgroundColor": "#0F172A",
+        "paddingAll": "20px",
+        "contents": [
+          {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#1E293B",
+            "cornerRadius": "16px",
+            "paddingAll": "16px",
+            "contents": [
+              {
+                "type": "text",
+                "text": "ยอดคงเหลือรวม",
+                "color": "#94A3B8",
+                "size": "sm",
+                "align": "center"
+              },
+              {
+                "type": "text",
+                "text": "฿1,250,000.00",
+                "color": "#FFFFFF",
+                "size": "xl",
+                "weight": "bold",
+                "align": "center",
+                "margin": "8px 0px 0px 0px"
+              },
+              {
+                "type": "text",
+                "text": "THB",
+                "color": "#94A3B8",
+                "size": "xs",
+                "align": "center",
+                "margin": "4px 0px 0px 0px"
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "16px",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "backgroundColor": "#1E293B",
+                "height": "1px",
+                "contents": []
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "horizontal",
+                "margin": "12px 0px 0px 0px",
+                "contents": [
+                  {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 1,
+                    "backgroundColor": "#D1FAE5",
+                    "cornerRadius": "12px",
+                    "paddingAll": "12px",
+                    "contents": [
+                      {
+                        "type": "text",
+                        "text": "รายรับเดือนนี้",
+                        "color": "#10B981",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "text",
+                        "text": "฿350,000.00",
+                        "color": "#10B981",
+                        "size": "md",
+                        "weight": "bold",
+                        "margin": "4px 0px 0px 0px"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "horizontal",
+                "margin": "12px 0px 0px 0px",
+                "contents": [
+                  {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 1,
+                    "backgroundColor": "#FEE2E2",
+                    "cornerRadius": "12px",
+                    "paddingAll": "12px",
+                    "contents": [
+                      {
+                        "type": "text",
+                        "text": "รายจ่ายเดือนนี้",
+                        "color": "#EF4444",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "text",
+                        "text": "฿285,000.00",
+                        "color": "#EF4444",
+                        "size": "md",
+                        "weight": "bold",
+                        "margin": "4px 0px 0px 0px"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "horizontal",
+                "margin": "12px 0px 0px 0px",
+                "contents": [
+                  {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 1,
+                    "backgroundColor": "#D1FAE5",
+                    "cornerRadius": "12px",
+                    "paddingAll": "12px",
+                    "contents": [
+                      {
+                        "type": "text",
+                        "text": "สุทธิเดือนนี้",
+                        "color": "#10B981",
+                        "size": "sm"
+                      },
+                      {
+                        "type": "text",
+                        "text": "+฿65,000.00",
+                        "color": "#10B981",
+                        "size": "md",
+                        "weight": "bold",
+                        "margin": "4px 0px 0px 0px"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "bubble",
+      "size": "mega",
+      "header": {
+        "type": "box",
+        "layout": "vertical",
+        "backgroundColor": "#0F172A",
+        "paddingTop": "16px",
+        "paddingLeft": "20px",
+        "paddingRight": "20px",
+        "paddingBottom": "12px",
+        "contents": [
+          {
+            "type": "text",
+            "text": "สถานะการชำระเงิน",
+            "weight": "bold",
+            "color": "#FFFFFF",
+            "size": "lg"
+          },
+          {
+            "type": "text",
+            "text": "รายการที่ต้องติดตาม",
+            "color": "#94A3B8",
+            "size": "sm",
+            "margin": "4px 0px 0px 0px"
+          }
+        ]
+      },
+      "body": {
+        "type": "box",
+        "layout": "vertical",
+        "backgroundColor": "#0F172A",
+        "paddingAll": "20px",
+        "contents": [
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "⚠️ รอชำระ",
+                    "color": "#F59E0B",
+                    "weight": "bold",
+                    "size": "md"
+                  },
+                  {
+                    "type": "text",
+                    "text": "5 รายการ • ฿85,000.00",
+                    "color": "#94A3B8",
+                    "size": "sm",
+                    "margin": "4px 0px 0px 0px"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "8px 0px 0px 0px",
+            "backgroundColor": "#FEF3C7",
+            "cornerRadius": "8px",
+            "paddingAll": "10px",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "width": "24px",
+                "height": "24px",
+                "backgroundColor": "#F59E0B",
+                "cornerRadius": "12px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "1",
+                    "color": "#FFFFFF",
+                    "size": "xs",
+                    "weight": "bold",
+                    "align": "center",
+                    "valign": "center"
+                  }
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "margin": "0px 0px 0px 10px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "ค่าบริการลูกค้า A",
+                    "color": "#334155",
+                    "size": "sm",
+                    "weight": "medium"
+                  },
+                  {
+                    "type": "text",
+                    "text": "฿45,000.00",
+                    "color": "#F59E0B",
+                    "size": "sm",
+                    "weight": "bold",
+                    "align": "end",
+                    "margin": "2px 0px 0px 0px"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "8px 0px 0px 0px",
+            "backgroundColor": "#FEF3C7",
+            "cornerRadius": "8px",
+            "paddingAll": "10px",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "width": "24px",
+                "height": "24px",
+                "backgroundColor": "#F59E0B",
+                "cornerRadius": "12px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "2",
+                    "color": "#FFFFFF",
+                    "size": "xs",
+                    "weight": "bold",
+                    "align": "center",
+                    "valign": "center"
+                  }
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "margin": "0px 0px 0px 10px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "ค่าออกแบบโลโก้บริษัท",
+                    "color": "#334155",
+                    "size": "sm",
+                    "weight": "medium"
+                  },
+                  {
+                    "type": "text",
+                    "text": "฿25,000.00",
+                    "color": "#F59E0B",
+                    "size": "sm",
+                    "weight": "bold",
+                    "align": "end",
+                    "margin": "2px 0px 0px 0px"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "8px 0px 0px 0px",
+            "backgroundColor": "#FEF3C7",
+            "cornerRadius": "8px",
+            "paddingAll": "10px",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "width": "24px",
+                "height": "24px",
+                "backgroundColor": "#F59E0B",
+                "cornerRadius": "12px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "3",
+                    "color": "#FFFFFF",
+                    "size": "xs",
+                    "weight": "bold",
+                    "align": "center",
+                    "valign": "center"
+                  }
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "margin": "0px 0px 0px 10px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "ค่าปรึกษาธุรกิจ",
+                    "color": "#334155",
+                    "size": "sm",
+                    "weight": "medium"
+                  },
+                  {
+                    "type": "text",
+                    "text": "฿15,000.00",
+                    "color": "#F59E0B",
+                    "size": "sm",
+                    "weight": "bold",
+                    "align": "end",
+                    "margin": "2px 0px 0px 0px"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "+ อีก 2 รายการ",
+            "color": "#94A3B8",
+            "size": "xs",
+            "align": "center",
+            "margin": "8px 0px 0px 0px"
+          },
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "16px",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "backgroundColor": "#1E293B",
+                "height": "1px",
+                "contents": []
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "🚨 เกินกำหนด",
+                    "color": "#EF4444",
+                    "weight": "bold",
+                    "size": "md"
+                  },
+                  {
+                    "type": "text",
+                    "text": "2 รายการ • ฿25,000.00",
+                    "color": "#94A3B8",
+                    "size": "sm",
+                    "margin": "4px 0px 0px 0px"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "8px 0px 0px 0px",
+            "backgroundColor": "#FEE2E2",
+            "cornerRadius": "8px",
+            "paddingAll": "10px",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "width": "24px",
+                "height": "24px",
+                "backgroundColor": "#EF4444",
+                "cornerRadius": "12px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "!",
+                    "color": "#FFFFFF",
+                    "size": "xs",
+                    "weight": "bold",
+                    "align": "center",
+                    "valign": "center"
+                  }
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "margin": "0px 0px 0px 10px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "ค่าเช่าพื้นที่ธันวาคม",
+                    "color": "#334155",
+                    "size": "sm",
+                    "weight": "medium"
+                  },
+                  {
+                    "type": "text",
+                    "text": "฿18,000.00",
+                    "color": "#EF4444",
+                    "size": "sm",
+                    "weight": "bold",
+                    "align": "end",
+                    "margin": "2px 0px 0px 0px"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "8px 0px 0px 0px",
+            "backgroundColor": "#FEE2E2",
+            "cornerRadius": "8px",
+            "paddingAll": "10px",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "vertical",
+                "width": "24px",
+                "height": "24px",
+                "backgroundColor": "#EF4444",
+                "cornerRadius": "12px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "!",
+                    "color": "#FFFFFF",
+                    "size": "xs",
+                    "weight": "bold",
+                    "align": "center",
+                    "valign": "center"
+                  }
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "margin": "0px 0px 0px 10px",
+                "contents": [
+                  {
+                    "type": "text",
+                    "text": "ค่าซอฟต์แวร์รายปี",
+                    "color": "#334155",
+                    "size": "sm",
+                    "weight": "medium"
+                  },
+                  {
+                    "type": "text",
+                    "text": "฿7,000.00",
+                    "color": "#EF4444",
+                    "size": "sm",
+                    "weight": "bold",
+                    "align": "end",
+                    "margin": "2px 0px 0px 0px"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
