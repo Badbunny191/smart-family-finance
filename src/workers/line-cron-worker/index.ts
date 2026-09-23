@@ -53,8 +53,29 @@ interface DailySummarySettings {
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;
+  showNet: boolean;       // show monthly net (income - expense) — separate toggle
   showPending: boolean;
   showOverdue: boolean;
+  showPendingDetails: boolean;
+  showOverdueDetails: boolean;
+}
+
+interface LineNotificationItem {
+  title: string;
+  amount: number;
+}
+
+interface LineNotificationMetrics {
+  totalBalance: number;
+  monthlyIncome: number;
+  monthlyExpense: number;
+  monthlyNet: number;
+  pendingCount: number;
+  pendingTotal: number;
+  overdueCount: number;
+  overdueTotal: number;
+  pendingItems: LineNotificationItem[];
+  overdueItems: LineNotificationItem[];
 }
 
 interface RecipientWithSettings {
@@ -336,6 +357,38 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
       sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
     ));
 
+  // QUERY 5: Pending items (top 5 oldest)
+  const pendingItemsResult = await drizzleDb
+    .select({
+      title: schema.transactions.title,
+      amount: schema.transactions.amount,
+    })
+    .from(schema.transactions)
+    .where(and(
+      eq(schema.transactions.type, 'income'),
+      eq(schema.transactions.businessStatus, 'pending'),
+      isNull(schema.transactions.deletedAt),
+      sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+    ))
+    .orderBy(schema.transactions.date)
+    .limit(5);
+
+  // QUERY 6: Overdue items (top 5 oldest)
+  const overdueItemsResult = await drizzleDb
+    .select({
+      title: schema.transactions.title,
+      amount: schema.transactions.amount,
+    })
+    .from(schema.transactions)
+    .where(and(
+      eq(schema.transactions.type, 'income'),
+      eq(schema.transactions.businessStatus, 'pending'),
+      isNull(schema.transactions.deletedAt),
+      sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+    ))
+    .orderBy(schema.transactions.date)
+    .limit(5);
+
   // Process results
   const totalBalance = Number(balanceResult[0]?.totalBalance) || 0;
 
@@ -361,6 +414,8 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
     pendingTotal: Number(pendingMetrics.total) || 0,
     overdueCount: Number(overdueMetrics.count) || 0,
     overdueTotal: Number(overdueMetrics.total) || 0,
+    pendingItems: pendingItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
+    overdueItems: overdueItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
   };
 }
 
@@ -370,16 +425,16 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
 async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettings[]> {
   // Join line_accounts with notification_settings to get per-user settings
   const query = `
-    SELECT 
+    SELECT
       la.line_user_id,
       la.user_id,
-      COALESCE(ns.settings, '{"sendTime":"08:00","showBalance":true,"showIncome":true,"showExpense":true,"showPending":true,"showOverdue":true}') as settings
+      COALESCE(ns.settings, '{"sendTime":"08:00","showBalance":true,"showIncome":true,"showExpense":true,"showNet":true,"showPending":true,"showOverdue":true,"showPendingDetails":true,"showOverdueDetails":true}') as settings
     FROM line_accounts la
-    LEFT JOIN notification_settings ns 
-      ON ns.user_id = la.user_id 
+    LEFT JOIN notification_settings ns
+      ON ns.user_id = la.user_id
       AND ns.notification_type = 'daily_summary'
       AND ns.enabled = 1
-    WHERE la.notify_enabled = 1 
+    WHERE la.notify_enabled = 1
       AND la.deleted_at IS NULL
   `;
   
@@ -395,8 +450,11 @@ async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettin
       showBalance: true,
       showIncome: true,
       showExpense: true,
+      showNet: true,       // default: show net (backward compat with old rows)
       showPending: true,
       showOverdue: true,
+      showPendingDetails: true,    // default: show details
+      showOverdueDetails: true,    // default: show details
     };
 
     try {
@@ -481,10 +539,18 @@ function formatDailySummaryMessage(
   if (settings.showIncome || settings.showExpense) {
     lines.push('');
     lines.push('📈 รายรับเดือนนี้');
-    lines.push('   ' + fmt(metrics.monthlyIncome) + ' บาท');
-    lines.push('');
-    lines.push('📉 รายจ่ายเดือนนี้');
-    lines.push('   ' + fmt(metrics.monthlyExpense) + ' บาท');
+    if (settings.showIncome) {
+      lines.push('   ' + fmt(metrics.monthlyIncome) + ' บาท');
+    }
+    if (settings.showExpense) {
+      lines.push('');
+      lines.push('📉 รายจ่ายเดือนนี้');
+      lines.push('   ' + fmt(metrics.monthlyExpense) + ' บาท');
+    }
+  }
+
+  // Net — separate toggle (only show if showNet=true)
+  if (settings.showNet) {
     lines.push('');
     lines.push('━━━━━━━━━━━━━━━');
     const netEmoji = metrics.monthlyNet >= 0 ? '✅' : '❌';
@@ -503,6 +569,18 @@ function formatDailySummaryMessage(
         lines.push('⚠️ รอชำระ');
         lines.push('   ' + metrics.pendingCount + ' รายการ');
         lines.push('   ' + fmt(metrics.pendingTotal) + ' บาท');
+
+        // Top-3 item details
+        if (settings.showPendingDetails !== false && metrics.pendingItems?.length) {
+          const items = metrics.pendingItems.slice(0, 3);
+          for (const item of items) {
+            lines.push('   • ' + item.title + '  ' + fmt(item.amount) + ' บาท');
+          }
+          const remaining = metrics.pendingCount - items.length;
+          if (remaining > 0) {
+            lines.push('   และอีก ' + remaining + ' รายการ...');
+          }
+        }
       } else {
         lines.push('✅ รอชำระ');
         lines.push('   ไม่มีรายการ');
@@ -515,6 +593,18 @@ function formatDailySummaryMessage(
         lines.push('🚨 เกินกำหนด');
         lines.push('   ' + metrics.overdueCount + ' รายการ');
         lines.push('   ' + fmt(metrics.overdueTotal) + ' บาท');
+
+        // Top-3 item details
+        if (settings.showOverdueDetails !== false && metrics.overdueItems?.length) {
+          const items = metrics.overdueItems.slice(0, 3);
+          for (const item of items) {
+            lines.push('   • ' + item.title + '  ' + fmt(item.amount) + ' บาท');
+          }
+          const remaining = metrics.overdueCount - items.length;
+          if (remaining > 0) {
+            lines.push('   และอีก ' + remaining + ' รายการ...');
+          }
+        }
       } else {
         lines.push('');
         lines.push('✅ ไม่มีรายการเกินกำหนด');

@@ -277,51 +277,42 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
 }
 
 /**
- * Get all enabled LINE recipients with their settings
+ * Get all enabled LINE recipients with their per-user settings
+ * 
+ * BUGFIX: ดึง row settings ของแต่ละ user_id แยกกัน (LEFT JOIN)
+ * เพราะการ query แบบ LIMIT 1 + map ทุก recipient ใช้ settings เดียวกันหมด
+ * ทำให้ sendTime ของ user หนึ่งถูกเอาไปใช้กับอีก user หนึ่ง
  */
 export async function getEnabledRecipients(db: D1Database): Promise<LineRecipient[]> {
-  // Get all enabled LINE accounts
-  const accountsResult = await db
-    .prepare(`
-      SELECT line_user_id
-      FROM line_accounts
-      WHERE notify_enabled = 1 AND deleted_at IS NULL
-    `)
-    .all<{ line_user_id: string }>();
-
-  if (accountsResult.results.length === 0) {
-    return [];
-  }
-
-  // Try to get settings from notification_settings table
-  let settings: DailySummarySettings = {
+  const defaultSettingsJson = JSON.stringify({
     sendTime: '08:00',
     showBalance: true,
     showIncome: true,
     showExpense: true,
     showPending: true,
     showOverdue: true,
-  };
+  });
 
-  try {
-    const settingsResult = await db
-      .prepare(`
-        SELECT settings FROM notification_settings
-        WHERE notification_type = 'daily_summary' AND enabled = 1
-        LIMIT 1
-      `)
-      .first<{ settings: string }>();
+  // LEFT JOIN เพื่อให้ LINE accounts ที่ยังไม่ตั้ง settings ก็ยังได้ default
+  // JOIN ตาม user_id ของแต่ละ LINE account (แก้ bug LIMIT 1)
+  const result = await db
+    .prepare(`
+      SELECT
+        la.line_user_id,
+        COALESCE(ns.settings, ?) as settings
+      FROM line_accounts la
+      LEFT JOIN notification_settings ns
+        ON ns.user_id = la.user_id
+        AND ns.notification_type = 'daily_summary'
+        AND ns.enabled = 1
+      WHERE la.notify_enabled = 1 AND la.deleted_at IS NULL
+    `)
+    .bind(defaultSettingsJson)
+    .all<{ line_user_id: string; settings: string }>();
 
-    if (settingsResult?.settings) {
-      settings = JSON.parse(settingsResult.settings);
-    }
-  } catch {
-    // Table might not exist, use default settings
-  }
-
-  return accountsResult.results.map(row => ({
+  return result.results.map(row => ({
     lineUserId: row.line_user_id,
-    settings,
+    settings: JSON.parse(row.settings),
   }));
 }
 

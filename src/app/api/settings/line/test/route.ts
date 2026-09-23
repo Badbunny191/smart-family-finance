@@ -4,23 +4,26 @@
  * POST /api/settings/line/test
  *
  * Forces a daily-summary send to all enabled recipients immediately
- * (bypasses sendTime check). Used by the "ทดสอบส่ง LINE ตอนนี้" button.
+ * (bypasses sendTime check). Each recipient gets their own settings.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getRequestContext, handleApiError } from '@/lib/api-auth';
+import { getD1 } from '@/lib/cloudflare';
+import { getDb } from '@/db/client';
 import { lineAccounts, notificationSettings } from '@/db/schema';
 import { getLineNotificationMetrics } from '@/lib/dashboard-summary';
-import { sendDailySummaryToUsers } from '@/lib/line-notify';
-import { getBangkokDateString } from '@/lib/notification-settings';
+import { sendDailySummaryToUsers, formatDailySummaryMessage } from '@/lib/line-notify';
+import { DEFAULT_DAILY_SUMMARY_SETTINGS, getBangkokDateString } from '@/lib/notification-settings';
 
 export const runtime = 'nodejs';
 
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
     // Auth required — any logged-in user can test
-    const { db } = await getRequestContext(request);
+    await getRequestContext(_request);
+    const db = getDb(await getD1());
 
     const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!LINE_ACCESS_TOKEN) {
@@ -36,6 +39,7 @@ export async function POST(request: NextRequest) {
         id: lineAccounts.id,
         userId: lineAccounts.userId,
         lineUserId: lineAccounts.lineUserId,
+        displayName: lineAccounts.displayName,
       })
       .from(lineAccounts)
       .where(
@@ -52,74 +56,63 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 2) Try to load daily_summary settings from any user (it is per-user)
-    // For test send, we use settings from the first available user
-    const settingsRows = await db
+    // 2) Get per-user settings from notification_settings
+    const nsRows = await db
       .select()
       .from(notificationSettings)
-      .where(eq(notificationSettings.notificationType, 'daily_summary'))
-      .limit(1);
+      .where(eq(notificationSettings.notificationType, 'daily_summary'));
 
-    type DSSettings = {
-      sendTime: string;
-      showBalance: boolean;
-      showIncome: boolean;
-      showExpense: boolean;
-      showPending: boolean;
-      showOverdue: boolean;
-    };
-
-    let settings: DSSettings = {
-      sendTime: '08:00',
-      showBalance: true,
-      showIncome: true,
-      showExpense: true,
-      showPending: true,
-      showOverdue: true,
-    };
-
-    if (settingsRows.length > 0) {
-      try {
-        const parsed = JSON.parse(settingsRows[0].settings);
-        settings = { ...settings, ...parsed };
-      } catch {
-        // Use defaults
-      }
+    const nsByUserId = new Map<string, { settings: Record<string, unknown>; enabled: boolean }>();
+    for (const row of nsRows) {
+      nsByUserId.set(row.userId, {
+        settings: JSON.parse(row.settings),
+        enabled: row.enabled,
+      });
     }
 
-    // 3) Build recipients array
-    const recipients = recipientsRaw.map((r) => ({
-      lineUserId: r.lineUserId,
-      settings,
-    }));
+    // 3) Build recipients array with per-user settings
+    const recipients = recipientsRaw.map((r) => {
+      const ns = nsByUserId.get(r.userId);
+      const defaultSettings = { ...DEFAULT_DAILY_SUMMARY_SETTINGS };
+      const userSettings = ns
+        ? { ...defaultSettings, ...ns.settings }
+        : defaultSettings;
+      return {
+        lineUserId: r.lineUserId,
+        displayName: r.displayName ?? 'Unknown',
+        userId: r.userId,
+        settings: userSettings,
+      };
+    });
 
     // 4) Fetch metrics
     const metrics = await getLineNotificationMetrics(db);
-
-    // 5) Send
     const dateString = getBangkokDateString();
-    const { results, totalSent, totalFailed } = await sendDailySummaryToUsers(
-      recipients,
-      metrics,
-      dateString,
-      LINE_ACCESS_TOKEN
-    );
 
-    const testSentAt = new Date().toISOString();
+    // 5) Send to all recipients with their own settings
+    const results = [];
+    let totalSent = 0;
+    let totalFailed = 0;
+
+    for (const recipient of recipients) {
+      const message = formatDailySummaryMessage(metrics, recipient.settings, dateString);
+      const { sendDailySummaryToUser } = await import('@/lib/line-notify');
+      const result = await sendDailySummaryToUser(recipient.lineUserId, message, LINE_ACCESS_TOKEN);
+      results.push({ ...result, displayName: recipient.displayName, userId: recipient.userId });
+      if (result.success) totalSent++;
+      else totalFailed++;
+    }
 
     return NextResponse.json({
       success: totalFailed === 0,
-      testSentAt,
       sentAt: dateString,
       recipients: results.map((r) => ({
-        lineUserId: r.lineUserId,
+        userId: r.userId,
+        displayName: r.displayName,
         sent: r.success,
         error: r.error,
       })),
-      summary: {
-        totalSent,
-        totalFailed,
-      },
+      summary: { totalSent, totalFailed },
     });
   } catch (error) {
     console.error('[Test LINE] error:', error);

@@ -21,8 +21,11 @@ export interface DailySummarySettings {
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;
+  showNet: boolean;       // show monthly net (income - expense)
   showPending: boolean;
   showOverdue: boolean;
+  showPendingDetails: boolean;  // show top-3 pending items (bullet list)
+  showOverdueDetails: boolean;  // show top-3 overdue items (bullet list)
 }
 
 export interface PendingReminderSettings {
@@ -49,8 +52,11 @@ export const DEFAULT_DAILY_SUMMARY_SETTINGS: DailySummarySettings = {
   showBalance: true,
   showIncome: true,
   showExpense: true,
+  showNet: true,
   showPending: true,
   showOverdue: true,
+  showPendingDetails: true,
+  showOverdueDetails: true,
 };
 
 // ============================================================
@@ -191,27 +197,38 @@ export async function getNotificationSettingFromDb(
 }
 
 /**
- * Get all enabled LINE user IDs with their settings
+ * Get all enabled LINE user IDs with their per-user settings
  * Returns list of LINE user IDs to send notification to
+ *
+ * BUGFIX: JOIN ตาม user_id เพื่อให้แต่ละ recipient ได้ settings ของตัวเอง
+ * เดิม map settingsList[0] ใส่ทุกคน ทำให้ sendTime ของ user หนึ่งไปใช้กับอีก user
  */
 export async function getEnabledRecipients(
   db: ReturnType<typeof import('@/db/client').getDb>
 ): Promise<{ lineUserId: string; settings: DailySummarySettings }[]> {
-  // Get all enabled LINE accounts
-  const lineAccountsList = await db
-    .select({
-      lineUserId: lineAccounts.lineUserId,
-    })
-    .from(lineAccounts)
-    .where(
-      and(
-        isNull(lineAccounts.deletedAt),
-        eq(lineAccounts.notifyEnabled, true)
-      )
-    );
+  // Get all enabled LINE accounts (joined with their per-user settings)
+  let lineAccountsList: { lineUserId: string }[] = [];
+  try {
+    lineAccountsList = await db
+      .select({
+        lineUserId: lineAccounts.lineUserId,
+      })
+      .from(lineAccounts)
+      .where(
+        and(
+          isNull(lineAccounts.deletedAt),
+          eq(lineAccounts.notifyEnabled, true)
+        )
+      );
+  } catch {
+    return [];
+  }
 
-  // Try to get settings from notification_settings table
-  // For MVP, return all accounts with default settings
+  if (lineAccountsList.length === 0) {
+    return [];
+  }
+
+  // Try to get settings from notification_settings table (per-user)
   try {
     const settingsList = await db
       .select()
@@ -224,20 +241,37 @@ export async function getEnabledRecipients(
       );
 
     if (settingsList.length > 0) {
-      // Map settings to LINE accounts
-      return lineAccountsList.map(account => {
-        const settingsRow = settingsList[0] as Record<string, unknown>;
-        return {
-          lineUserId: account.lineUserId,
-          settings: JSON.parse(settingsRow.settings as string) as DailySummarySettings,
-        };
-      });
+      // Build a map: user_id -> settings (จาก row ของ user นั้นจริงๆ)
+      const settingsByUserId = new Map<string, DailySummarySettings>();
+      for (const row of settingsList) {
+        const r = row as Record<string, unknown>;
+        settingsByUserId.set(
+          r.user_id as string,
+          JSON.parse(r.settings as string) as DailySummarySettings
+        );
+      }
+
+      // Map settings to LINE accounts โดย join ตาม user_id (ต้อง query user_id ของแต่ละ LINE account)
+      const lineAccountUserIds = await db
+        .select({ lineUserId: lineAccounts.lineUserId, userId: lineAccounts.userId })
+        .from(lineAccounts)
+        .where(
+          and(
+            isNull(lineAccounts.deletedAt),
+            eq(lineAccounts.notifyEnabled, true)
+          )
+        );
+
+      return lineAccountUserIds.map(account => ({
+        lineUserId: account.lineUserId,
+        settings: settingsByUserId.get(account.userId) ?? DEFAULT_DAILY_SUMMARY_SETTINGS,
+      }));
     }
   } catch {
     // Table might not exist yet
   }
 
-  // Return with default settings
+  // Return with default settings (fallback)
   return lineAccountsList.map(account => ({
     lineUserId: account.lineUserId,
     settings: DEFAULT_DAILY_SUMMARY_SETTINGS,

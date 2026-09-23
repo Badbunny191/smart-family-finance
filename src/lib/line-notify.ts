@@ -17,8 +17,11 @@ export interface DailySummarySettings {
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;
+  showNet: boolean;       // show monthly net as separate toggle
   showPending: boolean;
   showOverdue: boolean;
+  showPendingDetails: boolean;   // show top-3 pending items
+  showOverdueDetails: boolean;   // show top-3 overdue items
 }
 
 export interface LineNotificationMetrics {
@@ -30,6 +33,8 @@ export interface LineNotificationMetrics {
   pendingTotal: number;
   overdueCount: number;
   overdueTotal: number;
+  pendingItems: Array<{ title: string; amount: number }>;
+  overdueItems: Array<{ title: string; amount: number }>;
 }
 
 export interface SendResult {
@@ -155,7 +160,11 @@ export function formatDailySummaryMessage(
     if (settings.showExpense) {
       lines.push(`📉 รายจ่ายเดือนนี้  ${formatCurrency(metrics.monthlyExpense)}`);
     }
-    lines.push(`✅ สุทธิ            ${formatCurrency(metrics.monthlyNet)}`);
+    if (settings.showNet) {
+      lines.push('━━━━━━━━━━━━━━━━━━━━━━');
+      const netSign = metrics.monthlyNet >= 0 ? '+' : '';
+      lines.push(`✅ สุทธิ            ${netSign}${formatCurrency(metrics.monthlyNet)}`);
+    }
   }
 
   // Pending & Overdue
@@ -167,12 +176,36 @@ export function formatDailySummaryMessage(
         ? `${metrics.pendingCount} รายการ  ${formatCurrency(metrics.pendingTotal)}`
         : '0 รายการ';
       lines.push(`⚠️ รอชำระ    ${pendingText}`);
+
+      // Item details (top 3)
+      if (settings.showPendingDetails && metrics.pendingCount > 0 && metrics.pendingItems) {
+        const items = metrics.pendingItems.slice(0, 3);
+        for (const item of items) {
+          lines.push(`   • ${item.title}  ${formatCurrency(item.amount)}`);
+        }
+        const remaining = metrics.pendingCount - items.length;
+        if (remaining > 0) {
+          lines.push(`   และอีก ${remaining} รายการ...`);
+        }
+      }
     }
     if (settings.showOverdue) {
       const overdueText = metrics.overdueCount > 0
         ? `${metrics.overdueCount} รายการ  ${formatCurrency(metrics.overdueTotal)}`
         : '0 รายการ';
       lines.push(`🟥 เกินกำหนด  ${overdueText}`);
+
+      // Item details (top 3)
+      if (settings.showOverdueDetails && metrics.overdueCount > 0 && metrics.overdueItems) {
+        const items = metrics.overdueItems.slice(0, 3);
+        for (const item of items) {
+          lines.push(`   • ${item.title}  ${formatCurrency(item.amount)}`);
+        }
+        const remaining = metrics.overdueCount - items.length;
+        if (remaining > 0) {
+          lines.push(`   และอีก ${remaining} รายการ...`);
+        }
+      }
     }
   }
 

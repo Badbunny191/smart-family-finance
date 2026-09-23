@@ -74,6 +74,11 @@ export interface BusinessAccountSummary {
 // ============================================================
 
 // LINE notification metrics interface
+export interface LineNotificationItem {
+  title: string;
+  amount: number;
+}
+
 export interface LineNotificationMetrics {
   totalBalance: number;
   monthlyIncome: number;
@@ -83,6 +88,8 @@ export interface LineNotificationMetrics {
   pendingTotal: number;
   overdueCount: number;
   overdueTotal: number;
+  pendingItems: LineNotificationItem[];   // top N items (for bullet list)
+  overdueItems: LineNotificationItem[];
 }
 
 // Query result types
@@ -419,6 +426,38 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
         isNull(transactions.deletedAt),
         sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
       )),
+
+    // Pending items (top 5 ordered by oldest)
+    db
+      .select({
+        title: transactions.title,
+        amount: transactions.amount,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'income'),
+        eq(transactions.businessStatus, 'pending'),
+        isNull(transactions.deletedAt),
+        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+      ))
+      .orderBy(transactions.date)
+      .limit(5),
+
+    // Overdue items (top 5 ordered by oldest first)
+    db
+      .select({
+        title: transactions.title,
+        amount: transactions.amount,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'income'),
+        eq(transactions.businessStatus, 'pending'),
+        isNull(transactions.deletedAt),
+        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+      ))
+      .orderBy(transactions.date)
+      .limit(5),
   ]);
 
   // Extract results with type safety
@@ -426,6 +465,8 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
   const incomeExpenseResult = queryResults[1].status === 'fulfilled' ? queryResults[1].value as IncomeExpenseResult[] : [];
   const pendingResult = queryResults[2].status === 'fulfilled' ? queryResults[2].value as CountTotalResult[] : [];
   const overdueResult = queryResults[3].status === 'fulfilled' ? queryResults[3].value as CountTotalResult[] : [];
+  const pendingItemsResult = queryResults[4].status === 'fulfilled' ? queryResults[4].value as LineNotificationItem[] : [];
+  const overdueItemsResult = queryResults[5].status === 'fulfilled' ? queryResults[5].value as LineNotificationItem[] : [];
 
   // Total Balance
   const totalBalance = Number(balanceResult[0]?.totalBalance) || 0;
@@ -433,7 +474,7 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
   // Monthly Income/Expense
   let monthlyIncome = 0;
   let monthlyExpense = 0;
-  
+
   for (const row of incomeExpenseResult) {
     if (row.type === 'income') {
       monthlyIncome = Number(row.total) || 0;
@@ -455,5 +496,7 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
     pendingTotal: Number(pendingMetrics.total) || 0,
     overdueCount: Number(overdueMetrics.count) || 0,
     overdueTotal: Number(overdueMetrics.total) || 0,
+    pendingItems: pendingItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
+    overdueItems: overdueItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
   };
 }
