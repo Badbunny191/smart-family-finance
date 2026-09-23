@@ -1017,3 +1017,61 @@ Account Ledger
 ##### Compression
 
 ตรวจสอบแล้ว
+
+## 2026-09-23
+
+✅ Completed
+
+### LINE Notification System V1
+
+- LINE OA Integration
+- LINE Login
+- Auto Daily Summary
+- Cloudflare Cron Worker
+- Asia/Bangkok Timezone Support
+- Per-user Notification Settings
+- Per-user Schedule
+- Per-user Message Preferences
+- Preview Message
+- Test Send Per Recipient
+- Pending Details
+- Overdue Details
+
+### Lessons Learned
+
+- Auth Problem ≠ Notification Problem
+- Cron Problem ≠ Timezone Problem
+- UI Requirement ≠ Data Model
+- Always backup D1 before migration
+- Verify production data before schema changes
+
+### Release
+
+Production deployment completed
+
+### Tag
+
+v1.8.0-line-notifications
+
+# Architecture Decisions
+
+## LINE Notification Model
+
+Decision:
+Per-user notification settings
+
+Reason:
+
+- Supports different schedules
+- Supports different message preferences
+- Avoids global configuration conflicts
+
+Rejected Option:
+
+Global notification_settings table
+
+Reason:
+
+- UI flexibility loss
+- Migration complexity
+- Existing schema already supports per-user
