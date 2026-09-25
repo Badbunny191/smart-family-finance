@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   compressImage,
   formatFileSize,
@@ -53,10 +53,27 @@ export function AttachmentManager({
   const [isLoading, setIsLoading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const blobUrlRef = useRef<Set<string>>(new Set());
+
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      blobUrlRef.current.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+      blobUrlRef.current.clear();
+    };
+  }, []);
 
   // Load existing attachments on mount
   const loadExistingAttachments = useCallback(async () => {
     if (!transactionId) return;
+
+    // Cleanup previous blob URLs before loading new ones
+    blobUrlRef.current.forEach((url) => {
+      URL.revokeObjectURL(url);
+    });
+    blobUrlRef.current.clear();
 
     setIsLoading(true);
     try {
@@ -70,15 +87,17 @@ export function AttachmentManager({
             const imgResponse = await fetch(`${apiEndpoint}/${att.id}/image?size=preview`);
             if (imgResponse.ok) {
               const blob = await imgResponse.blob();
-              const dataUrl = await blobToDataUrl(blob);
-              return { ...att, dataUrl };
+              const objectUrl = URL.createObjectURL(blob);
+              blobUrlRef.current.add(objectUrl);
+              return { ...att, dataUrl: objectUrl };
             }
             // Fallback to original if preview fails
             const originalResponse = await fetch(`${apiEndpoint}/${att.id}/image`);
             if (originalResponse.ok) {
               const blob = await originalResponse.blob();
-              const dataUrl = await blobToDataUrl(blob);
-              return { ...att, dataUrl };
+              const objectUrl = URL.createObjectURL(blob);
+              blobUrlRef.current.add(objectUrl);
+              return { ...att, dataUrl: objectUrl };
             }
             return { ...att, dataUrl: '' };
           })
@@ -231,6 +250,13 @@ export function AttachmentManager({
   const deleteAttachment = useCallback(
     async (id: string) => {
       if (!confirm('ลบไฟล์แนบนี้?')) return;
+
+      // Find and cleanup blob URL before deletion
+      const attachmentToDelete = existingAttachments.find((a) => a.id === id);
+      if (attachmentToDelete?.dataUrl && attachmentToDelete.dataUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(attachmentToDelete.dataUrl);
+        blobUrlRef.current.delete(attachmentToDelete.dataUrl);
+      }
 
       try {
         const response = await fetch(`${apiEndpoint}/${id}`, {
@@ -563,8 +589,9 @@ function AttachmentCard({ attachment, onDelete }: AttachmentCardProps) {
   );
 }
 
-// Helper function
-function blobToDataUrl(blob: Blob): Promise<string> {
+// Helper function - kept for backward compatibility with PendingAttachment
+// New code uses URL.createObjectURL() instead
+function _unused_blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
@@ -572,5 +599,9 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
+
+// Alias for any external code that might still reference it
+const blobToDataUrl = _unused_blobToDataUrl;
+void blobToDataUrl;
 
 export default AttachmentManager;
