@@ -345,6 +345,7 @@ export const notificationSettings = sqliteTable('notification_settings', {
   }).notNull(),
   settings: text('settings').notNull().default('{}'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  lastSentAt: integer('last_sent_at', { mode: 'timestamp' }),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
 });

@@ -5,10 +5,15 @@
  *
  * Each recipient has their own settings card:
  * - enable/disable notification
- * - sendTime
+ * - sendTime (Time Picker — free-form HH:mm)
  * - showBalance / showIncome / showExpense / showNet / showPending / showOverdue
- * - Preview message (see what they'd receive) - both text and Flex Message
+ * - Preview Flex Message (Flex only — no text fallback)
  * - Test send to this specific recipient
+ *
+ * IMPORTANT:
+ * - No time presets (drop-down removed).
+ * - No text message preview (Flex Message only).
+ * - All edits are LOCAL until user clicks "บันทึก".
  */
 
 import {
@@ -16,7 +21,6 @@ import {
   Bell,
   CheckCircle2,
   Clock,
-  Eye,
   Layout,
   Loader2,
   Send,
@@ -77,13 +81,6 @@ interface LineSettingsResponse {
   };
 }
 
-interface PreviewResponse {
-  success: boolean;
-  message: string;
-  recipient: { userId: string; displayName: string; lineUserId: string };
-  settings: DailySummarySettings;
-}
-
 interface FlexPreviewResponse {
   success: boolean;
   flexMessage: any;
@@ -103,8 +100,6 @@ const DEFAULT_SETTINGS: DailySummarySettings = {
   showPendingDetails: true,
   showOverdueDetails: true,
 };
-
-const TIME_PRESETS = ['06:00', '07:00', '08:00', '12:00', '17:00', '17:30', '18:00', '18:30', '20:00', '21:00'];
 
 type ShowKey = 'showBalance' | 'showIncome' | 'showExpense' | 'showNet' | 'showPending' | 'showOverdue' | 'showPendingDetails' | 'showOverdueDetails';
 
@@ -138,14 +133,6 @@ export default function LineSettingsPage() {
     verifyError: null,
   });
   const [recipientSummary, setRecipientSummary] = useState({ total: 0, enabled: 0 });
-
-  // Preview modal state (text)
-  const [previewModal, setPreviewModal] = useState<{
-    open: boolean;
-    recipient: Recipient | null;
-    message: string;
-    loading: boolean;
-  }>({ open: false, recipient: null, message: '', loading: false });
 
   // Flex Preview modal state
   const [flexPreviewModal, setFlexPreviewModal] = useState<{
@@ -195,33 +182,6 @@ export default function LineSettingsPage() {
     });
   };
 
-  // Preview message (text)
-  const openPreview = async (recipient: Recipient) => {
-    setPreviewModal({ open: true, recipient, message: '', loading: true });
-    try {
-      const res = await fetch(`/api/settings/line/preview/${recipient.userId}`, {
-        method: 'POST',
-      });
-      const json = (await res.json()) as { success: boolean; message?: string; error?: string };
-      if (json.success && json.message) {
-        setPreviewModal((prev) => ({ ...prev, message: json.message ?? '', loading: false }));
-      } else {
-        setPreviewModal((prev) => ({
-          ...prev,
-          message: `⚠️ Error: ${json.error ?? 'ไม่สามารถดูตัวอย่างได้'}`,
-          loading: false,
-        }));
-      }
-    } catch (err) {
-      console.error('[Preview fetch error]', err);
-      setPreviewModal((prev) => ({
-        ...prev,
-        message: `⚠️ เกิดข้อผิดพลาดในการโหลดตัวอย่าง\n${err instanceof Error ? err.message : String(err)}`,
-        loading: false,
-      }));
-    }
-  };
-
   // Preview Flex Message
   const openFlexPreview = async (recipient: Recipient) => {
     setFlexPreviewModal({ open: true, recipient, flexMessage: null, loading: true });
@@ -243,10 +203,6 @@ export default function LineSettingsPage() {
       console.error('[FlexPreview fetch error]', err);
       setFlexPreviewModal((prev) => ({ ...prev, flexMessage: null, loading: false }));
     }
-  };
-
-  const closePreview = () => {
-    setPreviewModal({ open: false, recipient: null, message: '', loading: false });
   };
 
   const closeFlexPreview = () => {
@@ -343,7 +299,6 @@ export default function LineSettingsPage() {
                   recipient={recipient}
                   expanded={expandedCards.has(recipient.userId)}
                   onToggle={() => toggleCard(recipient.userId)}
-                  onPreview={() => openPreview(recipient)}
                   onFlexPreview={() => openFlexPreview(recipient)}
                   onTestSend={() => handleTestSend(recipient)}
                   testing={testingUserId === recipient.userId}
@@ -390,16 +345,6 @@ export default function LineSettingsPage() {
 
       <MobileNav />
 
-      {/* Preview Modal (Text) */}
-      {previewModal.open && (
-        <PreviewModal
-          recipient={previewModal.recipient}
-          message={previewModal.message}
-          loading={previewModal.loading}
-          onClose={closePreview}
-        />
-      )}
-
       {/* Flex Message Preview Modal */}
       {flexPreviewModal.open && (
         <FlexPreviewModal
@@ -421,7 +366,6 @@ function RecipientCard({
   recipient,
   expanded,
   onToggle,
-  onPreview,
   onFlexPreview,
   onTestSend,
   testing,
@@ -429,7 +373,6 @@ function RecipientCard({
   recipient: Recipient;
   expanded: boolean;
   onToggle: () => void;
-  onPreview: () => void;
   onFlexPreview: () => void;
   onTestSend: () => void;
   testing: boolean;
@@ -553,35 +496,19 @@ function RecipientCard({
             <div className="flex items-center gap-2">
               <Clock size={14} className="text-slate-400" />
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                เวลาแจ้งเตือน
+                เวลาแจ้งเตือน (Asia/Bangkok)
               </span>
             </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="time"
-                value={localSettings.sendTime}
-                onChange={(e) => updateSetting('sendTime', e.target.value)}
-                disabled={!enabled || saving}
-                className="form-input font-mono disabled:opacity-50"
-              />
-              <div className="flex flex-wrap gap-1">
-                {TIME_PRESETS.slice(0, 5).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    disabled={!enabled || saving}
-                    onClick={() => updateSetting('sendTime', t)}
-                    className={`rounded-full border px-2 py-0.5 font-mono text-xs disabled:opacity-40 ${
-                      localSettings.sendTime === t
-                        ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
-                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <input
+              type="time"
+              value={localSettings.sendTime}
+              onChange={(e) => updateSetting('sendTime', e.target.value)}
+              disabled={!enabled || saving}
+              className="form-input font-mono disabled:opacity-50"
+            />
+            <p className="text-xs text-slate-400">
+              ระบบจะส่งอัตโนมัติทุกวันเวลาที่ตั้งไว้ (ตามเวลาประเทศไทย) — กดปุ่ม "บันทึก" เพื่อยืนยัน
+            </p>
           </div>
 
           {/* Show toggles */}
@@ -641,15 +568,6 @@ function RecipientCard({
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={onPreview}
-              disabled={!enabled}
-              className="touch-button flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Eye size={15} />
-              ข้อความ
-            </button>
-            <button
-              type="button"
               onClick={onFlexPreview}
               disabled={!enabled}
               className="touch-button flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -661,7 +579,7 @@ function RecipientCard({
               type="button"
               onClick={onTestSend}
               disabled={!enabled || testing}
-              className="touch-button col-span-2 flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="touch-button col-span-1 flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {testing ? (
                 <Loader2 size={15} className="animate-spin" />
@@ -673,73 +591,6 @@ function RecipientCard({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ============================================================
-// PREVIEW MODAL
-// ============================================================
-
-function PreviewModal({
-  recipient,
-  message,
-  loading,
-  onClose,
-}: {
-  recipient: Recipient | null;
-  message: string;
-  loading: boolean;
-  onClose: () => void;
-}) {
-  if (!recipient) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="relative z-10 max-h-[85vh] w-full overflow-hidden rounded-t-3xl bg-white shadow-2xl md:max-w-lg md:rounded-3xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <div>
-            <h3 className="font-semibold text-slate-800">ตัวอย่างข้อความ</h3>
-            <p className="text-xs text-slate-500">สำหรับ {recipient.displayName}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full p-1.5 hover:bg-slate-100"
-          >
-            <X size={18} className="text-slate-400" />
-          </button>
-        </div>
-
-        {/* Message preview */}
-        <div className="overflow-y-auto p-5" style={{ maxHeight: 'calc(85vh - 80px)' }}>
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="animate-spin text-slate-400" size={24} />
-            </div>
-          ) : (
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-slate-700">
-              {message}
-            </pre>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="border-t border-slate-100 px-5 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="touch-button w-full rounded-2xl bg-slate-100 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-200"
-          >
-            ปิด
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

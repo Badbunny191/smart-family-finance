@@ -1,8 +1,8 @@
 /**
  * LINE Cron Worker - Dedicated Worker for Scheduled LINE Notifications
- * 
+ *
  * ES Module format required for D1 binding.
- * 
+ *
  * Architecture:
  * ┌─────────────────────────────────────────────────────────────┐
  * │   Cloudflare Cron Trigger (every minute)                   │
@@ -11,17 +11,21 @@
  *                        │
  *                        ▼
  * ┌─────────────────────────────────────────────────────────────┐
- * │   LINE Cron Worker (ES Module)                            │
+ * │   LINE Cron Worker (ES Module)                              │
  * │   - Has scheduled() export (required by Cloudflare)        │
  * │   - Has fetch() for health check                           │
  * │   - Uses D1 database with Drizzle ORM                      │
- * │   - SAME business logic as Dashboard/Test Send             │
+ * │   - Same business logic as Dashboard / Test Send           │
+ * │   - SENDS FLEX MESSAGE (not text)                          │
+ * │   - DEDUP via last_sent_at (Asia/Bangkok date)             │
  * └─────────────────────────────────────────────────────────────┘
  */
 
 import { drizzle } from 'drizzle-orm/d1';
 import { and, eq, gte, lt, isNull, inArray, sql, or } from 'drizzle-orm';
 import * as schema from '../../db/schema';
+import { buildDailySummaryFlexMessage } from '../../lib/line-flex-message';
+import { sendFlexMessage } from '../../lib/line-flex-sender';
 
 // ============================================================
 // TYPES
@@ -35,29 +39,6 @@ export interface Env {
 export interface CronEvent {
   scheduledTime: number;
   cron: string;
-}
-
-interface LineNotificationMetrics {
-  totalBalance: number;
-  monthlyIncome: number;
-  monthlyExpense: number;
-  monthlyNet: number;
-  pendingCount: number;
-  pendingTotal: number;
-  overdueCount: number;
-  overdueTotal: number;
-}
-
-interface DailySummarySettings {
-  sendTime: string;
-  showBalance: boolean;
-  showIncome: boolean;
-  showExpense: boolean;
-  showNet: boolean;       // show monthly net (income - expense) — separate toggle
-  showPending: boolean;
-  showOverdue: boolean;
-  showPendingDetails: boolean;
-  showOverdueDetails: boolean;
 }
 
 interface LineNotificationItem {
@@ -78,16 +59,29 @@ interface LineNotificationMetrics {
   overdueItems: LineNotificationItem[];
 }
 
+interface DailySummarySettings {
+  sendTime: string;
+  showBalance: boolean;
+  showIncome: boolean;
+  showExpense: boolean;
+  showPending: boolean;
+  showOverdue: boolean;
+  showPendingDetails: boolean;
+  showOverdueDetails: boolean;
+}
+
 interface RecipientWithSettings {
   lineUserId: string;
-  userId: number;
+  userId: string | null;
   settings: DailySummarySettings;
+  lastSentAt: number | null;
 }
 
 interface SendResult {
   success: boolean;
   lineUserId: string;
   error?: string;
+  skipped?: string;
 }
 
 interface CronResult {
@@ -95,11 +89,12 @@ interface CronResult {
   timestamp: string;
   sentAt: string;
   metrics: LineNotificationMetrics;
-  recipients: { lineUserId: string; sent: boolean; error?: string }[];
+  recipients: { lineUserId: string; sent: boolean; error?: string; skipped?: string }[];
   summary: {
     totalRecipients: number;
     totalSent: number;
     totalFailed: number;
+    totalSkipped: number;
   };
   skipped: { reason: string } | null;
 }
@@ -125,15 +120,16 @@ export default {
       }
 
       const result = await runLineCron(env.DB, env.LINE_CHANNEL_ACCESS_TOKEN);
-      
+
       const elapsed = Date.now() - startTime;
-      
+
       if (result.skipped) {
         console.log(`[${WORKER_NAME}] Skipped: ${result.skipped.reason} (${elapsed}ms)`);
       } else {
-        console.log(`[${WORKER_NAME}] Sent ${result.summary.totalSent}/${result.summary.totalRecipients} messages (${elapsed}ms)`);
+        console.log(
+          `[${WORKER_NAME}] Sent ${result.summary.totalSent}/${result.summary.totalRecipients} messages (${elapsed}ms, skipped=${result.summary.totalSkipped})`
+        );
       }
-      
     } catch (error) {
       console.error(`[${WORKER_NAME}] Error:`, error);
       throw error;
@@ -142,7 +138,7 @@ export default {
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    
+
     // Health check endpoint
     if (url.pathname === '/health') {
       return Response.json({
@@ -151,20 +147,20 @@ export default {
         timestamp: new Date().toISOString(),
       });
     }
-    
+
     // Info endpoint with metrics
     if (url.pathname === '/info') {
       const utcNow = new Date();
       const bangkokTime = getCurrentBangkokTimeString();
       const bangkokDate = getBangkokDateString();
-      
+
       let metrics: LineNotificationMetrics | null = null;
       try {
         metrics = await getLineNotificationMetrics(env.DB);
       } catch (e) {
         console.error('Failed to fetch metrics:', e);
       }
-      
+
       return Response.json({
         workerName: WORKER_NAME,
         currentUTC: utcNow.toISOString(),
@@ -175,12 +171,15 @@ export default {
         metrics,
       });
     }
-    
-    return Response.json({
-      error: 'Not found',
-      paths: ['/health', '/info'],
-    }, { status: 404 });
-  }
+
+    return Response.json(
+      {
+        error: 'Not found',
+        paths: ['/health', '/info'],
+      },
+      { status: 404 }
+    );
+  },
 };
 
 // ============================================================
@@ -192,11 +191,11 @@ async function runLineCron(
   LINE_ACCESS_TOKEN: string
 ): Promise<CronResult> {
   const timestamp = new Date().toISOString();
-  
-  // 1. Get Dashboard Metrics (SAME as Dashboard/Test Send)
+
+  // 1. Get Dashboard Metrics (SAME as Dashboard/Test Send) — with items for Flex
   const metrics = await getLineNotificationMetrics(db);
 
-  // 2. Get recipients with per-user settings
+  // 2. Get recipients with per-user settings (and last_sent_at for dedup)
   const recipients = await getEnabledRecipients(db);
 
   if (recipients.length === 0) {
@@ -206,79 +205,121 @@ async function runLineCron(
       sentAt: getBangkokDateString(),
       metrics,
       recipients: [],
-      summary: { totalRecipients: 0, totalSent: 0, totalFailed: 0 },
+      summary: { totalRecipients: 0, totalSent: 0, totalFailed: 0, totalSkipped: 0 },
       skipped: { reason: 'No enabled LINE recipients' },
     };
   }
 
-  // 3. Filter by Thai time - per user
+  // 3. Filter by Thai time AND daily dedup
   const currentThaiTime = getCurrentBangkokTimeString();
-  const currentThaiDate = getBangkokDateString();
+  const currentBangkokDate = getBangkokDateString();
   const bangkokTimeParts = getBangkokTime();
 
-  const recipientsToSend: RecipientWithSettings[] = [];
+  const toSend: RecipientWithSettings[] = [];
+  const skippedByDedup: RecipientWithSettings[] = [];
 
   for (const recipient of recipients) {
     const configuredTime = recipient.settings?.sendTime || '08:00';
     const [configHour, configMinute] = configuredTime.split(':').map(Number);
-    
+
     const match = bangkokTimeParts.hour === configHour && bangkokTimeParts.minute === configMinute;
-    
-    if (match) {
-      recipientsToSend.push(recipient);
+    if (!match) continue;
+
+    // Dedup: skip if already sent today (Asia/Bangkok)
+    if (recipient.lastSentAt) {
+      const lastSentBangkokDate = bangkokDateFromUnixSeconds(recipient.lastSentAt);
+      if (lastSentBangkokDate === currentBangkokDate) {
+        console.log(
+          `[${WORKER_NAME}] Skip ${recipient.lineUserId}: already sent on ${lastSentBangkokDate}`
+        );
+        skippedByDedup.push(recipient);
+        continue;
+      }
     }
+
+    toSend.push(recipient);
   }
 
-  if (recipientsToSend.length === 0) {
+  if (toSend.length === 0) {
     return {
       success: true,
       timestamp,
-      sentAt: currentThaiDate,
+      sentAt: currentBangkokDate,
       metrics,
-      recipients: [],
-      summary: { totalRecipients: recipients.length, totalSent: 0, totalFailed: 0 },
-      skipped: { reason: `No recipients for ${currentThaiTime}` },
+      recipients: skippedByDedup.map((r) => ({
+        lineUserId: r.lineUserId,
+        sent: false,
+        skipped: 'already sent today',
+      })),
+      summary: {
+        totalRecipients: recipients.length,
+        totalSent: 0,
+        totalFailed: 0,
+        totalSkipped: skippedByDedup.length,
+      },
+      skipped: { reason: `No recipients for ${currentThaiTime} (or all already sent today)` },
     };
   }
 
-  // 4. Send LINE notifications
+  // 4. Send FLEX MESSAGES
   const results: SendResult[] = [];
   let totalSent = 0;
   let totalFailed = 0;
 
-  for (const recipient of recipientsToSend) {
-    const message = formatDailySummaryMessage(metrics, recipient.settings, currentThaiDate);
-    const result = await sendLineMessage(recipient.lineUserId, message, LINE_ACCESS_TOKEN);
+  for (const recipient of toSend) {
+    const flexMessage = buildDailySummaryFlexMessage(metrics, recipient.settings);
+    const result = await sendFlexMessage(recipient.lineUserId, flexMessage, LINE_ACCESS_TOKEN);
     results.push(result);
-    
+
     if (result.success) {
       totalSent++;
+      // Update last_sent_at only on successful send
+      if (recipient.userId) {
+        try {
+          await updateLastSentAt(db, recipient.userId);
+        } catch (e) {
+          console.warn(`[${WORKER_NAME}] Failed to update last_sent_at for ${recipient.userId}:`, e);
+        }
+      }
     } else {
       totalFailed++;
-      console.error(`[${WORKER_NAME}] Failed to send to user_id=${recipient.userId}: ${result.error}`);
+      console.error(
+        `[${WORKER_NAME}] Failed to send to user_id=${recipient.userId}: ${result.error}`
+      );
     }
   }
 
   return {
     success: totalFailed === 0,
     timestamp,
-    sentAt: currentThaiDate,
+    sentAt: currentBangkokDate,
     metrics,
-    recipients: results.map(r => ({ lineUserId: r.lineUserId, sent: r.success, error: r.error })),
-    summary: { totalRecipients: recipients.length, totalSent, totalFailed },
+    recipients: [
+      ...results.map((r) => ({
+        lineUserId: r.lineUserId,
+        sent: r.success,
+        error: r.error,
+      })),
+      ...skippedByDedup.map((r) => ({
+        lineUserId: r.lineUserId,
+        sent: false,
+        skipped: 'already sent today',
+      })),
+    ],
+    summary: {
+      totalRecipients: recipients.length,
+      totalSent,
+      totalFailed,
+      totalSkipped: skippedByDedup.length,
+    },
     skipped: null,
   };
 }
 
 // ============================================================
-// DATABASE QUERIES - SAME LOGIC AS dashboard-summary.ts
+// DATABASE QUERIES
 // ============================================================
 
-/**
- * Get current month range in UTC
- * CRITICAL: transactions.date is stored as Unix timestamp (integer, milliseconds)
- * We use Date objects so Drizzle ORM handles conversion correctly
- */
 function getCurrentMonthRange(): { monthStart: Date; nextMonthStart: Date } {
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -287,109 +328,131 @@ function getCurrentMonthRange(): { monthStart: Date; nextMonthStart: Date } {
 }
 
 /**
- * Get metrics for LINE notification
- * 
- * THIS IS THE EXACT SAME FUNCTION USED BY DASHBOARD AND TEST SEND!
- * Uses Drizzle ORM which correctly handles:
- * - Unix timestamp (integer) storage in transactions.date
- * - Date object comparisons
+ * Update last_sent_at after successful send (used for daily dedup).
+ */
+async function updateLastSentAt(db: D1Database, userId: string): Promise<void> {
+  const nowSec = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `UPDATE notification_settings
+       SET last_sent_at = ?, updated_at = ?
+       WHERE user_id = ? AND notification_type = 'daily_summary'`
+    )
+    .bind(nowSec, nowSec, userId)
+    .run();
+}
+
+/**
+ * Get metrics for LINE notification — same as dashboard/test-send,
+ * plus top-5 items for the Flex Message.
  */
 async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificationMetrics> {
   const { monthStart, nextMonthStart } = getCurrentMonthRange();
-  
-  // Create Drizzle instance with schema
+
   const drizzleDb = drizzle(db, { schema });
 
-  // QUERY 1: Total Balance (same as dashboard-summary.ts)
+  // Total Balance
   const balanceResult = await drizzleDb
     .select({
       totalBalance: sql<number>`COALESCE(SUM(${schema.accounts.currentBalance}), 0)`,
     })
     .from(schema.accounts)
-    .where(and(
-      inArray(schema.accounts.accountType, ['cash', 'bank']),
-      isNull(schema.accounts.deletedAt)
-    ));
+    .where(
+      and(
+        inArray(schema.accounts.accountType, ['cash', 'bank']),
+        isNull(schema.accounts.deletedAt)
+      )
+    );
 
-  // QUERY 2: Monthly income/expense (same as dashboard-summary.ts)
+  // Monthly income/expense
   const incomeExpenseResult = await drizzleDb
     .select({
       type: schema.transactions.type,
       total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
     })
     .from(schema.transactions)
-    .where(and(
-      eq(schema.transactions.status, 'completed'),
-      gte(schema.transactions.date, monthStart),
-      lt(schema.transactions.date, nextMonthStart),
-      or(eq(schema.transactions.type, 'income'), eq(schema.transactions.type, 'expense')),
-      isNull(schema.transactions.deletedAt)
-    ))
+    .where(
+      and(
+        eq(schema.transactions.status, 'completed'),
+        gte(schema.transactions.date, monthStart),
+        lt(schema.transactions.date, nextMonthStart),
+        or(
+          eq(schema.transactions.type, 'income'),
+          eq(schema.transactions.type, 'expense')
+        ),
+        isNull(schema.transactions.deletedAt)
+      )
+    )
     .groupBy(schema.transactions.type);
 
-  // QUERY 3: Pending (not yet overdue)
-  // deadline = date (Bangkok) + 1 day at 18:00
-  // Not overdue = now < deadline
+  // Pending (not yet overdue)
   const pendingResult = await drizzleDb
     .select({
       total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
       count: sql<number>`COUNT(*)`,
     })
     .from(schema.transactions)
-    .where(and(
-      eq(schema.transactions.type, 'income'),
-      eq(schema.transactions.businessStatus, 'pending'),
-      isNull(schema.transactions.deletedAt),
-      sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
-    ));
+    .where(
+      and(
+        eq(schema.transactions.type, 'income'),
+        eq(schema.transactions.businessStatus, 'pending'),
+        isNull(schema.transactions.deletedAt),
+        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+      )
+    );
 
-  // QUERY 4: Overdue
+  // Overdue
   const overdueResult = await drizzleDb
     .select({
       total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
       count: sql<number>`COUNT(*)`,
     })
     .from(schema.transactions)
-    .where(and(
-      eq(schema.transactions.type, 'income'),
-      eq(schema.transactions.businessStatus, 'pending'),
-      isNull(schema.transactions.deletedAt),
-      sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
-    ));
+    .where(
+      and(
+        eq(schema.transactions.type, 'income'),
+        eq(schema.transactions.businessStatus, 'pending'),
+        isNull(schema.transactions.deletedAt),
+        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+      )
+    );
 
-  // QUERY 5: Pending items (top 5 oldest)
+  // Pending items (top 5 oldest)
   const pendingItemsResult = await drizzleDb
     .select({
       title: schema.transactions.title,
       amount: schema.transactions.amount,
     })
     .from(schema.transactions)
-    .where(and(
-      eq(schema.transactions.type, 'income'),
-      eq(schema.transactions.businessStatus, 'pending'),
-      isNull(schema.transactions.deletedAt),
-      sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
-    ))
+    .where(
+      and(
+        eq(schema.transactions.type, 'income'),
+        eq(schema.transactions.businessStatus, 'pending'),
+        isNull(schema.transactions.deletedAt),
+        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+      )
+    )
     .orderBy(schema.transactions.date)
     .limit(5);
 
-  // QUERY 6: Overdue items (top 5 oldest)
+  // Overdue items (top 5 oldest)
   const overdueItemsResult = await drizzleDb
     .select({
       title: schema.transactions.title,
       amount: schema.transactions.amount,
     })
     .from(schema.transactions)
-    .where(and(
-      eq(schema.transactions.type, 'income'),
-      eq(schema.transactions.businessStatus, 'pending'),
-      isNull(schema.transactions.deletedAt),
-      sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
-    ))
+    .where(
+      and(
+        eq(schema.transactions.type, 'income'),
+        eq(schema.transactions.businessStatus, 'pending'),
+        isNull(schema.transactions.deletedAt),
+        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+      )
+    )
     .orderBy(schema.transactions.date)
     .limit(5);
 
-  // Process results
   const totalBalance = Number(balanceResult[0]?.totalBalance) || 0;
 
   let monthlyIncome = 0;
@@ -414,21 +477,27 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
     pendingTotal: Number(pendingMetrics.total) || 0,
     overdueCount: Number(overdueMetrics.count) || 0,
     overdueTotal: Number(overdueMetrics.total) || 0,
-    pendingItems: pendingItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
-    overdueItems: overdueItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
+    pendingItems: pendingItemsResult.map((it) => ({
+      title: it.title,
+      amount: Number(it.amount) || 0,
+    })),
+    overdueItems: overdueItemsResult.map((it) => ({
+      title: it.title,
+      amount: Number(it.amount) || 0,
+    })),
   };
 }
 
 /**
- * Get all enabled LINE recipients with their per-user settings
+ * Get all enabled LINE recipients with their per-user settings and last_sent_at.
  */
 async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettings[]> {
-  // Join line_accounts with notification_settings to get per-user settings
   const query = `
     SELECT
       la.line_user_id,
       la.user_id,
-      COALESCE(ns.settings, '{"sendTime":"08:00","showBalance":true,"showIncome":true,"showExpense":true,"showNet":true,"showPending":true,"showOverdue":true,"showPendingDetails":true,"showOverdueDetails":true}') as settings
+      COALESCE(ns.settings, '{"sendTime":"08:00","showBalance":true,"showIncome":true,"showExpense":true,"showPending":true,"showOverdue":true,"showPendingDetails":true,"showOverdueDetails":true}') as settings,
+      ns.last_sent_at as last_sent_at
     FROM line_accounts la
     LEFT JOIN notification_settings ns
       ON ns.user_id = la.user_id
@@ -437,24 +506,28 @@ async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettin
     WHERE la.notify_enabled = 1
       AND la.deleted_at IS NULL
   `;
-  
+
   const accountsResult = await db
     .prepare(query)
-    .all<{ line_user_id: string; user_id: number; settings: string }>();
+    .all<{
+      line_user_id: string;
+      user_id: string | number | null;
+      settings: string;
+      last_sent_at: number | null;
+    }>();
 
   if (accountsResult.results.length === 0) return [];
 
-  return accountsResult.results.map(row => {
+  return accountsResult.results.map((row) => {
     let settings: DailySummarySettings = {
       sendTime: '08:00',
       showBalance: true,
       showIncome: true,
       showExpense: true,
-      showNet: true,       // default: show net (backward compat with old rows)
       showPending: true,
       showOverdue: true,
-      showPendingDetails: true,    // default: show details
-      showOverdueDetails: true,    // default: show details
+      showPendingDetails: true,
+      showOverdueDetails: true,
     };
 
     try {
@@ -467,156 +540,11 @@ async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettin
 
     return {
       lineUserId: row.line_user_id,
-      userId: row.user_id,
+      userId: row.user_id != null ? String(row.user_id) : null,
       settings,
+      lastSentAt: row.last_sent_at ?? null,
     };
   });
-}
-
-// ============================================================
-// LINE API
-// ============================================================
-
-const LINE_API_BASE = 'https://api.line.me/v2/bot';
-
-async function sendLineMessage(
-  lineUserId: string,
-  message: string,
-  accessToken: string
-): Promise<SendResult> {
-  try {
-    const response = await fetch(`${LINE_API_BASE}/message/push`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        to: lineUserId,
-        messages: [{ type: 'text', text: message }],
-      }),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error(`[${WORKER_NAME}] LINE API error: ${response.status} ${errorBody}`);
-      return { success: false, lineUserId, error: `LINE API ${response.status}` };
-    }
-
-    return { success: true, lineUserId };
-  } catch (error) {
-    console.error(`[${WORKER_NAME}] Send error:`, error);
-    return { success: false, lineUserId, error: error instanceof Error ? error.message : 'Unknown' };
-  }
-}
-
-// ============================================================
-// MESSAGE FORMATTING - Same as line-notify.ts
-// ============================================================
-
-function formatDailySummaryMessage(
-  metrics: LineNotificationMetrics,
-  settings: DailySummarySettings,
-  dateString: string
-): string {
-  const lines: string[] = [];
-  const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 2 });
-
-  // Header
-  lines.push('━━━━━━━━━━━━━━━');
-  lines.push('📊 Smart Family Finance');
-  lines.push('🗓️ วันที่ ' + dateString);
-  lines.push('━━━━━━━━━━━━━━━');
-
-  // Balance
-  if (settings.showBalance) {
-    lines.push('');
-    lines.push('💰 คงเหลือรวม');
-    lines.push('   ' + fmt(metrics.totalBalance) + ' บาท');
-  }
-
-  // Income & Expense
-  if (settings.showIncome || settings.showExpense) {
-    lines.push('');
-    lines.push('📈 รายรับเดือนนี้');
-    if (settings.showIncome) {
-      lines.push('   ' + fmt(metrics.monthlyIncome) + ' บาท');
-    }
-    if (settings.showExpense) {
-      lines.push('');
-      lines.push('📉 รายจ่ายเดือนนี้');
-      lines.push('   ' + fmt(metrics.monthlyExpense) + ' บาท');
-    }
-  }
-
-  // Net — separate toggle (only show if showNet=true)
-  if (settings.showNet) {
-    lines.push('');
-    lines.push('━━━━━━━━━━━━━━━');
-    const netEmoji = metrics.monthlyNet >= 0 ? '✅' : '❌';
-    const netSign = metrics.monthlyNet >= 0 ? '+' : '';
-    lines.push(netEmoji + ' สุทธิเดือนนี้');
-    lines.push('   ' + netSign + fmt(metrics.monthlyNet) + ' บาท');
-  }
-
-  // Pending & Overdue
-  if (settings.showPending || settings.showOverdue) {
-    lines.push('');
-    lines.push('━━━━━━━━━━━━━━━');
-
-    if (settings.showPending) {
-      if (metrics.pendingCount > 0) {
-        lines.push('⚠️ รอชำระ');
-        lines.push('   ' + metrics.pendingCount + ' รายการ');
-        lines.push('   ' + fmt(metrics.pendingTotal) + ' บาท');
-
-        // Top-3 item details
-        if (settings.showPendingDetails !== false && metrics.pendingItems?.length) {
-          const items = metrics.pendingItems.slice(0, 3);
-          for (const item of items) {
-            lines.push('   • ' + item.title + '  ' + fmt(item.amount) + ' บาท');
-          }
-          const remaining = metrics.pendingCount - items.length;
-          if (remaining > 0) {
-            lines.push('   และอีก ' + remaining + ' รายการ...');
-          }
-        }
-      } else {
-        lines.push('✅ รอชำระ');
-        lines.push('   ไม่มีรายการ');
-      }
-    }
-
-    if (settings.showOverdue) {
-      if (metrics.overdueCount > 0) {
-        lines.push('');
-        lines.push('🚨 เกินกำหนด');
-        lines.push('   ' + metrics.overdueCount + ' รายการ');
-        lines.push('   ' + fmt(metrics.overdueTotal) + ' บาท');
-
-        // Top-3 item details
-        if (settings.showOverdueDetails !== false && metrics.overdueItems?.length) {
-          const items = metrics.overdueItems.slice(0, 3);
-          for (const item of items) {
-            lines.push('   • ' + item.title + '  ' + fmt(item.amount) + ' บาท');
-          }
-          const remaining = metrics.overdueCount - items.length;
-          if (remaining > 0) {
-            lines.push('   และอีก ' + remaining + ' รายการ...');
-          }
-        }
-      } else {
-        lines.push('');
-        lines.push('✅ ไม่มีรายการเกินกำหนด');
-      }
-    }
-  }
-
-  lines.push('');
-  lines.push('━━━━━━━━━━━━━━━');
-  lines.push('📱 ส่งอัตโนมัติโดย Smart Family Finance');
-
-  return lines.join('\n');
 }
 
 // ============================================================
@@ -632,8 +560,8 @@ function getBangkokTime(): { hour: number; minute: number; timeString: string } 
   });
 
   const parts = formatter.formatToParts(new Date());
-  const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-  const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
   const normalizedHour = hour === 24 ? 0 : hour;
 
   return {
@@ -656,10 +584,26 @@ function getBangkokDateString(): string {
   });
 
   const parts = formatter.formatToParts(new Date());
-  const day = parts.find(p => p.type === 'day')?.value || '00';
-  const month = parts.find(p => p.type === 'month')?.value || '00';
-  const yearCE = parseInt(parts.find(p => p.type === 'year')?.value || '0', 10);
+  const day = parts.find((p) => p.type === 'day')?.value || '00';
+  const month = parts.find((p) => p.type === 'month')?.value || '00';
+  const yearCE = parseInt(parts.find((p) => p.type === 'year')?.value || '0', 10);
   const yearBE = yearCE + 543;
 
+  return `${day}/${month}/${yearBE}`;
+}
+
+function bangkokDateFromUnixSeconds(unixSeconds: number): string {
+  const date = new Date(unixSeconds * 1000);
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+  const parts = formatter.formatToParts(date);
+  const day = parts.find((p) => p.type === 'day')?.value || '00';
+  const month = parts.find((p) => p.type === 'month')?.value || '00';
+  const yearCE = parseInt(parts.find((p) => p.type === 'year')?.value || '0', 10);
+  const yearBE = yearCE + 543;
   return `${day}/${month}/${yearBE}`;
 }

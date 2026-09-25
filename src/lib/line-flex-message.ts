@@ -329,13 +329,7 @@ export function buildDailySummaryFlexMessage(
           color: COLORS.primary,
           size: 'md',
         },
-        {
-          type: 'text',
-          text: 'รายการที่ต้องติดตาม',
-          color: COLORS.muted,
-          size: 'xs',
-          margin: 'sm',
-        },
+        
       ],
     });
   }
@@ -354,18 +348,25 @@ export function buildDailySummaryFlexMessage(
       paddingAll: '12px',
       contents: [
         {
-          type: 'text',
-          text: '🚨 เกินกำหนด',
-          color: COLORS.negative,
-          weight: 'bold',
-          size: 'sm',
-        },
-        {
-          type: 'text',
-          text: metrics.overdueCount + ' รายการ',
-          color: COLORS.negative,
-          size: 'xs',
-          margin: 'sm',
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            {
+              type: 'text',
+              text: '🚨 เกินกำหนด',
+              color: COLORS.negative,
+              weight: 'bold',
+              size: 'sm',
+              flex: 1,
+            },
+            {
+              type: 'text',
+              text: `${metrics.overdueCount} รายการ`,
+              color: COLORS.negative,
+              size: 'xs',
+              align: 'end',
+            },
+          ],
         },
         {
           type: 'text',
@@ -375,6 +376,7 @@ export function buildDailySummaryFlexMessage(
           weight: 'bold',
           margin: 'sm',
         },
+        
         ...(hasOverdueItems && settings.showOverdueDetails ? [
           {
             type: 'separator',
@@ -459,18 +461,25 @@ export function buildDailySummaryFlexMessage(
       paddingAll: '12px',
       contents: [
         {
-          type: 'text',
-          text: '⚠️ รอชำระ',
-          color: COLORS.pending,
-          weight: 'bold',
-          size: 'sm',
-        },
-        {
-          type: 'text',
-          text: metrics.pendingCount + ' รายการ',
-          color: COLORS.pending,
-          size: 'xs',
-          margin: 'sm',
+          type: 'box',
+          layout: 'horizontal',
+          contents: [
+            {
+              type: 'text',
+              text: '⚠️ รอชำระ',
+              color: COLORS.pending,
+              weight: 'bold',
+              size: 'sm',
+              flex: 1,
+            },
+            {
+              type: 'text',
+              text: `${metrics.pendingCount} รายการ`,
+              color: COLORS.pending,
+              size: 'xs',
+              align: 'end',
+            },
+          ],
         },
         {
           type: 'text',

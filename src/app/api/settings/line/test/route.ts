@@ -1,10 +1,14 @@
 /**
- * LINE Notification Settings - Test Send
+ * LINE Notification Settings - Test Send (Broadcast)
  *
  * POST /api/settings/line/test
  *
  * Forces a daily-summary send to all enabled recipients immediately
- * (bypasses sendTime check). Each recipient gets their own settings.
+ * (bypasses sendTime check). Each recipient gets their own Flex Message
+ * built from their saved settings.
+ *
+ * NOTE: Test sends are NOT dedup-tracked — they explicitly update
+ * last_sent_at so the cron won't resend the same day.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,7 +18,7 @@ import { getD1 } from '@/lib/cloudflare';
 import { getDb } from '@/db/client';
 import { lineAccounts, notificationSettings } from '@/db/schema';
 import { getLineNotificationMetrics } from '@/lib/dashboard-summary';
-import { sendDailySummaryToUsers, formatDailySummaryMessage } from '@/lib/line-notify';
+import { sendDailySummaryFlexToUser } from '@/lib/line-flex-sender';
 import { DEFAULT_DAILY_SUMMARY_SETTINGS, getBangkokDateString } from '@/lib/notification-settings';
 
 export const runtime = 'nodejs';
@@ -42,9 +46,7 @@ export async function POST(_request: NextRequest) {
         displayName: lineAccounts.displayName,
       })
       .from(lineAccounts)
-      .where(
-        and(isNull(lineAccounts.deletedAt), eq(lineAccounts.notifyEnabled, true))
-      );
+      .where(and(isNull(lineAccounts.deletedAt), eq(lineAccounts.notifyEnabled, true)));
 
     if (recipientsRaw.length === 0) {
       return NextResponse.json({
@@ -62,7 +64,10 @@ export async function POST(_request: NextRequest) {
       .from(notificationSettings)
       .where(eq(notificationSettings.notificationType, 'daily_summary'));
 
-    const nsByUserId = new Map<string, { settings: Record<string, unknown>; enabled: boolean }>();
+    const nsByUserId = new Map<
+      string,
+      { settings: Record<string, unknown>; enabled: boolean }
+    >();
     for (const row of nsRows) {
       nsByUserId.set(row.userId, {
         settings: JSON.parse(row.settings),
@@ -74,9 +79,7 @@ export async function POST(_request: NextRequest) {
     const recipients = recipientsRaw.map((r) => {
       const ns = nsByUserId.get(r.userId);
       const defaultSettings = { ...DEFAULT_DAILY_SUMMARY_SETTINGS };
-      const userSettings = ns
-        ? { ...defaultSettings, ...ns.settings }
-        : defaultSettings;
+      const userSettings = ns ? { ...defaultSettings, ...ns.settings } : defaultSettings;
       return {
         lineUserId: r.lineUserId,
         displayName: r.displayName ?? 'Unknown',
@@ -85,22 +88,50 @@ export async function POST(_request: NextRequest) {
       };
     });
 
-    // 4) Fetch metrics
+    // 4) Fetch metrics (with items for Flex Message)
     const metrics = await getLineNotificationMetrics(db);
     const dateString = getBangkokDateString();
 
-    // 5) Send to all recipients with their own settings
+    // 5) Send FLEX MESSAGE to all recipients with their own settings
     const results = [];
     let totalSent = 0;
     let totalFailed = 0;
 
     for (const recipient of recipients) {
-      const message = formatDailySummaryMessage(metrics, recipient.settings, dateString);
-      const { sendDailySummaryToUser } = await import('@/lib/line-notify');
-      const result = await sendDailySummaryToUser(recipient.lineUserId, message, LINE_ACCESS_TOKEN);
-      results.push({ ...result, displayName: recipient.displayName, userId: recipient.userId });
-      if (result.success) totalSent++;
-      else totalFailed++;
+      const result = await sendDailySummaryFlexToUser(
+        recipient.lineUserId,
+        metrics,
+        recipient.settings as Parameters<typeof sendDailySummaryFlexToUser>[2],
+        LINE_ACCESS_TOKEN
+      );
+      results.push({
+        ...result,
+        displayName: recipient.displayName,
+        userId: recipient.userId,
+      });
+      if (result.success) {
+        totalSent++;
+        // Update last_sent_at so cron doesn't resend today
+        try {
+          await db
+            .update(notificationSettings)
+            .set({
+              lastSentAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(notificationSettings.userId, recipient.userId),
+                eq(notificationSettings.notificationType, 'daily_summary')
+              )
+            )
+            .run();
+        } catch (e) {
+          console.warn(`[Test LINE] Failed to update last_sent_at for ${recipient.userId}:`, e);
+        }
+      } else {
+        totalFailed++;
+      }
     }
 
     return NextResponse.json({
@@ -113,6 +144,7 @@ export async function POST(_request: NextRequest) {
         error: r.error,
       })),
       summary: { totalSent, totalFailed },
+      messageType: 'flex',
     });
   } catch (error) {
     console.error('[Test LINE] error:', error);
