@@ -1,0 +1,14 @@
+name = "smart-family-finance-line-cron"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "smart-family-finance-db"
+database_id = "d53cb4c2-8150-4fff-852f-7aa3390ffe2c"
+
+# Cron Trigger - ทุก 1 นาที
+[triggers]
+crons = ["* * * * *"]
