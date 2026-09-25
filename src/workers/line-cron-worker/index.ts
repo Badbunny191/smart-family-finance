@@ -247,28 +247,69 @@ async function runLineCron(
     // DEBUG LOG 3: Time Match Check (with 60-second window)
     // ============================================================
     const now = new Date();
-    const currentSeconds = now.getSeconds();
-    const timeMatch = isTimeMatchWindow(configuredTime, now);
+
+    // Debug: Get Bangkok time with second
+    const debugFormatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const debugParts = debugFormatter.formatToParts(now);
+    const debugHour = parseInt(debugParts.find((p) => p.type === 'hour')?.value || '0', 10);
+    const debugMinute = parseInt(debugParts.find((p) => p.type === 'minute')?.value || '0', 10);
+    const debugSecond = parseInt(debugParts.find((p) => p.type === 'second')?.value || '0', 10);
 
     console.log(`[${WORKER_NAME}] CHECKING recipient ${recipient.lineUserId}:`);
     console.log(`  Configured sendTime: ${configuredTime} (hour=${configHour}, minute=${configMinute})`);
-    console.log(`  Current Bangkok time: hour=${bangkokTimeParts.hour}, minute=${bangkokTimeParts.minute}, second=${currentSeconds}`);
-    console.log(`  Time Match (window): ${timeMatch ? 'YES' : 'NO'}`);
+    console.log(`  Current Bangkok time: hour=${debugHour}, minute=${debugMinute}, second=${debugSecond}`);
+    console.log(`  UTC timestamp: ${now.getTime()}`);
+    const timeMatch = isTimeMatchWindow(configuredTime, now);
 
     if (!timeMatch) {
       console.log(`  Decision: SKIP (time mismatch)`);
       continue;
     }
 
-    // Dedup: skip if already sent today (Asia/Bangkok)
+    // Dedup with sendTime check: skip only if sent today AND sendTime unchanged
     if (recipient.lastSentAt) {
       const lastSentBangkokDate = bangkokDateFromUnixSeconds(recipient.lastSentAt);
-      console.log(`  Last sent Bangkok date: ${lastSentBangkokDate}`);
+      const lastSentDate = new Date(recipient.lastSentAt * 1000);
+
+      // Get Bangkok time when last sent
+      const lastSentFormatter = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Bangkok',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      const lastSentParts = lastSentFormatter.formatToParts(lastSentDate);
+      const lastSentHour = parseInt(lastSentParts.find((p) => p.type === 'hour')?.value || '0', 10);
+      const lastSentMinute = parseInt(lastSentParts.find((p) => p.type === 'minute')?.value || '0', 10);
+      const lastSentTime = `${lastSentHour}:${lastSentMinute}`;
+
+      // Normalize both times to HH:MM format for comparison
+      const normalizeTime = (time: string) => {
+        const [h, m] = time.split(':').map(Number);
+        return `${h}:${m.toString().padStart(2, '0')}`;
+      };
+
+      const normalizedLastSentTime = normalizeTime(lastSentTime);
+      const normalizedConfiguredTime = normalizeTime(configuredTime);
+
+      console.log(`  LastSentAt: ${lastSentDate.toISOString()}, Bangkok time: ${normalizedLastSentTime}, date: ${lastSentBangkokDate}`);
       console.log(`  Current Bangkok date: ${currentBangkokDate}`);
+      console.log(`  Configured sendTime: ${normalizedConfiguredTime}`);
+
       if (lastSentBangkokDate === currentBangkokDate) {
-        console.log(`  Decision: SKIP (already sent today)`);
-        skippedByDedup.push(recipient);
-        continue;
+        if (normalizedLastSentTime === normalizedConfiguredTime) {
+          console.log(`  Decision: SKIP (sent today at same time, sendTime unchanged)`);
+          skippedByDedup.push(recipient);
+          continue;
+        } else {
+          console.log(`  Decision: SEND (sendTime changed from ${normalizedLastSentTime} to ${normalizedConfiguredTime})`);
+        }
       }
     } else {
       console.log(`  LastSentAt: null (never sent)`);
@@ -615,19 +656,48 @@ async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettin
  * - cron executes at 11:31:00 -> does NOT match (new minute)
  */
 function isTimeMatchWindow(configuredTime: string, now: Date): boolean {
-  // Get Bangkok time
-  const bangkokTime = getBangkokTimeFromDate(now);
+  // Get UTC timestamp
+  const utcMs = now.getTime();
 
+  // Get Bangkok time using Intl WITH second to avoid rounding
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(now);
+  const bangkokHour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+  const bangkokMinute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+  const bangkokSecond = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+  const normalizedBangkokHour = bangkokHour === 24 ? 0 : bangkokHour;
+
+  // Calculate configured time as minutes from midnight
   const [configHour, configMinute] = configuredTime.split(':').map(Number);
+  const configMinutesFromMidnight = configHour * 60 + configMinute;
+  const currentMinutesFromMidnight = normalizedBangkokHour * 60 + bangkokMinute;
 
-  // Check hour and minute match
-  if (bangkokTime.hour !== configHour || bangkokTime.minute !== configMinute) {
-    return false;
+  // Debug: Calculate timestamp difference
+  const configBangkokMs = utcMs + (7 * 60 * 60 * 1000) - (bangkokMinute * 60 * 1000) - (bangkokSecond * 1000);
+  const targetMinuteStartMs = configBangkokMs + (configMinute * 60 * 1000);
+  const diffSeconds = Math.floor((utcMs - targetMinuteStartMs + (7 * 60 * 60 * 1000)) / 1000);
+
+  // Time window: sendTime <= now < sendTime + 60 seconds
+  // Cron at 12:50:51 should match sendTime 12:50 (diff = 51 seconds)
+  if (currentMinutesFromMidnight === configMinutesFromMidnight) {
+    console.log(`  [TIME DEBUG] UTC ms: ${utcMs}, Bangkok: ${normalizedBangkokHour}:${bangkokMinute}:${bangkokSecond}`);
+    console.log(`  [TIME DEBUG] Config: ${configHour}:${configMinute}, Current: ${normalizedBangkokHour}:${bangkokMinute}`);
+    console.log(`  [TIME DEBUG] Diff from target minute start: ${diffSeconds} seconds`);
+    return true;
   }
 
-  // Hour and minute match - this cron run is within the target minute's window
-  // Allow any second (0-59) for this minute
-  return true;
+  console.log(`  [TIME DEBUG] UTC ms: ${utcMs}, Bangkok: ${normalizedBangkokHour}:${bangkokMinute}:${bangkokSecond}`);
+  console.log(`  [TIME DEBUG] Config: ${configHour}:${configMinute}, Current: ${normalizedBangkokHour}:${bangkokMinute}`);
+  console.log(`  [TIME DEBUG] Diff from target minute start: ${diffSeconds} seconds`);
+
+  return false;
 }
 
 /**
@@ -656,22 +726,19 @@ function getBangkokTimeFromDate(date: Date): { hour: number; minute: number; sec
 // ============================================================
 
 function getBangkokTime(): { hour: number; minute: number; timeString: string } {
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Bangkok',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-
-  const parts = formatter.formatToParts(new Date());
-  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
-  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
-  const normalizedHour = hour === 24 ? 0 : hour;
+  // Use raw timestamp calculation to avoid Intl.DateTimeFormat rounding issue
+  // Intl without second field will round minute when second >= 30
+  // Bangkok is UTC+7
+  const now = Date.now();
+  const bangkokMs = now + (7 * 60 * 60 * 1000); // UTC + 7 hours
+  const totalMinutes = Math.floor(bangkokMs / (60 * 1000));
+  const hour = Math.floor((totalMinutes / 60) % 24);
+  const minute = totalMinutes % 60;
 
   return {
-    hour: normalizedHour,
+    hour,
     minute,
-    timeString: `${normalizedHour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
+    timeString: `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`,
   };
 }
 
