@@ -244,13 +244,16 @@ async function runLineCron(
     const [configHour, configMinute] = configuredTime.split(':').map(Number);
 
     // ============================================================
-    // DEBUG LOG 3: Time Match Check
+    // DEBUG LOG 3: Time Match Check (with 60-second window)
     // ============================================================
+    const now = new Date();
+    const currentSeconds = now.getSeconds();
+    const timeMatch = isTimeMatchWindow(configuredTime, now);
+
     console.log(`[${WORKER_NAME}] CHECKING recipient ${recipient.lineUserId}:`);
     console.log(`  Configured sendTime: ${configuredTime} (hour=${configHour}, minute=${configMinute})`);
-    console.log(`  Current Bangkok time: hour=${bangkokTimeParts.hour}, minute=${bangkokTimeParts.minute}`);
-    const timeMatch = bangkokTimeParts.hour === configHour && bangkokTimeParts.minute === configMinute;
-    console.log(`  Time Match: ${timeMatch ? 'YES' : 'NO'}`);
+    console.log(`  Current Bangkok time: hour=${bangkokTimeParts.hour}, minute=${bangkokTimeParts.minute}, second=${currentSeconds}`);
+    console.log(`  Time Match (window): ${timeMatch ? 'YES' : 'NO'}`);
 
     if (!timeMatch) {
       console.log(`  Decision: SKIP (time mismatch)`);
@@ -596,6 +599,56 @@ async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettin
       lastSentAt: row.last_sent_at ?? null,
     };
   });
+}
+
+// ============================================================
+// TIME MATCHING (with 60-second window)
+// ============================================================
+
+/**
+ * Check if current time matches configured time within a 60-second window.
+ * This handles cases where cron executes at seconds :01-:59 of the target minute.
+ *
+ * Example:
+ * - configuredTime = "11:30"
+ * - cron executes at 11:30:51 -> matches (within 60-second window)
+ * - cron executes at 11:31:00 -> does NOT match (new minute)
+ */
+function isTimeMatchWindow(configuredTime: string, now: Date): boolean {
+  // Get Bangkok time
+  const bangkokTime = getBangkokTimeFromDate(now);
+
+  const [configHour, configMinute] = configuredTime.split(':').map(Number);
+
+  // Check hour and minute match
+  if (bangkokTime.hour !== configHour || bangkokTime.minute !== configMinute) {
+    return false;
+  }
+
+  // Hour and minute match - this cron run is within the target minute's window
+  // Allow any second (0-59) for this minute
+  return true;
+}
+
+/**
+ * Get Bangkok time components from a Date object.
+ */
+function getBangkokTimeFromDate(date: Date): { hour: number; minute: number; second: number } {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+  const second = parseInt(parts.find((p) => p.type === 'second')?.value || '0', 10);
+  const normalizedHour = hour === 24 ? 0 : hour;
+
+  return { hour: normalizedHour, minute, second };
 }
 
 // ============================================================

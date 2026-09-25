@@ -126,7 +126,15 @@ export async function PATCH(
       )
       .limit(1);
 
-    if (existingRow.length === 0) {
+    console.log('[PATCH /recipient] Request received:', {
+      userId,
+      enabled,
+      newSettings,
+      validatedSettings,
+      existingRowCount: existingRow.length,
+    });
+
+      if (existingRow.length === 0) {
       // Insert new row
       const defaultSettings: DailySummarySettings = {
         ...DEFAULT_DAILY_SUMMARY_SETTINGS,
@@ -142,6 +150,11 @@ export async function PATCH(
         createdAt: now,
         updatedAt: now,
       });
+
+      console.log('[PATCH /recipient] INSERTED:', {
+        userId,
+        settings: JSON.stringify(defaultSettings),
+      });
     } else {
       // Update existing row
       const updateData: {
@@ -155,6 +168,13 @@ export async function PATCH(
         const existingSettings = JSON.parse(existingRow[0].settings) as Partial<DailySummarySettings>;
         const merged = { ...existingSettings, ...validatedSettings };
         updateData.settings = JSON.stringify(merged);
+
+        console.log('[PATCH /recipient] UPDATE SETTINGS:', {
+          userId,
+          existingSettings,
+          validatedSettings,
+          mergedSettings: merged,
+        });
       }
 
       if (enabled !== undefined) {
@@ -170,6 +190,11 @@ export async function PATCH(
             eq(notificationSettings.notificationType, 'daily_summary')
           )
         );
+
+      console.log('[PATCH /recipient] UPDATE COMPLETE:', {
+        userId,
+        updateData,
+      });
     }
 
     // Return updated settings
@@ -184,12 +209,22 @@ export async function PATCH(
       )
       .limit(1);
 
+    console.log('[PATCH /recipient] READ BACK FROM DB:', {
+      userId,
+      row: updatedRow[0],
+    });
+
     const row = updatedRow[0];
     const parsed = JSON.parse(row.settings) as Partial<DailySummarySettings>;
     const finalSettings: DailySummarySettings = {
       ...DEFAULT_DAILY_SUMMARY_SETTINGS,
       ...parsed,
     };
+
+    console.log('[PATCH /recipient] FINAL SETTINGS TO RETURN:', {
+      userId,
+      finalSettings,
+    });
 
     return NextResponse.json({
       success: true,
