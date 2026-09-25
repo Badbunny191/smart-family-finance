@@ -199,7 +199,11 @@ async function runLineCron(
   const currentBangkokDate = getBangkokDateString();
   const bangkokTimeParts = getBangkokTime();
 
-  // 3. Filter by Thai time AND daily dedup
+  // 1. Get Dashboard Metrics
+  const metrics = await getLineNotificationMetrics(db);
+
+  // 2. Get recipients with per-user settings (and last_sent_at for dedup)
+  const recipients = await getEnabledRecipients(db);
 
   if (recipients.length === 0) {
     console.log(`[${WORKER_NAME}] No enabled recipients found`);
