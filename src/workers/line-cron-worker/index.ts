@@ -198,32 +198,11 @@ async function runLineCron(
   const currentThaiTime = getCurrentBangkokTimeString();
   const currentBangkokDate = getBangkokDateString();
   const bangkokTimeParts = getBangkokTime();
-  
-  console.log(`[${WORKER_NAME}] ========== CRON DEBUG ==========`);
-  console.log(`[${WORKER_NAME}] Bangkok Now: ${currentThaiTime} (${currentBangkokDate})`);
-  console.log(`[${WORKER_NAME}] UTC Now: ${new Date().toISOString()}`);
-  console.log(`[${WORKER_NAME}] Bangkok Parts: hour=${bangkokTimeParts.hour}, minute=${bangkokTimeParts.minute}`);
 
-  // 1. Get Dashboard Metrics (SAME as Dashboard/Test Send) — with items for Flex
-  const metrics = await getLineNotificationMetrics(db);
-
-  // 2. Get recipients with per-user settings (and last_sent_at for dedup)
-  const recipients = await getEnabledRecipients(db);
-
-  // ============================================================
-  // DEBUG LOG 2: Recipients Info
-  // ============================================================
-  console.log(`[${WORKER_NAME}] Total recipients found: ${recipients.length}`);
-  for (const r of recipients) {
-    console.log(`[${WORKER_NAME}] RECIPIENT:`);
-    console.log(`  lineUserId: ${r.lineUserId}`);
-    console.log(`  userId: ${r.userId}`);
-    console.log(`  sendTime: ${r.settings?.sendTime || '08:00'}`);
-    console.log(`  lastSentAt: ${r.lastSentAt ? new Date(r.lastSentAt * 1000).toISOString() : 'null'}`);
-  }
+  // 3. Filter by Thai time AND daily dedup
 
   if (recipients.length === 0) {
-    console.log(`[${WORKER_NAME}] ========== END DEBUG ==========`);
+    console.log(`[${WORKER_NAME}] No enabled recipients found`);
     return {
       success: true,
       timestamp,
@@ -243,32 +222,11 @@ async function runLineCron(
     const configuredTime = recipient.settings?.sendTime || '08:00';
     const [configHour, configMinute] = configuredTime.split(':').map(Number);
 
-    // ============================================================
-    // DEBUG LOG 3: Time Match Check (with 60-second window)
-    // ============================================================
+    // Time match check (with 60-second window)
     const now = new Date();
-
-    // Debug: Get Bangkok time with second
-    const debugFormatter = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Bangkok',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    });
-    const debugParts = debugFormatter.formatToParts(now);
-    const debugHour = parseInt(debugParts.find((p) => p.type === 'hour')?.value || '0', 10);
-    const debugMinute = parseInt(debugParts.find((p) => p.type === 'minute')?.value || '0', 10);
-    const debugSecond = parseInt(debugParts.find((p) => p.type === 'second')?.value || '0', 10);
-
-    console.log(`[${WORKER_NAME}] CHECKING recipient ${recipient.lineUserId}:`);
-    console.log(`  Configured sendTime: ${configuredTime} (hour=${configHour}, minute=${configMinute})`);
-    console.log(`  Current Bangkok time: hour=${debugHour}, minute=${debugMinute}, second=${debugSecond}`);
-    console.log(`  UTC timestamp: ${now.getTime()}`);
     const timeMatch = isTimeMatchWindow(configuredTime, now);
 
     if (!timeMatch) {
-      console.log(`  Decision: SKIP (time mismatch)`);
       continue;
     }
 
@@ -298,61 +256,37 @@ async function runLineCron(
       const normalizedLastSentTime = normalizeTime(lastSentTime);
       const normalizedConfiguredTime = normalizeTime(configuredTime);
 
-      console.log(`  LastSentAt: ${lastSentDate.toISOString()}, Bangkok time: ${normalizedLastSentTime}, date: ${lastSentBangkokDate}`);
-      console.log(`  Current Bangkok date: ${currentBangkokDate}`);
-      console.log(`  Configured sendTime: ${normalizedConfiguredTime}`);
-
       if (lastSentBangkokDate === currentBangkokDate) {
         if (normalizedLastSentTime === normalizedConfiguredTime) {
-          console.log(`  Decision: SKIP (sent today at same time, sendTime unchanged)`);
           skippedByDedup.push(recipient);
           continue;
-        } else {
-          console.log(`  Decision: SEND (sendTime changed from ${normalizedLastSentTime} to ${normalizedConfiguredTime})`);
         }
       }
-    } else {
-      console.log(`  LastSentAt: null (never sent)`);
     }
 
-    // ============================================================
-    // DEBUG LOG 4: Decision
-    // ============================================================
-    console.log(`  Decision: SEND`);
     toSend.push(recipient);
   }
 
-  // ============================================================
-  // DEBUG LOG 5: Summary
-  // ============================================================
-  console.log(`[${WORKER_NAME}] ========== SUMMARY ==========`);
-  console.log(`[${WORKER_NAME}] toSend: ${toSend.length}`);
-  console.log(`[${WORKER_NAME}] skippedByDedup: ${skippedByDedup.length}`);
-  console.log(`[${WORKER_NAME}] skippedByTime: ${recipients.length - toSend.length - skippedByDedup.length}`);
-  console.log(`[${WORKER_NAME}] ========== END DEBUG ==========`);
+  // Summary
+  const totalSkipped = recipients.length - toSend.length;
+  console.log(`[${WORKER_NAME}] Cron completed: ${toSend.length} to send, ${totalSkipped} skipped, ${recipients.length} total recipients`);
 
   if (toSend.length === 0) {
-    console.log(`[${WORKER_NAME}] ========== NO RECIPIENTS TO SEND ==========`);
-    console.log(`[${WORKER_NAME}] Current time: ${currentThaiTime}`);
-    console.log(`[${WORKER_NAME}] Skipped reason: ${recipients.length > 0 ? 'all recipients skipped by time or dedup' : 'no recipients found'}`);
-    console.log(`[${WORKER_NAME}] ========== END DEBUG ==========`);
     return {
       success: true,
       timestamp,
       sentAt: currentBangkokDate,
       metrics,
-      recipients: skippedByDedup.map((r) => ({
-        lineUserId: r.lineUserId,
-        sent: false,
-        skipped: 'time mismatch or already sent',
-      })),
+      recipients: [],
       summary: {
         totalRecipients: recipients.length,
         totalSent: 0,
         totalFailed: 0,
-        totalSkipped: skippedByDedup.length + (recipients.length - toSend.length - skippedByDedup.length),
+        totalSkipped: recipients.length,
       },
-      skipped: { reason: `No recipients for ${currentThaiTime}` },
+      skipped: {
+        reason: recipients.length > 0 ? 'all recipients skipped by time or dedup' : 'no recipients found',
+      },
     };
   }
 
@@ -687,15 +621,8 @@ function isTimeMatchWindow(configuredTime: string, now: Date): boolean {
   // Time window: sendTime <= now < sendTime + 60 seconds
   // Cron at 12:50:51 should match sendTime 12:50 (diff = 51 seconds)
   if (currentMinutesFromMidnight === configMinutesFromMidnight) {
-    console.log(`  [TIME DEBUG] UTC ms: ${utcMs}, Bangkok: ${normalizedBangkokHour}:${bangkokMinute}:${bangkokSecond}`);
-    console.log(`  [TIME DEBUG] Config: ${configHour}:${configMinute}, Current: ${normalizedBangkokHour}:${bangkokMinute}`);
-    console.log(`  [TIME DEBUG] Diff from target minute start: ${diffSeconds} seconds`);
     return true;
   }
-
-  console.log(`  [TIME DEBUG] UTC ms: ${utcMs}, Bangkok: ${normalizedBangkokHour}:${bangkokMinute}:${bangkokSecond}`);
-  console.log(`  [TIME DEBUG] Config: ${configHour}:${configMinute}, Current: ${normalizedBangkokHour}:${bangkokMinute}`);
-  console.log(`  [TIME DEBUG] Diff from target minute start: ${diffSeconds} seconds`);
 
   return false;
 }
