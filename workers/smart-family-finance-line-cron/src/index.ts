@@ -61,6 +61,7 @@ interface LineNotificationMetrics {
 
 interface DailySummarySettings {
   sendTime: string;
+  additionalTimes?: string[];
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;
@@ -68,6 +69,107 @@ interface DailySummarySettings {
   showOverdue: boolean;
   showPendingDetails: boolean;
   showOverdueDetails: boolean;
+}
+
+// ============================================================
+// INLINE HELPERS — slot-level dedup (mirror of src/lib/line-multi-send-time.ts)
+// Worker tsconfig excludes src/lib, so we redefine the small surface here.
+// ============================================================
+
+type SlotHistory = Record<string, string[]>;
+
+const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function isValidHHmm(time: unknown): time is string {
+  return typeof time === 'string' && HHMM_RE.test(time);
+}
+
+function effectiveSlots(settings: { sendTime: string; additionalTimes?: string[] }): string[] {
+  const sendTime = isValidHHmm(settings.sendTime) ? settings.sendTime : '';
+  const extras = (settings.additionalTimes ?? []).filter(isValidHHmm);
+  const merged = Array.from(new Set<string>([sendTime, ...extras].filter(Boolean)));
+  merged.sort();
+  return merged;
+}
+
+function readSlotHistory(raw: unknown): SlotHistory {
+  if (!raw || typeof raw !== 'object') return {};
+  const s = raw as Record<string, unknown>;
+  const hist = s._slotHistory;
+  if (!hist || typeof hist !== 'object') return {};
+  const out: SlotHistory = {};
+  for (const [dateKey, slots] of Object.entries(hist as Record<string, unknown>)) {
+    if (typeof dateKey !== 'string' || !Array.isArray(slots)) continue;
+    const validSlots = (slots as unknown[]).filter(isValidHHmm);
+    if (validSlots.length === 0) continue;
+    out[dateKey] = Array.from(new Set(validSlots)).sort();
+  }
+  return out;
+}
+
+function bangkokDateMinusDays(today: string, days: number): string {
+  if (typeof today !== 'string' || !/^\d{2}\/\d{2}\/\d{4}$/.test(today)) return today;
+  const [dStr, mStr, yStr] = today.split('/');
+  const day = parseInt(dStr, 10);
+  const month = parseInt(mStr, 10);
+  const yearBE = parseInt(yStr, 10);
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(yearBE)) return today;
+  const yearCE = yearBE - 543;
+  const utc = new Date(Date.UTC(yearCE, month - 1, day));
+  utc.setUTCDate(utc.getUTCDate() - days);
+  const outDay = String(utc.getUTCDate()).padStart(2, '0');
+  const outMonth = String(utc.getUTCMonth() + 1).padStart(2, '0');
+  const outYearBE = utc.getUTCFullYear() + 543;
+  return `${outDay}/${outMonth}/${outYearBE}`;
+}
+
+function purgeSlotHistoryBefore(history: SlotHistory, cutoffDate: string): SlotHistory {
+  if (typeof cutoffDate !== 'string' || cutoffDate.length === 0) return history;
+  const kept: SlotHistory = {};
+  let removed = 0;
+  for (const [k, v] of Object.entries(history)) {
+    if (k >= cutoffDate) kept[k] = v;
+    else removed++;
+  }
+  return removed === 0 ? history : kept;
+}
+
+function appendSlotHistory(history: SlotHistory, today: string, slot: string): SlotHistory {
+  if (!isValidHHmm(slot) || typeof today !== 'string' || today.length === 0) return history;
+  const existing = history[today] ?? [];
+  if (existing.includes(slot)) return history;
+  const next = [...existing, slot].sort();
+  return { ...history, [today]: next };
+}
+
+function shouldWriteSlotHistory(current: SlotHistory, candidate: SlotHistory): boolean {
+  const a = Object.keys(current).length;
+  const b = Object.keys(candidate).length;
+  if (a !== b) return true;
+  for (const k of Object.keys(candidate)) {
+    const aSlots = current[k] ?? [];
+    const bSlots = candidate[k];
+    if (aSlots.length !== bSlots.length) return true;
+    for (let i = 0; i < bSlots.length; i++) {
+      if (aSlots[i] !== bSlots[i]) return true;
+    }
+  }
+  return false;
+}
+
+function cleanupSlotHistory(history: SlotHistory, today: string): SlotHistory {
+  const cutoff = bangkokDateMinusDays(today, 2); // 3-day retention: today + 2 back
+  return purgeSlotHistoryBefore(history, cutoff);
+}
+
+function applySlotHistoryUpdate(args: {
+  currentHistory: SlotHistory;
+  today: string;
+  slot: string;
+}): { next: SlotHistory; changed: boolean } {
+  const cleaned = cleanupSlotHistory(args.currentHistory, args.today);
+  const appended = appendSlotHistory(cleaned, args.today, args.slot);
+  return { next: appended, changed: shouldWriteSlotHistory(args.currentHistory, appended) };
 }
 
 interface RecipientWithSettings {
@@ -218,57 +320,52 @@ async function runLineCron(
     };
   }
 
-  // 3. Filter by Thai time AND daily dedup
-  const toSend: RecipientWithSettings[] = [];
-  const skippedByDedup: RecipientWithSettings[] = [];
+  // 3. Filter by Thai time AND slot-level dedup
+  const toSend: { recipient: RecipientWithSettings; matchedSlots: string[] }[] = [];
+  const skippedByDedup: { recipient: RecipientWithSettings; reason: string }[] = [];
 
   for (const recipient of recipients) {
-    const configuredTime = recipient.settings?.sendTime || '08:00';
-    const [configHour, configMinute] = configuredTime.split(':').map(Number);
+    // Multi-SendTime: expand sendTime + additionalTimes
+    const slots = effectiveSlots(recipient.settings);
+    if (slots.length === 0) continue;
 
-    // Time match check (with 60-second window)
+    // Find slots that match current Bangkok time (within 60s window)
     const now = new Date();
-    const timeMatch = isTimeMatchWindow(configuredTime, now);
-
-    if (!timeMatch) {
-      continue;
+    const matchedSlots: string[] = [];
+    for (const slot of slots) {
+      if (isTimeMatchWindow(slot, now)) {
+        matchedSlots.push(slot);
+      }
     }
+    if (matchedSlots.length === 0) continue;
 
-    // Dedup with sendTime check: skip only if sent today AND sendTime unchanged
-    if (recipient.lastSentAt) {
-      const lastSentBangkokDate = bangkokDateFromUnixSeconds(recipient.lastSentAt);
-      const lastSentDate = new Date(recipient.lastSentAt * 1000);
+    // Slot-level dedup via _slotHistory
+    const history = readSlotHistory(recipient.settings);
+    const sentToday = history[currentBangkokDate] ?? [];
 
-      // Get Bangkok time when last sent
-      const lastSentFormatter = new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Asia/Bangkok',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      });
-      const lastSentParts = lastSentFormatter.formatToParts(lastSentDate);
-      const lastSentHour = parseInt(lastSentParts.find((p) => p.type === 'hour')?.value || '0', 10);
-      const lastSentMinute = parseInt(lastSentParts.find((p) => p.type === 'minute')?.value || '0', 10);
-      const lastSentTime = `${lastSentHour}:${lastSentMinute}`;
+    // Legacy fallback: empty history + 1 slot + lastSentAt today → skip whole recipient
+    const useLegacyFallback =
+      sentToday.length === 0 && slots.length === 1 && recipient.lastSentAt;
 
-      // Normalize both times to HH:MM format for comparison
-      const normalizeTime = (time: string) => {
-        const [h, m] = time.split(':').map(Number);
-        return `${h}:${m.toString().padStart(2, '0')}`;
-      };
-
-      const normalizedLastSentTime = normalizeTime(lastSentTime);
-      const normalizedConfiguredTime = normalizeTime(configuredTime);
-
+    if (useLegacyFallback) {
+      const lastSentBangkokDate = bangkokDateFromUnixSeconds(recipient.lastSentAt!);
       if (lastSentBangkokDate === currentBangkokDate) {
-        if (normalizedLastSentTime === normalizedConfiguredTime) {
-          skippedByDedup.push(recipient);
-          continue;
-        }
+        skippedByDedup.push({ recipient, reason: 'already sent today (legacy)' });
+        continue;
       }
     }
 
-    toSend.push(recipient);
+    // Per-slot filter
+    const slotsToSend = matchedSlots.filter((s) => !sentToday.includes(s));
+    if (slotsToSend.length === 0) {
+      skippedByDedup.push({
+        recipient,
+        reason: `slots already sent today: ${matchedSlots.join(',')}`,
+      });
+      continue;
+    }
+
+    toSend.push({ recipient, matchedSlots: slotsToSend });
   }
 
   // Summary
@@ -281,12 +378,16 @@ async function runLineCron(
       timestamp,
       sentAt: currentBangkokDate,
       metrics,
-      recipients: [],
+      recipients: skippedByDedup.map((s) => ({
+        lineUserId: s.recipient.lineUserId,
+        sent: false,
+        skipped: s.reason,
+      })),
       summary: {
         totalRecipients: recipients.length,
         totalSent: 0,
         totalFailed: 0,
-        totalSkipped: recipients.length,
+        totalSkipped: totalSkipped,
       },
       skipped: {
         reason: recipients.length > 0 ? 'all recipients skipped by time or dedup' : 'no recipients found',
@@ -294,31 +395,42 @@ async function runLineCron(
     };
   }
 
-  // 4. Send FLEX MESSAGES
+  // 4. Send FLEX MESSAGES — loop per matched slot
   const results: SendResult[] = [];
   let totalSent = 0;
   let totalFailed = 0;
 
-  for (const recipient of toSend) {
-    const flexMessage = buildDailySummaryFlexMessage(metrics, recipient.settings);
-    const result = await sendFlexMessage(recipient.lineUserId, flexMessage, LINE_ACCESS_TOKEN);
-    results.push(result);
+  for (const { recipient, matchedSlots } of toSend) {
+    for (const slot of matchedSlots) {
+      const flexMessage = buildDailySummaryFlexMessage(metrics, recipient.settings);
+      const result = await sendFlexMessage(recipient.lineUserId, flexMessage, LINE_ACCESS_TOKEN);
+      (result as SendResult & { slot?: string }).slot = slot;
+      results.push(result);
 
-    if (result.success) {
-      totalSent++;
-      // Update last_sent_at only on successful send
-      if (recipient.userId) {
-        try {
-          await updateLastSentAt(db, recipient.userId);
-        } catch (e) {
-          console.warn(`[${WORKER_NAME}] Failed to update last_sent_at for ${recipient.userId}:`, e);
+      if (result.success) {
+        totalSent++;
+        if (recipient.userId) {
+          try {
+            await updateLastSentAtAndHistory(
+              db,
+              recipient.userId,
+              currentBangkokDate,
+              slot,
+              recipient.settings
+            );
+          } catch (e) {
+            console.warn(
+              `[${WORKER_NAME}] Failed to update dedup state for ${recipient.userId}:`,
+              e
+            );
+          }
         }
+      } else {
+        totalFailed++;
+        console.error(
+          `[${WORKER_NAME}] Failed to send to user_id=${recipient.userId}: ${result.error}`
+        );
       }
-    } else {
-      totalFailed++;
-      console.error(
-        `[${WORKER_NAME}] Failed to send to user_id=${recipient.userId}: ${result.error}`
-      );
     }
   }
 
@@ -333,10 +445,10 @@ async function runLineCron(
         sent: r.success,
         error: r.error,
       })),
-      ...skippedByDedup.map((r) => ({
-        lineUserId: r.lineUserId,
+      ...skippedByDedup.map((s) => ({
+        lineUserId: s.recipient.lineUserId,
         sent: false,
-        skipped: 'already sent today',
+        skipped: s.reason,
       })),
     ],
     summary: {
@@ -361,18 +473,58 @@ function getCurrentMonthRange(): { monthStart: Date; nextMonthStart: Date } {
 }
 
 /**
- * Update last_sent_at after successful send (used for daily dedup).
+ * Update last_sent_at + slot history after successful send.
+ * - Always updates last_sent_at (defensive fallback for legacy single-slot users).
+ * - CONDITIONALLY updates settings JSON's _slotHistory (skip DB write if unchanged).
+ * - 3-day cleanup runs on every successful send.
  */
-async function updateLastSentAt(db: D1Database, userId: string): Promise<void> {
+async function updateLastSentAtAndHistory(
+  db: D1Database,
+  userId: string,
+  bangkokDate: string,
+  slot: string,
+  currentSettings: unknown
+): Promise<void> {
   const nowSec = Math.floor(Date.now() / 1000);
-  await db
-    .prepare(
-      `UPDATE notification_settings
-       SET last_sent_at = ?, updated_at = ?
-       WHERE user_id = ? AND notification_type = 'daily_summary'`
-    )
-    .bind(nowSec, nowSec, userId)
-    .run();
+
+  const currentHistory = readSlotHistory(currentSettings);
+  const { next, changed } = applySlotHistoryUpdate({
+    currentHistory,
+    today: bangkokDate,
+    slot,
+  });
+
+  if (changed) {
+    const baseSettings =
+      currentSettings && typeof currentSettings === 'object'
+        ? (currentSettings as Record<string, unknown>)
+        : {};
+    const updatedSettings = { ...baseSettings, _slotHistory: next };
+    await db
+      .prepare(
+        `UPDATE notification_settings
+         SET last_sent_at = ?, updated_at = ?, settings = ?
+         WHERE user_id = ? AND notification_type = 'daily_summary'`
+      )
+      .bind(nowSec, nowSec, JSON.stringify(updatedSettings), userId)
+      .run();
+    console.log(
+      `[${WORKER_NAME}] ✅ Updated last_sent_at + _slotHistory for user ${userId} ` +
+        `(date=${bangkokDate}, slot=${slot}, keys=${Object.keys(next).length})`
+    );
+  } else {
+    await db
+      .prepare(
+        `UPDATE notification_settings
+         SET last_sent_at = ?, updated_at = ?
+         WHERE user_id = ? AND notification_type = 'daily_summary'`
+      )
+      .bind(nowSec, nowSec, userId)
+      .run();
+    console.log(
+      `[${WORKER_NAME}] ✅ Updated last_sent_at for user ${userId} (date=${bangkokDate}, slot=${slot} already in history)`
+    );
+  }
 }
 
 /**

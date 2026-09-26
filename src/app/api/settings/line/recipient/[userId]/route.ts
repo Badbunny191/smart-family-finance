@@ -19,6 +19,7 @@ export const runtime = 'nodejs';
 
 export interface DailySummarySettings {
   sendTime: string;
+  additionalTimes?: string[];
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;
@@ -40,6 +41,21 @@ function validateSettings(input: unknown): DailySummarySettings | { error: strin
     return { error: 'sendTime must be in HH:mm format (00:00 - 23:59)' };
   }
 
+  // additionalTimes: optional array of HH:mm — Multi-SendTime enhancement
+  let additionalTimes: string[] = [];
+  if (s.additionalTimes !== undefined) {
+    if (!Array.isArray(s.additionalTimes)) {
+      return { error: 'additionalTimes must be an array' };
+    }
+    additionalTimes = Array.from(
+      new Set(
+        (s.additionalTimes as unknown[])
+          .filter((t): t is string => typeof t === 'string')
+          .filter((t) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(t))
+      )
+    ).sort();
+  }
+
   const boolFields = ['showBalance', 'showIncome', 'showExpense', 'showNet', 'showPending', 'showOverdue', 'showPendingDetails', 'showOverdueDetails'] as const;
   for (const f of boolFields) {
     if (s[f] !== undefined && typeof s[f] !== 'boolean') {
@@ -49,6 +65,7 @@ function validateSettings(input: unknown): DailySummarySettings | { error: strin
 
   return {
     sendTime: sendTime || DEFAULT_DAILY_SUMMARY_SETTINGS.sendTime,
+    additionalTimes,
     showBalance: typeof s.showBalance === 'boolean' ? s.showBalance : DEFAULT_DAILY_SUMMARY_SETTINGS.showBalance,
     showIncome: typeof s.showIncome === 'boolean' ? s.showIncome : DEFAULT_DAILY_SUMMARY_SETTINGS.showIncome,
     showExpense: typeof s.showExpense === 'boolean' ? s.showExpense : DEFAULT_DAILY_SUMMARY_SETTINGS.showExpense,

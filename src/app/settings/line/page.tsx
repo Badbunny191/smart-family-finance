@@ -28,11 +28,14 @@ import {
   ChevronDown,
   ChevronUp,
   X,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState, useCallback } from 'react';
 import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
+import { effectiveSlots, prepareForSave } from '@/lib/line-multi-send-time';
 
 export const runtime = 'nodejs';
 
@@ -42,6 +45,7 @@ export const runtime = 'nodejs';
 
 interface DailySummarySettings {
   sendTime: string;
+  additionalTimes?: string[];
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;
@@ -144,6 +148,16 @@ export default function LineSettingsPage() {
 
   // Expanded cards
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+
+  // Optimistic update: sync only the saved recipient into parent state — no re-fetch
+  const handleRecipientSaveSuccess = useCallback(
+    (updatedRecipient: Recipient) => {
+      setRecipients((prev) =>
+        prev.map((r) => (r.userId === updatedRecipient.userId ? updatedRecipient : r))
+      );
+    },
+    []
+  );
 
   const load = useCallback(async () => {
     try {
@@ -302,6 +316,7 @@ export default function LineSettingsPage() {
                   onFlexPreview={() => openFlexPreview(recipient)}
                   onTestSend={() => handleTestSend(recipient)}
                   testing={testingUserId === recipient.userId}
+                  onSaveSuccess={handleRecipientSaveSuccess}
                 />
               ))}
             </div>
@@ -369,6 +384,7 @@ function RecipientCard({
   onFlexPreview,
   onTestSend,
   testing,
+  onSaveSuccess,
 }: {
   recipient: Recipient;
   expanded: boolean;
@@ -376,12 +392,17 @@ function RecipientCard({
   onFlexPreview: () => void;
   onTestSend: () => void;
   testing: boolean;
+  onSaveSuccess: (updatedRecipient: Recipient) => void;
 }) {
   const { showToast } = useToast();
   // Original (saved) settings from server — used as baseline to detect dirty state
   const [originalSettings, setOriginalSettings] = useState<DailySummarySettings>(recipient.settings);
   // Local working copy — changes here do NOT auto-save
   const [localSettings, setLocalSettings] = useState<DailySummarySettings>(recipient.settings);
+  // Multi-SendTime: list of HH:mm currently edited in UI (flattened sendTime + additionalTimes)
+  const [localTimes, setLocalTimes] = useState<string[]>(() =>
+    effectiveSlots(recipient.settings)
+  );
   const [enabled, setEnabled] = useState(recipient.enabled);
   const [saving, setSaving] = useState(false);
 
@@ -389,13 +410,21 @@ function RecipientCard({
   useEffect(() => {
     setLocalSettings(recipient.settings);
     setOriginalSettings(recipient.settings);
+    setLocalTimes(effectiveSlots(recipient.settings));
     setEnabled(recipient.enabled);
   }, [recipient.settings, recipient.enabled]);
 
-  // Compute dirty state: any field differs from original, or enabled toggle changed
+  // Compute dirty state: any field differs from original, OR localTimes differs
   const isDirty = (() => {
     if (enabled !== recipient.enabled) return true;
+    // Compare multi-send-time arrays (both derived from settings)
+    const originalTimes = effectiveSlots(originalSettings);
+    if (localTimes.length !== originalTimes.length) return true;
+    for (let i = 0; i < localTimes.length; i++) {
+      if (localTimes[i] !== originalTimes[i]) return true;
+    }
     for (const k of Object.keys(localSettings) as (keyof DailySummarySettings)[]) {
+      if (k === 'additionalTimes') continue; // handled via localTimes
       if (localSettings[k] !== originalSettings[k]) return true;
     }
     return false;
@@ -406,16 +435,49 @@ function RecipientCard({
     key: K,
     value: DailySummarySettings[K]
   ) => {
-    setLocalSettings((prev) => ({ ...prev, [key]: value }));
+    console.log('[UPDATE SETTING]', {
+      key,
+      value
+    });
+
+    setLocalSettings((prev) => {
+      const next = { ...prev, [key]: value };
+
+      console.log('[STATE UPDATE]', {
+        key,
+        before: prev[key],
+        after: next[key]
+      });
+
+      return next;
+    });
+  };
+
+  // Multi-SendTime helpers
+  const addTime = () => {
+    setLocalTimes((prev) => [...prev, '08:00']);
+  };
+  const removeTime = (idx: number) => {
+    setLocalTimes((prev) => prev.filter((_, i) => i !== idx));
+  };
+  const updateTime = (idx: number, value: string) => {
+    setLocalTimes((prev) => prev.map((t, i) => (i === idx ? value : t)));
   };
 
   // Explicit save — sends LOCAL state to server
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Split localTimes → sendTime + additionalTimes
+      const { sendTime, additionalTimes } = prepareForSave(localTimes);
+      const settingsToSave: DailySummarySettings = {
+        ...localSettings,
+        sendTime,
+        additionalTimes,
+      };
       // Build payload: include enabled if it changed, full settings (per their current state)
       const payload: { settings: DailySummarySettings; enabled?: boolean } = {
-        settings: localSettings,
+        settings: settingsToSave,
       };
       if (enabled !== recipient.enabled) {
         payload.enabled = enabled;
@@ -428,8 +490,12 @@ function RecipientCard({
       const json = (await res.json()) as { success: boolean; error?: string };
       if (json.success) {
         // Update baseline so dirty resets to false
-        setOriginalSettings(localSettings);
+        setOriginalSettings(settingsToSave);
+        setLocalSettings(settingsToSave);
         showToast(`บันทึกของ ${recipient.displayName} แล้ว`, 'success');
+
+        // Sync parent state: pass only the updated recipient, parent handles array update
+        onSaveSuccess({ ...recipient, settings: settingsToSave, enabled });
       } else {
         showToast(`บันทึกไม่สำเร็จ: ${json.error ?? ''}`, 'error');
       }
@@ -443,6 +509,7 @@ function RecipientCard({
 
   const handleCancel = () => {
     setLocalSettings(originalSettings);
+    setLocalTimes(effectiveSlots(originalSettings));
     setEnabled(recipient.enabled);
   };
 
@@ -491,7 +558,7 @@ function RecipientCard({
             />
           </div>
 
-          {/* Send time */}
+          {/* Send time — Multi-SendTime card list */}
           <div className="mb-4 space-y-2">
             <div className="flex items-center gap-2">
               <Clock size={14} className="text-slate-400" />
@@ -499,15 +566,52 @@ function RecipientCard({
                 เวลาแจ้งเตือน (Asia/Bangkok)
               </span>
             </div>
-            <input
-              type="time"
-              value={localSettings.sendTime}
-              onChange={(e) => updateSetting('sendTime', e.target.value)}
+
+            {/* Card list — same layout for 1, 3, 8+ times */}
+            <div className="space-y-2">
+              {localTimes.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-center text-xs text-slate-400">
+                  ยังไม่มีเวลาแจ้งเตือน — กด "เพิ่มเวลา" ด้านล่าง
+                </div>
+              )}
+              {localTimes.map((t, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                >
+                  <input
+                    type="time"
+                    value={t}
+                    onChange={(e) => updateTime(idx, e.target.value)}
+                    disabled={!enabled || saving}
+                    className="form-input flex-1 font-mono disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeTime(idx)}
+                    disabled={!enabled || saving}
+                    aria-label="ลบเวลา"
+                    className="shrink-0 rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-rose-600 disabled:opacity-40"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Add button */}
+            <button
+              type="button"
+              onClick={addTime}
               disabled={!enabled || saving}
-              className="form-input font-mono disabled:opacity-50"
-            />
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-3 py-2 text-sm font-medium text-sky-600 hover:border-sky-400 hover:bg-sky-50 disabled:opacity-40"
+            >
+              <Plus size={16} />
+              เพิ่มเวลา
+            </button>
+
             <p className="text-xs text-slate-400">
-              ระบบจะส่งอัตโนมัติทุกวันเวลาที่ตั้งไว้ (ตามเวลาประเทศไทย) — กดปุ่ม "บันทึก" เพื่อยืนยัน
+              เวลาจะเรียงลำดับอัตโนมัติเมื่อบันทึก (ตามเวลาประเทศไทย)
             </p>
           </div>
 
@@ -516,6 +620,7 @@ function RecipientCard({
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
               เลือกข้อมูลที่จะแสดง
             </p>
+            {(() => { console.log('[RENDER]', localSettings); return null; })()}
             {SHOW_FIELDS.map(({ key, label, emoji }) => (
               <label
                 key={key}
@@ -876,7 +981,15 @@ function Checkbox({
       role="checkbox"
       aria-checked={checked}
       disabled={disabled}
-      onClick={() => onCheckedChange(!checked)}
+      onClick={() => {
+        console.log('[CHECKBOX CLICK]', {
+          current: checked,
+          next: !checked,
+          disabled
+        });
+
+        onCheckedChange(!checked);
+      }}
       className={`grid h-6 w-6 shrink-0 place-items-center rounded-md border-2 transition-colors disabled:opacity-50 ${
         checked
           ? 'border-emerald-600 bg-emerald-600 text-white'

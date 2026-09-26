@@ -18,6 +18,7 @@ export type NotificationType = 'daily_summary' | 'pending_reminder' | 'overdue_a
 
 export interface DailySummarySettings {
   sendTime: string;      // "08:00" (HH:mm format, 24-hour, ICT)
+  additionalTimes?: string[];  // "08:00" array (HH:mm format, optional, Multi-SendTime)
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;

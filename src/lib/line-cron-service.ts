@@ -14,12 +14,23 @@
  * - Sends FLEX MESSAGE (not text) — same builder as Test Send.
  * - DEDUP: skips recipients whose last_sent_at falls on the same Bangkok date.
  * - Updates last_sent_at only on successful send.
+ * CHANGES (v3 — Multi-SendTime + Slot-Level Dedup):
+ * - effectiveSlots() returns [sendTime, ...additionalTimes] per recipient.
+ * - SLOT-LEVEL DEDUP via _slotHistory in settings JSON (no schema change).
+ * - 3-day retention with conditional cleanup on every successful send.
+ * - last_sent_at remains as a defensive fallback (unchanged).
  */
 
 import { and, eq, isNull, sql, gte, lt, or } from 'drizzle-orm';
 import { accounts, transactions } from '@/db/schema';
 import type { AppDatabase } from '@/db/client';
 import { sendDailySummaryFlexToUser, type LineNotificationMetrics as FlexMetrics } from './line-flex-sender';
+import {
+  effectiveSlots,
+  readSlotHistory,
+  applySlotHistoryUpdate,
+  type SlotHistory,
+} from './line-multi-send-time';
 
 // ============================================================
 // TYPES
@@ -40,6 +51,7 @@ export interface LineNotificationMetrics {
 
 export interface DailySummarySettings {
   sendTime: string;
+  additionalTimes?: string[];
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;
@@ -160,10 +172,10 @@ export async function runLineCron(
       timestamp,
       sentAt: currentBangkokDate,
       metrics,
-      recipients: matchResult.skippedByDedup.map((r) => ({
-        lineUserId: r.lineUserId,
+      recipients: matchResult.skippedByDedup.map((s) => ({
+        lineUserId: s.recipient.lineUserId,
         sent: false,
-        skipped: 'already sent today',
+        skipped: s.reason,
       })),
       summary: {
         totalRecipients: recipients.length,
@@ -175,55 +187,71 @@ export async function runLineCron(
     };
   }
 
-  // 5. Send LINE FLEX notifications
-  console.log(`[LINE Cron] Sending Flex Messages to ${matchResult.toSend.length} recipients...`);
+  // 5. Send LINE FLEX notifications — loop per matched slot
+  console.log(
+    `[LINE Cron] Sending Flex Messages to ${matchResult.toSend.length} recipient(s)...`
+  );
 
   const results: SendResult[] = [];
   let totalSent = 0;
   let totalFailed = 0;
 
-  for (const recipient of matchResult.toSend) {
-    const result = await sendDailySummaryFlexToUser(
-      recipient.lineUserId,
-      // Convert to the flex-sender expected shape
-      {
-        totalBalance: metrics.totalBalance,
-        monthlyIncome: metrics.monthlyIncome,
-        monthlyExpense: metrics.monthlyExpense,
-        monthlyNet: metrics.monthlyNet,
-        pendingCount: metrics.pendingCount,
-        pendingTotal: metrics.pendingTotal,
-        overdueCount: metrics.overdueCount,
-        overdueTotal: metrics.overdueTotal,
-        pendingItems: metrics.pendingItems ?? [],
-        overdueItems: metrics.overdueItems ?? [],
-      } as FlexMetrics,
-      {
-        sendTime: recipient.settings.sendTime,
-        showBalance: recipient.settings.showBalance,
-        showIncome: recipient.settings.showIncome,
-        showExpense: recipient.settings.showExpense,
-        showPending: recipient.settings.showPending,
-        showOverdue: recipient.settings.showOverdue,
-        showPendingDetails: recipient.settings.showPendingDetails ?? true,
-        showOverdueDetails: recipient.settings.showOverdueDetails ?? true,
-      },
-      LINE_ACCESS_TOKEN
-    );
-    results.push(result);
+  for (const { recipient, matchedSlots } of matchResult.toSend) {
+    for (const slot of matchedSlots) {
+      const result = await sendDailySummaryFlexToUser(
+        recipient.lineUserId,
+        // Convert to the flex-sender expected shape
+        {
+          totalBalance: metrics.totalBalance,
+          monthlyIncome: metrics.monthlyIncome,
+          monthlyExpense: metrics.monthlyExpense,
+          monthlyNet: metrics.monthlyNet,
+          pendingCount: metrics.pendingCount,
+          pendingTotal: metrics.pendingTotal,
+          overdueCount: metrics.overdueCount,
+          overdueTotal: metrics.overdueTotal,
+          pendingItems: metrics.pendingItems ?? [],
+          overdueItems: metrics.overdueItems ?? [],
+        } as FlexMetrics,
+        {
+          // sendTime stays as the primary field (per constraint)
+          sendTime: recipient.settings.sendTime,
+          showBalance: recipient.settings.showBalance,
+          showIncome: recipient.settings.showIncome,
+          showExpense: recipient.settings.showExpense,
+          showPending: recipient.settings.showPending,
+          showOverdue: recipient.settings.showOverdue,
+          showPendingDetails: recipient.settings.showPendingDetails ?? true,
+          showOverdueDetails: recipient.settings.showOverdueDetails ?? true,
+        },
+        LINE_ACCESS_TOKEN
+      );
+      // Tag result with which slot this was for (logging)
+      (result as SendResult & { slot?: string }).slot = slot;
+      results.push(result);
 
-    if (result.success) {
-      totalSent++;
-      // Update last_sent_at only after successful send
-      if (recipient.userId) {
-        try {
-          await updateLastSentAt(db, recipient.userId, currentBangkokDate);
-        } catch (e) {
-          console.warn(`[LINE Cron] Failed to update last_sent_at for ${recipient.userId}:`, e);
+      if (result.success) {
+        totalSent++;
+        // Update last_sent_at + _slotHistory (conditional) only on success
+        if (recipient.userId) {
+          try {
+            await updateLastSentAtAndHistory(
+              db,
+              recipient.userId,
+              currentBangkokDate,
+              slot,
+              recipient.settings
+            );
+          } catch (e) {
+            console.warn(
+              `[LINE Cron] Failed to update dedup state for ${recipient.userId}:`,
+              e
+            );
+          }
         }
+      } else {
+        totalFailed++;
       }
-    } else {
-      totalFailed++;
     }
   }
 
@@ -240,10 +268,10 @@ export async function runLineCron(
         sent: r.success,
         error: r.error,
       })),
-      ...matchResult.skippedByDedup.map((r) => ({
-        lineUserId: r.lineUserId,
+      ...matchResult.skippedByDedup.map((s) => ({
+        lineUserId: s.recipient.lineUserId,
         sent: false,
-        skipped: 'already sent today',
+        skipped: s.reason,
       })),
     ],
     summary: {
@@ -261,43 +289,81 @@ export async function runLineCron(
 // ============================================================
 
 /**
- * Filter recipients by Thai time AND dedup (skip if already sent today).
+ * Filter recipients by Thai time AND slot-level dedup.
  *
- * - Time match: configured sendTime (HH:mm) === current Bangkok time HH:mm
- * - Dedup: lastSentAt's Bangkok date !== current Bangkok date
+ * - Time match: any of effectiveSlots(s) === current Bangkok time HH:mm
+ * - Dedup (slot-level): _slotHistory[today] does NOT include the matched slot
+ * - Fallback dedup: lastSentAt's Bangkok date === current Bangkok date
+ *   (legacy single-slot users — entire recipient skipped)
+ *
+ * Returns per-recipient list of slots to actually send.
  */
 function filterRecipientsByTimeAndDedup(
   recipients: LineRecipient[],
   currentThaiTime: string,
   currentBangkokDate: string
-): { toSend: LineRecipient[]; skippedByDedup: LineRecipient[] } {
+): {
+  toSend: { recipient: LineRecipient; matchedSlots: string[] }[];
+  skippedByDedup: { recipient: LineRecipient; reason: string }[];
+} {
   const [curHour, curMin] = currentThaiTime.split(':').map(Number);
 
-  const toSend: LineRecipient[] = [];
-  const skippedByDedup: LineRecipient[] = [];
+  const toSend: { recipient: LineRecipient; matchedSlots: string[] }[] = [];
+  const skippedByDedup: { recipient: LineRecipient; reason: string }[] = [];
 
   for (const r of recipients) {
-    const configuredTime = r.settings?.sendTime;
-    if (!configuredTime) {
-      console.log(`[LINE Cron] Recipient ${r.lineUserId} has no sendTime — skipping`);
+    // Multi-SendTime: expand sendTime + additionalTimes
+    const slots = effectiveSlots(r.settings);
+    if (slots.length === 0) {
+      console.log(`[LINE Cron] Recipient ${r.lineUserId} has no valid times — skipping`);
       continue;
     }
-    const [sendHour, sendMinute] = configuredTime.split(':').map(Number);
-    const timeMatch = curHour === sendHour && curMin === sendMinute;
-    if (!timeMatch) continue;
 
-    // Dedup check: was this recipient already notified today (Bangkok)?
-    if (r.lastSentAt) {
-      const lastSentBangkokDate = bangkokDateFromUnixSeconds(r.lastSentAt);
-      if (lastSentBangkokDate === currentBangkokDate) {
+    // Find slots that match current time
+    const matchedSlots: string[] = [];
+    for (const slot of slots) {
+      const [sendHour, sendMinute] = slot.split(':').map(Number);
+      if (curHour === sendHour && curMin === sendMinute) {
+        matchedSlots.push(slot);
+      }
+    }
+    if (matchedSlots.length === 0) continue;
+
+    // Slot-level dedup via _slotHistory
+    const history = readSlotHistory(r.settings);
+    const sentToday = history[currentBangkokDate] ?? [];
+
+    // Legacy fallback: if _slotHistory is empty AND lastSentAt is today AND
+    // user has only 1 slot → treat as "already sent" (backward compat)
+    const useLegacyFallback =
+      sentToday.length === 0 && slots.length === 1 && r.lastSentAt;
+
+    if (useLegacyFallback) {
+      const lastSentDate = bangkokDateFromUnixSeconds(r.lastSentAt!);
+      if (lastSentDate === currentBangkokDate) {
         console.log(
-          `[LINE Cron] ${r.lineUserId}: already sent on ${lastSentBangkokDate} — skipping`
+          `[LINE Cron] ${r.lineUserId}: legacy dedup hit (lastSentAt today) — skipping`
         );
-        skippedByDedup.push(r);
+        skippedByDedup.push({ recipient: r, reason: 'already sent today (legacy)' });
         continue;
       }
     }
-    toSend.push(r);
+
+    // Per-slot filter: skip slots already sent today
+    const slotsToSend = matchedSlots.filter((s) => !sentToday.includes(s));
+
+    if (slotsToSend.length === 0) {
+      console.log(
+        `[LINE Cron] ${r.lineUserId}: all ${matchedSlots.length} matched slot(s) already sent today — skipping`
+      );
+      skippedByDedup.push({
+        recipient: r,
+        reason: `slots already sent today: ${matchedSlots.join(',')}`,
+      });
+      continue;
+    }
+
+    toSend.push({ recipient: r, matchedSlots: slotsToSend });
   }
 
   return { toSend, skippedByDedup };
@@ -323,26 +389,80 @@ function bangkokDateFromUnixSeconds(unixSeconds: number): string {
 }
 
 /**
- * Update last_sent_at for a user (used after successful Flex Message send).
- * Uses the start of the current Bangkok day as the stored value so the dedup
- * comparison stays on date boundaries regardless of the actual send second.
+ * Update last_sent_at + slot history for a user after a successful send.
+ * - Always updates last_sent_at (defensive fallback for legacy single-slot users)
+ * - CONDITIONALLY updates settings JSON's _slotHistory (skip if nothing changed)
+ * - 3-day cleanup runs on every successful send
+ *
+ * @param db              - D1 Database
+ * @param userId          - user id
+ * @param bangkokDate     - today's Bangkok date string "dd/mm/yyyy+BE"
+ * @param slot            - the slot that was just sent successfully
+ * @param currentSettings - settings object as read from DB (used to extract _slotHistory)
  */
-async function updateLastSentAt(
+async function updateLastSentAtAndHistory(
   db: D1Database,
   userId: string,
-  bangkokDateString: string
+  bangkokDate: string,
+  slot: string,
+  currentSettings: unknown
 ): Promise<void> {
-  // Store the current unix timestamp (seconds) — sufficient for date-based dedup.
   const nowSec = Math.floor(Date.now() / 1000);
-  await db
-    .prepare(
-      `UPDATE notification_settings
-       SET last_sent_at = ?, updated_at = ?
-       WHERE user_id = ? AND notification_type = 'daily_summary'`
-    )
-    .bind(nowSec, nowSec, userId)
-    .run();
-  console.log(`[LINE Cron] ✅ Updated last_sent_at for user ${userId} (date=${bangkokDateString})`);
+
+  // Compute next slot history (cleanup + append)
+  const currentHistory = readSlotHistory(currentSettings);
+  const { next, changed } = applySlotHistoryUpdate({
+    currentHistory,
+    today: bangkokDate,
+    slot,
+  });
+
+  if (changed) {
+    // Merge new history back into settings JSON, preserving all other fields
+    const baseSettings =
+      currentSettings && typeof currentSettings === 'object'
+        ? (currentSettings as Record<string, unknown>)
+        : {};
+    const updatedSettings = { ...baseSettings, _slotHistory: next };
+    await db
+      .prepare(
+        `UPDATE notification_settings
+         SET last_sent_at = ?, updated_at = ?, settings = ?
+         WHERE user_id = ? AND notification_type = 'daily_summary'`
+      )
+      .bind(nowSec, nowSec, JSON.stringify(updatedSettings), userId)
+      .run();
+    console.log(
+      `[LINE Cron] ✅ Updated last_sent_at + _slotHistory for user ${userId} ` +
+        `(date=${bangkokDate}, slot=${slot}, keys=${Object.keys(next).length})`
+    );
+  } else {
+    // Only update last_sent_at — slot was already recorded (race-safe no-op)
+    await db
+      .prepare(
+        `UPDATE notification_settings
+         SET last_sent_at = ?, updated_at = ?
+         WHERE user_id = ? AND notification_type = 'daily_summary'`
+      )
+      .bind(nowSec, nowSec, userId)
+      .run();
+    console.log(
+      `[LINE Cron] ✅ Updated last_sent_at for user ${userId} (date=${bangkokDate}, slot=${slot} already in history)`
+    );
+  }
+}
+
+/**
+ * Legacy single-slot dedup path — kept for backward compat with non-Multi-SendTime users.
+ * (Currently unused since filterRecipientsByTimeAndDedup inlines the fallback,
+ *  but kept as a stable API in case other callers need it.)
+ */
+async function updateLastSentAt(
+  _db: D1Database,
+  _userId: string,
+  _bangkokDateString: string
+): Promise<void> {
+  // no-op — superseded by updateLastSentAtAndHistory
 }
 
 // ============================================================
