@@ -218,23 +218,29 @@ async function runLineCron(
     };
   }
 
+  console.log(`[${WORKER_NAME}] Found ${recipients.length} enabled recipients`);
+
   // 3. Filter by Thai time AND daily dedup
   const toSend: RecipientWithSettings[] = [];
   const skippedByDedup: RecipientWithSettings[] = [];
 
   for (const recipient of recipients) {
     const configuredTime = recipient.settings?.sendTime || '08:00';
-    const [configHour, configMinute] = configuredTime.split(':').map(Number);
+    const sendTime = configuredTime;
+    const additionalTimes = (recipient.settings as { additionalTimes?: string[] })?.additionalTimes ?? [];
 
     // Time match check (with 60-second window)
     const now = new Date();
-    const timeMatch = isTimeMatchWindow(configuredTime, now);
 
-    if (!timeMatch) {
+    // Build full list of slots (sendTime + additionalTimes)
+    const allSlots = Array.from(new Set([sendTime, ...additionalTimes].filter(Boolean)));
+    const matched = isAnyTimeMatchWindow(allSlots, now);
+
+    if (!matched.matched) {
       continue;
     }
 
-    // Dedup with sendTime check: skip only if sent today AND sendTime unchanged
+    // Dedup with sendTime check: skip only if sent today AND matchedTime unchanged
     if (recipient.lastSentAt) {
       const lastSentBangkokDate = bangkokDateFromUnixSeconds(recipient.lastSentAt);
       const lastSentDate = new Date(recipient.lastSentAt * 1000);
@@ -258,10 +264,10 @@ async function runLineCron(
       };
 
       const normalizedLastSentTime = normalizeTime(lastSentTime);
-      const normalizedConfiguredTime = normalizeTime(configuredTime);
+      const normalizedMatchedTime = normalizeTime(matched.matchedTime || configuredTime);
 
       if (lastSentBangkokDate === currentBangkokDate) {
-        if (normalizedLastSentTime === normalizedConfiguredTime) {
+        if (normalizedLastSentTime === normalizedMatchedTime) {
           skippedByDedup.push(recipient);
           continue;
         }
@@ -629,6 +635,19 @@ function isTimeMatchWindow(configuredTime: string, now: Date): boolean {
   }
 
   return false;
+}
+
+/**
+ * Check if current time matches ANY of the provided times (sendTime + additionalTimes).
+ * Delegates to isTimeMatchWindow for each time slot — original matching logic unchanged.
+ */
+function isAnyTimeMatchWindow(times: string[], now: Date): { matched: boolean; matchedTime: string | null } {
+  for (const t of times) {
+    if (isTimeMatchWindow(t, now)) {
+      return { matched: true, matchedTime: t };
+    }
+  }
+  return { matched: false, matchedTime: null };
 }
 
 /**
