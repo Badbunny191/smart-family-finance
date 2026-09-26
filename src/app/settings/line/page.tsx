@@ -435,20 +435,8 @@ function RecipientCard({
     key: K,
     value: DailySummarySettings[K]
   ) => {
-    console.log('[UPDATE SETTING]', {
-      key,
-      value
-    });
-
     setLocalSettings((prev) => {
       const next = { ...prev, [key]: value };
-
-      console.log('[STATE UPDATE]', {
-        key,
-        before: prev[key],
-        after: next[key]
-      });
-
       return next;
     });
   };
@@ -620,25 +608,34 @@ function RecipientCard({
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
               เลือกข้อมูลที่จะแสดง
             </p>
-            {(() => { console.log('[RENDER]', localSettings); return null; })()}
-            {SHOW_FIELDS.map(({ key, label, emoji }) => (
-              <label
-                key={key}
-                className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-2 py-2 hover:bg-slate-50"
-              >
-                <span className="flex items-center gap-2 text-sm text-slate-700">
-                  <span>{emoji}</span>
-                  {label}
-                </span>
-                <Checkbox
-                  checked={localSettings[key]}
-                  disabled={!enabled || saving}
-                  onCheckedChange={(v) => {
-                    updateSetting(key, v);
+            {SHOW_FIELDS.map(({ key, label, emoji }) => {
+              const inputId = `cb-${recipient.id}-${key}`;
+              return (
+                <div
+                  key={key}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-2 py-2 hover:bg-slate-50"
+                  onClick={() => {
+                    if (!(!enabled || saving)) updateSetting(key, !localSettings[key]);
                   }}
-                />
-              </label>
-            ))}
+                >
+                  <label
+                    htmlFor={inputId}
+                    className="flex flex-1 cursor-pointer items-center gap-2 text-sm text-slate-700"
+                  >
+                    <span>{emoji}</span>
+                    {label}
+                  </label>
+                  <Checkbox
+                    id={inputId}
+                    checked={localSettings[key]}
+                    disabled={!enabled || saving}
+                    onCheckedChange={(v) => {
+                      updateSetting(key, v);
+                    }}
+                  />
+                </div>
+              );
+            })}
           </div>
 
           {/* Dirty indicator + Save/Cancel buttons */}
@@ -952,13 +949,15 @@ function Switch({
       role="switch"
       aria-checked={checked}
       disabled={disabled}
-      onClick={() => onCheckedChange(!checked)}
+      onClick={() => {
+        if (!disabled) onCheckedChange(!checked);
+      }}
       className={`relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
         checked ? 'bg-emerald-600' : 'bg-slate-300'
       }`}
     >
       <span
-        className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${
+        className={`pointer-events-none absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${
           checked ? 'left-5' : 'left-0.5'
         }`}
       />
@@ -970,24 +969,21 @@ function Checkbox({
   checked,
   onCheckedChange,
   disabled,
+  id,
 }: {
   checked: boolean;
   onCheckedChange: (v: boolean) => void;
   disabled?: boolean;
+  id?: string;
 }) {
   return (
     <button
+      id={id}
       type="button"
       role="checkbox"
       aria-checked={checked}
       disabled={disabled}
       onClick={() => {
-        console.log('[CHECKBOX CLICK]', {
-          current: checked,
-          next: !checked,
-          disabled
-        });
-
         onCheckedChange(!checked);
       }}
       className={`grid h-6 w-6 shrink-0 place-items-center rounded-md border-2 transition-colors disabled:opacity-50 ${
@@ -996,11 +992,13 @@ function Checkbox({
           : 'border-slate-300 bg-white'
       }`}
     >
-      {checked && (
-        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={3}>
-          <polyline points="3 8 7 12 13 4" />
-        </svg>
-      )}
+      <span className="pointer-events-none flex h-full w-full items-center justify-center">
+        {checked && (
+          <svg viewBox="0 0 16 16" className="pointer-events-none h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={3}>
+            <polyline points="3 8 7 12 13 4" />
+          </svg>
+        )}
+      </span>
     </button>
   );
 }
