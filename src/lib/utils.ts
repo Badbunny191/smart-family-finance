@@ -164,58 +164,118 @@ export function formatDateRange(start: Date | string, end: Date | string): strin
 
 // ============================================================
 // OVERDUE CALCULATION (Asia/Bangkok timezone)
-// Deadline = transaction date + 1 day at 18:00
+// Phase 1.2: dueDateTime-aware with legacy fallback
+//
+// Source of truth: dueDateTime (Phase 1 v3.0+)
+// Fallback (backward compatibility): transaction.date + 1 day at 18:00 (Bangkok)
+//
+// Rule:
+//   if dueDateTime exists:    deadline = dueDateTime
+//   else (legacy/null):       deadline = date (Bangkok) + 1 day + 18:00
+//   overdue = now > deadline
 // ============================================================
 
 const OVERDUE_HOUR = 18; // 18:00 Thailand time
 const OVERDUE_GRACE_MINUTES = 1; // 1 minute grace period after 18:00
 
-export function isOverdue(transactionDate: Date | string | null | undefined): boolean {
-  if (!transactionDate) return false;
-  
-  // Get current time in Asia/Bangkok timezone
-  const now = new Date();
-  const bangkokTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
-  
-  // Parse transaction date (stored as UTC)
-  const txDate = new Date(transactionDate);
-  
-  // deadline = transactionDate + 1 day at 18:00 (Bangkok time)
-  const deadline = new Date(txDate);
-  deadline.setDate(deadline.getDate() + 1);
-  deadline.setHours(OVERDUE_HOUR, OVERDUE_GRACE_MINUTES, 0, 0);
-  
-  // Compare in Bangkok time
-  return bangkokTime > deadline;
+/**
+ * Compute deadline from transaction data.
+ * Priority: dueDateTime > legacy (date + 1d + 18:00 Bangkok)
+ * Returns Date in UTC instant (compared against `now` directly).
+ */
+function computeDeadline(
+  dueDateTime: Date | string | number | null | undefined,
+  transactionDate: Date | string | number | null | undefined,
+): Date | null {
+  // 1) Phase 1 v3.0+ source of truth
+  if (dueDateTime !== undefined && dueDateTime !== null) {
+    const d = dueDateTime instanceof Date ? dueDateTime : new Date(dueDateTime);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  // 2) Legacy fallback: transaction.date (UTC) + 1 day + 18:00 (Bangkok)
+  if (transactionDate !== undefined && transactionDate !== null) {
+    const txDate = transactionDate instanceof Date ? transactionDate : new Date(transactionDate);
+    if (Number.isNaN(txDate.getTime())) return null;
+
+    // Build deadline as Bangkok wall-clock, then convert to UTC instant.
+    // Approach: take UTC ms of txDate, add +7h to align to Bangkok, then add 1d + 18h - 7h offset
+    // Equivalent to: deadlineUTC = (txDate + 7h as Bangkok-midnight) + 1d + 18h - 7h
+    // Simplification: deadline = txDate + 24h + 18h - 7h = txDate + 35h (Bangkok interpretation)
+    // We do it explicitly to stay readable and timezone-safe.
+    const bangkokMidnightMs = txDate.getTime() + 7 * 60 * 60 * 1000; // shift +7h
+    const bangkokWall = new Date(bangkokMidnightMs);
+    bangkokWall.setUTCDate(bangkokWall.getUTCDate() + 1); // +1 day in Bangkok
+    bangkokWall.setUTCHours(OVERDUE_HOUR, OVERDUE_GRACE_MINUTES, 0, 0); // 18:01 Bangkok
+    // Now bangkokWall is a UTC instant that represents 18:01 Bangkok of (date+1day)
+    return bangkokWall;
+  }
+
+  return null;
 }
 
-export function getOverdueInfo(transactionDate: Date | string | null | undefined): { isOverdue: boolean; daysOverdue: number; hoursUntilDeadline: number } {
-  if (!transactionDate) {
+/**
+ * Overdue check.
+ * Accepts either a transaction object with {dueDateTime, date} OR
+ * a single Date/string (treated as legacy transaction.date).
+ */
+export function isOverdue(input: TransactionLike | Date | string | null | undefined): boolean {
+  const { dueDateTime, date } = normalizeOverdueInput(input);
+  const deadline = computeDeadline(dueDateTime, date);
+  if (!deadline) return false;
+
+  const now = new Date();
+  return now.getTime() > deadline.getTime();
+}
+
+/**
+ * Overdue info with detail (days overdue, hours remaining).
+ * Same input contract as isOverdue().
+ */
+export function getOverdueInfo(input: TransactionLike | Date | string | null | undefined): { isOverdue: boolean; daysOverdue: number; hoursUntilDeadline: number } {
+  const { dueDateTime, date } = normalizeOverdueInput(input);
+  const deadline = computeDeadline(dueDateTime, date);
+  if (!deadline) {
     return { isOverdue: false, daysOverdue: 0, hoursUntilDeadline: 24 };
   }
-  
+
   const now = new Date();
-  const bangkokTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
-  const txDate = new Date(transactionDate);
-  
-  const deadline = new Date(txDate);
-  deadline.setDate(deadline.getDate() + 1);
-  deadline.setHours(OVERDUE_HOUR, OVERDUE_GRACE_MINUTES, 0, 0);
-  
-  const isOverdue = bangkokTime > deadline;
-  
+  const diffMs = now.getTime() - deadline.getTime();
+  const isOverdue = diffMs > 0;
+
   let hoursUntilDeadline = 0;
   let daysOverdue = 0;
-  
+
   if (isOverdue) {
-    const overdueMs = bangkokTime.getTime() - deadline.getTime();
-    daysOverdue = Math.floor(overdueMs / (1000 * 60 * 60 * 24));
+    daysOverdue = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   } else {
-    const remainingMs = deadline.getTime() - bangkokTime.getTime();
-    hoursUntilDeadline = Math.floor(remainingMs / (1000 * 60 * 60));
+    hoursUntilDeadline = Math.floor(-diffMs / (1000 * 60 * 60));
   }
-  
+
   return { isOverdue, daysOverdue, hoursUntilDeadline };
+}
+
+/**
+ * Shape accepted by isOverdue/getOverdueInfo.
+ * Both fields optional — falls back to legacy when dueDateTime missing.
+ */
+type TransactionLike = {
+  dueDateTime?: Date | string | number | null;
+  date?: Date | string | number | null;
+};
+
+function normalizeOverdueInput(input: TransactionLike | Date | string | null | undefined): {
+  dueDateTime: Date | string | number | null | undefined;
+  date: Date | string | number | null | undefined;
+} {
+  if (input === null || input === undefined) {
+    return { dueDateTime: undefined, date: undefined };
+  }
+  if (input instanceof Date || typeof input === 'string' || typeof input === 'number') {
+    // Legacy single-arg call: treat as transaction.date
+    return { dueDateTime: undefined, date: input };
+  }
+  return { dueDateTime: input.dueDateTime, date: input.date };
 }
 
 // ============================================================

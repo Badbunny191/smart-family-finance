@@ -1505,7 +1505,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
         )}
         {transaction.businessStatus && (
           <span className={`text-sm font-medium ${transaction.businessStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'}`}>
-            {transaction.businessStatus === 'pending' && isOverdue(transaction.date) ? (
+            {transaction.businessStatus === 'pending' && isOverdue({ dueDateTime: transaction.dueDateTime, date: transaction.date }) ? (
               <span className="text-rose-600">🟥 เกินกำหนด</span>
             ) : (
               statusLabels[transaction.businessStatus]

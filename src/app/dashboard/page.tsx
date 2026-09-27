@@ -122,7 +122,7 @@ export default async function DashboardPage() {
         // deadline = date + 7h (UTC->Bangkok) + 1 day + 18:00 (Bangkok time)
         // NOTE: transactions.date is stored as seconds (unix timestamp)
         // Not overdue if: now(Bangkok) <= deadline
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
     // QUERY 3b: Overdue income
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
         // deadline = date + 7h (UTC->Bangkok) + 1 day + 18:00 (Bangkok time)
         // NOTE: transactions.date is stored as seconds (unix timestamp)
         // Overdue if: now(Bangkok) > deadline
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
     // QUERY 3c: Pending income DETAILS (for debug display)
@@ -159,7 +159,7 @@ export default async function DashboardPage() {
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
         isNull(transactions.deletedAt),
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       ))
       .orderBy(transactions.date),
 
@@ -176,7 +176,7 @@ export default async function DashboardPage() {
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
         isNull(transactions.deletedAt),
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       ))
       .orderBy(transactions.date),
 

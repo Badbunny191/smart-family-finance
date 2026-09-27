@@ -520,6 +520,10 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
   }
 
   // Query 3: Pending (not yet overdue)
+  // Phase 1.2: deadline = COALESCE(due_date_time, date + 126000)
+  //   - 126000 = 86400 (1d) + 39600 (Bangkok 18:00 - UTC 11:00 offset)
+  //   - If due_date_time IS NULL → fall back to legacy formula
+  // Pending = now <= deadline
   const pendingResult = await db
     .prepare(`
       SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total
@@ -527,11 +531,13 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       WHERE type = 'income'
         AND business_status = 'pending'
         AND deleted_at IS NULL
-        AND datetime(datetime(date, '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')
+        AND COALESCE(due_date_time, date + 126000) > CAST(strftime('%s', 'now') AS INTEGER)
     `)
     .first<{ cnt: number; total: number }>();
 
   // Query 4: Overdue
+  // Phase 1.2: deadline = COALESCE(due_date_time, date + 126000)
+  // Overdue = now > deadline
   const overdueResult = await db
     .prepare(`
       SELECT COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total
@@ -539,11 +545,12 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       WHERE type = 'income'
         AND business_status = 'pending'
         AND deleted_at IS NULL
-        AND datetime(datetime(date, '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')
+        AND COALESCE(due_date_time, date + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)
     `)
     .first<{ cnt: number; total: number }>();
 
   // Query 5: Pending items (top 5 ordered by oldest)
+  // Phase 1.2: deadline = COALESCE(due_date_time, date + 126000)
   const pendingItemsResult = await db
     .prepare(`
       SELECT title, amount
@@ -551,13 +558,14 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       WHERE type = 'income'
         AND business_status = 'pending'
         AND deleted_at IS NULL
-        AND datetime(datetime(date, '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')
+        AND COALESCE(due_date_time, date + 126000) > CAST(strftime('%s', 'now') AS INTEGER)
       ORDER BY date ASC
       LIMIT 5
     `)
     .all<{ title: string; amount: number }>();
 
   // Query 6: Overdue items (top 5 oldest)
+  // Phase 1.2: deadline = COALESCE(due_date_time, date + 126000)
   const overdueItemsResult = await db
     .prepare(`
       SELECT title, amount
@@ -565,7 +573,7 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       WHERE type = 'income'
         AND business_status = 'pending'
         AND deleted_at IS NULL
-        AND datetime(datetime(date, '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')
+        AND COALESCE(due_date_time, date + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)
       ORDER BY date ASC
       LIMIT 5
     `)

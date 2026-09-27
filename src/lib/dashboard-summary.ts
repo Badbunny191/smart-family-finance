@@ -199,7 +199,9 @@ export async function getDashboardMetrics(db: AppDatabase) {
       )),
 
     // QUERY 3a: Pending income (not yet overdue)
-    // deadline = date (Bangkok) + 1 day at 18:00 (Bangkok time)
+    // Phase 1.2: deadline = COALESCE(due_date_time, date + 126000)
+    //   - 126000 = 86400 (1d) + 39600 (Bangkok 18:00 - UTC 11:00 offset)
+    //   - If due_date_time IS NULL → fall back to legacy formula
     // Not overdue = now <= deadline
     db
       .select({
@@ -211,11 +213,11 @@ export async function getDashboardMetrics(db: AppDatabase) {
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
         isNull(transactions.deletedAt),
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
     // QUERY 3b: Overdue income
-    // deadline = date (Bangkok) + 1 day at 18:00 (Bangkok time)
+    // Phase 1.2: deadline = COALESCE(due_date_time, date + 126000)
     // Overdue = now > deadline
     db
       .select({
@@ -227,7 +229,7 @@ export async function getDashboardMetrics(db: AppDatabase) {
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
         isNull(transactions.deletedAt),
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
     // QUERY 5: Personal accounts with person names
@@ -410,7 +412,7 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
         isNull(transactions.deletedAt),
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
     // Overdue
@@ -424,7 +426,7 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
         isNull(transactions.deletedAt),
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
     // Pending items (top 5 ordered by oldest)
@@ -438,7 +440,7 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
         isNull(transactions.deletedAt),
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       ))
       .orderBy(transactions.date)
       .limit(5),
@@ -454,7 +456,7 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
         isNull(transactions.deletedAt),
-        sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       ))
       .orderBy(transactions.date)
       .limit(5),

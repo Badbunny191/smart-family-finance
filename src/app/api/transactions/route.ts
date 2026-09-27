@@ -42,27 +42,29 @@ export async function GET(request: NextRequest) {
     // Business status filter
     if (businessStatus === 'pending' || businessStatus === 'received') {
       const overdue = searchParams.get('overdue');
-      
+
       if (businessStatus === 'pending') {
+        // Phase 1.2: deadline source of truth
+        //   - If due_date_time present → use it directly
+        //   - Else → fall back to legacy formula: date (Bangkok) + 1 day + 18:00
+        //   - Bangkok 18:00 = UTC 11:00 → offset = 11 * 3600 = 39600 seconds
+        //   - Legacy deadline (unix seconds) = date + 86400 + 39600 = date + 126000
+        const deadlineExpr = sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000)`;
+
         if (overdue === 'true') {
-          // Overdue: deadline passed (date + 1 day 18:00 <= now)
-          // Bangkok time: convert UTC to Bangkok (+7h), add 1 day, set 18:00
-          // NOTE: Drizzle stores date as seconds (mode: 'timestamp'), no division needed
+          // Overdue: now > deadline (in unix epoch seconds)
           filters.push(
             and(
               eq(transactions.businessStatus, 'pending'),
-              sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+              sql`${deadlineExpr} <= CAST(strftime('%s', 'now') AS INTEGER)`
             )!
           );
         } else if (overdue === 'false') {
-          // Not overdue: deadline not passed (date + 1 day 18:00 > now)
-          // Bangkok time: convert UTC to Bangkok (+7h), add 1 day, set 18:00
-          // NOTE: Drizzle stores date as seconds (mode: 'timestamp'), no division needed
+          // Not overdue: now <= deadline
           filters.push(
             and(
               eq(transactions.businessStatus, 'pending'),
-              // deadline = date + 7h (UTC->Bangkok) + 1 day + 18:00
-              sql`datetime(datetime(${transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+              sql`${deadlineExpr} > CAST(strftime('%s', 'now') AS INTEGER)`
             )!
           );
         } else {
@@ -133,6 +135,7 @@ export async function GET(request: NextRequest) {
           categoryName: categories.name,
           categoryIcon: categories.icon,
           businessStatus: transactions.businessStatus,
+          dueDateTime: transactions.dueDateTime,
           sourceAccountId: transactions.sourceAccountId,
           sourceAccountName: sourceAcc.name,
           sourceAccountAlias: sourceAcc.accountAlias,
@@ -192,6 +195,7 @@ export async function GET(request: NextRequest) {
         categoryName: categories.name,
         categoryIcon: categories.icon,
         businessStatus: transactions.businessStatus,
+        dueDateTime: transactions.dueDateTime,
         sourceAccountId: transactions.sourceAccountId,
         sourceAccountName: sourceAcc.name,
         sourceAccountAlias: sourceAcc.accountAlias,
