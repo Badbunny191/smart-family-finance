@@ -53,6 +53,11 @@ export const transactionInputSchema = z
       .enum(['pending', 'received'])
       .nullable()
       .optional(),
+    // Per-transaction Due DateTime (Phase 1 v3.0)
+    // - Required when type IN ('income','expense') AND businessStatus='pending'
+    // - Must be null/undefined for transfer/adjustment
+    // - Optional otherwise (defaults to NULL for completed income)
+    dueDateTime: z.coerce.date().nullable().optional(),
     sourceAccountId: z.string().trim().min(1).nullable().optional(),
     destinationAccountId: z.string().trim().min(1).nullable().optional(),
     note: z.string().trim().max(500, 'หมายเหตุต้องไม่เกิน 500 ตัวอักษร').nullable().optional(),
@@ -86,6 +91,47 @@ export const transactionInputSchema = z
     if (value.type === 'adjustment' && !value.adjustmentDirection) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['adjustmentDirection'], message: 'กรุณาระบุทิศทางการปรับยอด' });
     }
+
+    // ---- dueDateTime cross-field rules (Phase 1 v3.0) ----
+    const dueDateTimeProvided = value.dueDateTime !== undefined && value.dueDateTime !== null;
+
+    // Rule 1: income/expense + pending → dueDateTime required
+    if (
+      (value.type === 'income' || value.type === 'expense') &&
+      value.businessStatus === 'pending' &&
+      !dueDateTimeProvided
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dueDateTime'],
+        message: 'กรุณาระบุวันและเวลาครบกำหนดสำหรับรายการรอรับ/รอจ่าย',
+      });
+    }
+
+    // Rule 2: income/expense + NOT pending → dueDateTime must be null (or omitted)
+    if (
+      (value.type === 'income' || value.type === 'expense') &&
+      value.businessStatus !== 'pending' &&
+      dueDateTimeProvided
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dueDateTime'],
+        message: 'รายการที่ชำระแล้วไม่ต้องระบุวันครบกำหนด',
+      });
+    }
+
+    // Rule 3: transfer/adjustment → dueDateTime must be null (or omitted)
+    if (
+      (value.type === 'transfer' || value.type === 'adjustment') &&
+      dueDateTimeProvided
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dueDateTime'],
+        message: 'รายการโอน/ปรับยอดไม่ต้องระบุวันครบกำหนด',
+      });
+    }
   });
 
 export const transactionMetadataSchema = z.object({
@@ -94,11 +140,25 @@ export const transactionMetadataSchema = z.object({
     .enum(['pending', 'received'])
     .nullable()
     .optional(),
+  // Per-transaction Due DateTime (Phase 1 v3.0) — editable via PATCH
+  // Allowed to be null (clear due date) or omitted (no change)
+  dueDateTime: z.coerce.date().nullable().optional(),
   // Editable metadata only — financial fields (amount, type, accounts, date)
   // are intentionally NOT allowed via PATCH to preserve financial integrity.
   title: z.string().trim().min(1).max(200).optional(),
   note: z.string().trim().max(1000).nullable().optional(),
   propertyId: z.string().trim().nullable().optional(),
+}).superRefine((value, context) => {
+  // ---- dueDateTime cross-field rules (Phase 1 v3.0) ----
+  const dueDateTimeProvided = value.dueDateTime !== undefined && value.dueDateTime !== null;
+  // Rule: businessStatus === 'received' must NOT have dueDateTime
+  if (value.businessStatus === 'received' && dueDateTimeProvided) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['dueDateTime'],
+      message: 'รายการที่รับชำระแล้วไม่ต้องระบุวันครบกำหนด',
+    });
+  }
 });
 
 export function validationError(error: z.ZodError) {

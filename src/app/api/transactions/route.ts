@@ -290,6 +290,9 @@ export async function POST(request: NextRequest) {
       destinationAccountId: input.destinationAccountId || null,
       status: (input.businessStatus === 'pending' ? 'pending' : 'completed') as 'pending' | 'completed',
       businessStatus: input.businessStatus || null,
+      // Phase 1 v3.0: per-transaction due date+time (full timestamp, UTC)
+      // Drizzle converts Date → integer (unix epoch seconds) automatically.
+      dueDateTime: input.dueDateTime ?? null,
       note: input.note || null,
       adjustmentReason: input.adjustmentReason || null,
       adjustmentDirection: input.adjustmentDirection || null,

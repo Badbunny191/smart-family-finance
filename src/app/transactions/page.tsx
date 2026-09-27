@@ -113,6 +113,12 @@ type FormState = {
   propertyId: string;
   categoryId: string;
   businessStatus: '' | BusinessStatus;
+  // Phase 1 v3.0: per-transaction Due DateTime
+  // - dueDate: YYYY-MM-DD (Bangkok date string from getBangkokDateString())
+  // - dueTime: HH:mm (default '18:00', editable)
+  // - Rendered only when businessStatus === 'pending'
+  dueDate: string;
+  dueTime: string;
   sourceAccountId: string;
   destinationAccountId: string;
   note: string;
@@ -125,6 +131,8 @@ const emptyForm: FormState = {
   propertyId: '',
   categoryId: '',
   businessStatus: '',
+  dueDate: '', // Will be set by openCreate with Bangkok date
+  dueTime: '18:00', // UI default per Master Spec v3.0
   sourceAccountId: '',
   destinationAccountId: '',
   note: '',
@@ -426,6 +434,7 @@ function TransactionsContent() {
       ...emptyForm,
       type,
       date: getBangkokDateString(), // Always use current Bangkok date
+      dueDate: getBangkokDateString(), // Phase 1 v3.0: default to today
       businessStatus: '',
     });
     setErrorMessage(null);
@@ -446,6 +455,12 @@ function TransactionsContent() {
         ...form,
         amount: Number(form.amount),
         date: new Date(`${form.date}T00:00:00`).toISOString(),
+        // Phase 1 v3.0: combine dueDate (YYYY-MM-DD) + dueTime (HH:mm)
+        // Both are in Bangkok/ICT timezone → convert to UTC ISO before send.
+        dueDateTime:
+          form.businessStatus === 'pending'
+            ? new Date(`${form.dueDate}T${form.dueTime}:00+07:00`).toISOString()
+            : null,
         propertyId: form.propertyId || null,
         categoryId: form.categoryId || null,
         businessStatus: form.businessStatus || null,
@@ -1574,6 +1589,39 @@ function TransactionForm({ form, setForm, properties, accounts, categories, sele
             <FormLabel label="สถานะ">
               <BusinessStatusSelect value={form.businessStatus} onChange={(value) => update({ businessStatus: value })} />
             </FormLabel>
+          )}
+
+          {/* Phase 1 v3.0: Per-transaction Due DateTime
+              - Rendered only when income + businessStatus === 'pending'
+              - Date Picker + Time Picker (default 18:00, editable) */}
+          {form.type === 'income' && form.businessStatus === 'pending' && (
+            <div className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                <span aria-hidden>📅</span>
+                <span>กำหนดส่ง</span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FormLabel label="วันที่ครบกำหนด">
+                  <input
+                    required
+                    type="date"
+                    value={form.dueDate}
+                    onChange={(event) => update({ dueDate: event.target.value })}
+                    className="form-input w-full"
+                  />
+                </FormLabel>
+                <FormLabel label="เวลาครบกำหนด">
+                  <input
+                    required
+                    type="time"
+                    value={form.dueTime}
+                    onChange={(event) => update({ dueTime: event.target.value })}
+                    className="form-input w-full"
+                  />
+                </FormLabel>
+              </div>
+              <p className="text-xs text-amber-700">💡 เวลาเริ่มต้น 18:00 น. (แก้ไขได้)</p>
+            </div>
           )}
 
           {form.type === 'income' && (

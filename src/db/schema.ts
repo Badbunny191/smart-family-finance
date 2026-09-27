@@ -191,6 +191,11 @@ export const transactions = sqliteTable(
     businessStatus: text('business_status', {
       enum: ['pending', 'received'],
     }).$type<'pending' | 'received' | null>(),
+    // Per-transaction Due DateTime (Phase 1 v3.0)
+    // - NULL = no due date (transfer/adjustment, completed income, etc.)
+    // - Date  = full instant in UTC; client converts ICT date+time → UTC
+    // - Required when type IN ('income','expense') AND businessStatus='pending'
+    dueDateTime: integer('due_date_time', { mode: 'timestamp' }),
     note: text('note'),
     adjustmentReason: text('adjustment_reason'),
     adjustmentDirection: text('adjustment_direction', {
@@ -215,6 +220,12 @@ export const transactions = sqliteTable(
     ),
     propertyIdx: index('transactions_property_idx').on(table.propertyId),
     businessStatusIdx: index('transactions_business_status_idx').on(table.businessStatus),
+    // Composite index for derived overdue / due-soon queries (Phase 2+)
+    // Lookup pattern: WHERE business_status='pending' AND due_date_time < now()
+    statusDueIdx: index('transactions_status_due_idx').on(
+      table.businessStatus,
+      table.dueDateTime
+    ),
     sourceAccountIdx: index('transactions_source_account_idx').on(table.sourceAccountId),
     destinationAccountIdx: index('transactions_destination_account_idx').on(table.destinationAccountId),
     deletedIdx: index('transactions_deleted_idx').on(table.deletedAt),

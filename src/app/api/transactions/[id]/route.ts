@@ -33,6 +33,44 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'คุณไม่มีสิทธิ์แก้ไขรายการปรับยอด' }, { status: 403 });
     }
 
+    // Determine the effective businessStatus after this PATCH.
+    // If PATCH does not include businessStatus, keep the existing one.
+    const effectiveBusinessStatus =
+      parsed.data.businessStatus !== undefined ? parsed.data.businessStatus : oldTx.businessStatus;
+
+    // Cross-field guard: transfer/adjustment must not have dueDateTime (Phase 1 v3.0)
+    if (oldTx.type === 'transfer' || oldTx.type === 'adjustment') {
+      if (parsed.data.dueDateTime !== undefined && parsed.data.dueDateTime !== null) {
+        return NextResponse.json(
+          { error: 'รายการโอน/ปรับยอดไม่ต้องระบุวันครบกำหนด' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Cross-field guard: businessStatus='received' must not have dueDateTime (Phase 1 v3.0)
+    if (effectiveBusinessStatus === 'received' && parsed.data.dueDateTime !== undefined && parsed.data.dueDateTime !== null) {
+      return NextResponse.json(
+        { error: 'รายการที่รับชำระแล้วไม่ต้องระบุวันครบกำหนด' },
+        { status: 400 }
+      );
+    }
+
+    // Cross-field guard: businessStatus='pending' + dueDateTime explicitly null → reject
+    // (must provide a new dueDateTime when switching back to pending)
+    if (
+      effectiveBusinessStatus === 'pending' &&
+      parsed.data.dueDateTime === null &&
+      // Only enforce when the caller is explicitly setting businessStatus='pending'
+      // OR when the existing tx was not pending (i.e. trying to clear an existing dueDateTime)
+      parsed.data.businessStatus === 'pending'
+    ) {
+      return NextResponse.json(
+        { error: 'กรุณาระบุวันและเวลาครบกำหนดสำหรับรายการรอรับ/รอจ่าย' },
+        { status: 400 }
+      );
+    }
+
     if (parsed.data.categoryId) {
       const category = await db.select({ type: categories.type }).from(categories).where(and(eq(categories.id, parsed.data.categoryId), isNull(categories.deletedAt))).limit(1);
       if (!category[0] || category[0].type !== oldTx.type) return NextResponse.json({ error: 'หมวดหมู่ไม่ตรงกับประเภทรายการ' }, { status: 400 });
@@ -106,13 +144,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     // 5. Apply update + balance reconciliation atomically
+    // Filter out undefined values so Drizzle does NOT null out columns
+    // the client did not intend to update.
+    const updatePayload: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed.data)) {
+      if (value !== undefined) updatePayload[key] = value;
+    }
+    // Only sync status if businessStatus was actually changed
+    if (businessStatusChanged) updatePayload.status = newStatus;
+    updatePayload.updatedAt = new Date();
+
     const updated = await db.batch([
-      db.update(transactions).set({
-        ...parsed.data,
-        // Only sync status if businessStatus was actually changed
-        ...(businessStatusChanged ? { status: newStatus } : {}),
-        updatedAt: new Date(),
-      }).where(eq(transactions.id, id)).returning(),
+      db.update(transactions).set(updatePayload as any).where(eq(transactions.id, id)).returning(),
       ...statements,
     ]);
 
