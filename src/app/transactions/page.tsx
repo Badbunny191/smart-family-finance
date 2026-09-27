@@ -103,6 +103,9 @@ type Transaction = {
   destinationPersonName?: string | null;
   note: string | null;
   adjustmentReason: string | null;
+  // Phase 1 v3.0: per-transaction Due DateTime (UTC, ISO string)
+  // May be missing in legacy responses (before API returns it) — code is defensive
+  dueDateTime?: string | null;
   createdAt?: string;
 };
 type FormState = {
@@ -545,22 +548,34 @@ function TransactionsContent() {
     categoryId: string;
     businessStatus: '' | BusinessStatus;
     propertyId: string;
+    // Phase 1 v3.0: optional dueDateTime from Edit modal
+    // - string → user edited or backend already had value (send to PATCH)
+    // - null   → either no change requested, or backend has no value
+    dueDateTime: string | null;
     newAttachments: AttachmentPickerFile[];
     deletedAttachmentIds: string[];
   }) => {
     if (!editingTransaction) return;
     setIsUpdating(true);
 
+    // Build PATCH payload. Only include `dueDateTime` when the edit modal
+    // actually surfaced a due date to the user (pending income) — otherwise
+    // we must NOT send the key so the server doesn't null-out existing data.
+    const patchBody: Record<string, unknown> = {
+      title: data.title || null,
+      note: data.note || null,
+      categoryId: data.categoryId || null,
+      businessStatus: data.businessStatus || null,
+      propertyId: data.propertyId || null,
+    };
+    if (data.dueDateTime !== null && data.dueDateTime !== undefined) {
+      patchBody.dueDateTime = data.dueDateTime;
+    }
+
     const response = await fetch(`/api/transactions/${editingTransaction.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        title: data.title || null,
-        note: data.note || null,
-        categoryId: data.categoryId || null,
-        businessStatus: data.businessStatus || null,
-        propertyId: data.propertyId || null,
-      }),
+      body: JSON.stringify(patchBody),
     });
 
     if (!response.ok) {
@@ -1792,6 +1807,9 @@ function TransactionMetadataForm({
     categoryId: string;
     businessStatus: '' | BusinessStatus;
     propertyId: string;
+    // Phase 1 v3.0: Due Date+Time (Bangkok local) edited by user in Edit modal.
+    // ISO UTC string when pending, null otherwise.
+    dueDateTime: string | null;
     newAttachments: AttachmentPickerFile[];
     deletedAttachmentIds: string[];
   }) => Promise<void>;
@@ -1807,6 +1825,61 @@ function TransactionMetadataForm({
   const [existingAttachments, setExistingAttachments] = useState<Attachment[]>([]);
   const [removedAttachmentIds, setRemovedAttachmentIds] = useState<Set<string>>(new Set());
   const [pendingFiles, setPendingFiles] = useState<AttachmentPickerFile[]>([]);
+
+  // ============================================================
+  // Phase 1 v3.0: Due Date + Due Time state for Edit flow
+  // ============================================================
+  // - Initialize from `transaction.dueDateTime` when present (ISO UTC).
+  // - Fallback (legacy / API not returning field yet): derive from
+  //   `transaction.date` using the convention date + 1 day + 18:00 ICT.
+  // - Stored as Bangkok-local strings (YYYY-MM-DD + HH:mm) for native
+  //   <input type="date"> / <input type="time"> compatibility.
+  // ============================================================
+  const splitBangkokDateTime = (utcIso: string): { date: string; time: string } => {
+    const d = new Date(utcIso);
+    if (Number.isNaN(d.getTime())) return { date: '', time: '' };
+    const date = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }); // YYYY-MM-DD
+    const time = d.toLocaleTimeString('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }); // HH:mm
+    return { date, time };
+  };
+
+  const legacyBangkokDue = useMemo(() => {
+    // Legacy convention: deadline = transaction.date (UTC) + 1 day + 18:00 ICT
+    // We reconstruct from `transaction.date` (ISO) by adding 1 day and
+    // displaying Bangkok date + time '18:00'.
+    if (!transaction.date) return { date: '', time: '18:00' };
+    const base = new Date(transaction.date);
+    if (Number.isNaN(base.getTime())) return { date: '', time: '18:00' };
+    const shifted = new Date(base.getTime() + 24 * 60 * 60 * 1000);
+    const date = shifted.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    return { date, time: '18:00' };
+  }, [transaction.date]);
+
+  // Only initialize the inputs when user opens the modal. After mount,
+  // edits stay local — they don't re-sync if `transaction` prop changes.
+  const [dueDate, setDueDate] = useState<string>(() => {
+    if (transaction.dueDateTime) {
+      const { date } = splitBangkokDateTime(transaction.dueDateTime);
+      return date || legacyBangkokDue.date;
+    }
+    return legacyBangkokDue.date;
+  });
+  const [dueTime, setDueTime] = useState<string>(() => {
+    if (transaction.dueDateTime) {
+      const { time } = splitBangkokDateTime(transaction.dueDateTime);
+      return time || legacyBangkokDue.time;
+    }
+    return legacyBangkokDue.time;
+  });
+  // Track if user manually edited the inputs. If they didn't, we treat
+  // unchanged values as "no change" and OMIT dueDateTime from PATCH (so
+  // other metadata edits don't accidentally overwrite dueDateTime).
+  const [dueTouched, setDueTouched] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxOriginalUrl, setLightboxOriginalUrl] = useState<string | null>(null);
   // In-memory cache: attachment id -> blob URL (Phase 5 optimization)
@@ -1980,12 +2053,30 @@ function TransactionMetadataForm({
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          // Phase 1 v3.0: compute dueDateTime from local state.
+          // Only emit the field when:
+          //  (a) it's still pending AND we have date+time, OR
+          //  (b) user manually touched the inputs.
+          // Otherwise send `null` so we don't overwrite server value
+          // when user just edits other metadata fields.
+          let computedDueDateTime: string | null = null;
+          if (transaction.type === 'income' && businessStatus === 'pending') {
+            if (dueDate && dueTime) {
+              // Bangkok (UTC+7) → UTC ISO
+              computedDueDateTime = new Date(`${dueDate}T${dueTime}:00+07:00`).toISOString();
+            }
+          }
+          // If user didn't touch the inputs AND there's no existing dueDateTime
+          // on the transaction, send null (i.e., no change request).
+          const shouldSend = dueTouched || Boolean(transaction.dueDateTime) || computedDueDateTime !== null;
+
           void onSubmit({
             title: title.trim(),
             note: note.trim(),
             categoryId,
             businessStatus,
             propertyId,
+            dueDateTime: shouldSend ? computedDueDateTime : null,
             newAttachments: pendingFiles,
             deletedAttachmentIds: Array.from(removedAttachmentIds),
           });
@@ -2044,6 +2135,47 @@ function TransactionMetadataForm({
             <FormLabel label="สถานะ">
               <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} />
             </FormLabel>
+          )}
+
+          {/* Phase 1 v3.0: Due Date + Due Time for Edit modal
+              - Rendered only when income + businessStatus === 'pending'
+              - Preloaded from transaction.dueDateTime (or legacy fallback)
+              - User edits are tracked via `dueTouched`; only sent in PATCH
+                if user touched them OR if backend already returned a value. */}
+          {transaction.type === 'income' && businessStatus === 'pending' && (
+            <div className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                <span aria-hidden>📅</span>
+                <span>กำหนดส่ง</span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FormLabel label="วันที่ครบกำหนด">
+                  <input
+                    required
+                    type="date"
+                    value={dueDate}
+                    onChange={(event) => {
+                      setDueTouched(true);
+                      setDueDate(event.target.value);
+                    }}
+                    className="form-input w-full"
+                  />
+                </FormLabel>
+                <FormLabel label="เวลาครบกำหนด">
+                  <input
+                    required
+                    type="time"
+                    value={dueTime}
+                    onChange={(event) => {
+                      setDueTouched(true);
+                      setDueTime(event.target.value);
+                    }}
+                    className="form-input w-full"
+                  />
+                </FormLabel>
+              </div>
+              <p className="text-xs text-amber-700">💡 เวลาเริ่มต้น 18:00 น. (แก้ไขได้)</p>
+            </div>
           )}
 
           {transaction.type !== 'transfer' && (
