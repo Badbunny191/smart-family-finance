@@ -755,4 +755,35 @@ Overdue System
 Account Ledger
 Hard Delete Transactions
 
+
+
 พร้อมพัฒนาฟีเจอร์ใหม่ตาม Roadmap ต่อได้ 🚀🏆
+
+2026-09-26
+
+✅ Completed
+
+Build Stability
+
+Fixed build-time ECONNREFUSED issue
+
+Root Cause:
+better-auth client initialization during build
+
+Result:
+Clean OpenNext build
+Clean Cloudflare deployment
+No ECONNREFUSED warnings during build
+
+Tag:
+v1.9.1
+
+
+TECH-DEBT-001
+Status: Closed ✅
+
+Result:
+- No Production Blocking Drift Found
+- Attachment deletion verified
+- Legacy columns identified
+- Production schema safe
