@@ -7,7 +7,7 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
-import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, isOverdue, getBangkokDateString } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, isOverdue, getOverdueInfo, getBangkokDateString } from '@/lib/utils';
 import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -142,7 +142,7 @@ const emptyForm: FormState = {
 };
 
 const businessStatusLabels: Record<BusinessStatus, string> = {
-  pending: 'รอชำระ',
+  pending: 'รอรับเงิน',
   received: 'รับชำระแล้ว',
 };
 
@@ -809,7 +809,7 @@ function TransactionsContent() {
                   : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
               }`}
             >
-              รอชำระ
+              รอรับเงิน
             </button>
             <button
               type="button"
@@ -1082,7 +1082,7 @@ function FilterBottomSheet({
 
   const statusOptions: { value: 'all' | BusinessStatus | 'overdue'; label: string }[] = [
     { value: 'all', label: 'ทั้งหมด' },
-    { value: 'pending', label: 'รอชำระ' },
+    { value: 'pending', label: 'รอรับเงิน' },
     { value: 'received', label: 'รับชำระแล้ว' },
     { value: 'overdue', label: 'เกินกำหนด' },
   ];
@@ -1397,8 +1397,64 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
   const categoryDisplay = transaction.categoryName ?? (transaction.categoryId ? '(หมวดหมู่ถูกลบ)' : '—');
 
   const statusLabels: Record<BusinessStatus, string> = {
-    pending: 'รอชำระ',
+    pending: 'รอรับเงิน',
     received: 'รับชำระแล้ว',
+  };
+
+  // Business Status labels for expense (future support)
+  const expenseStatusLabels: Record<BusinessStatus, string> = {
+    pending: 'รอจ่าย',
+    received: 'จ่ายแล้ว',
+  };
+
+  // Get the appropriate status label based on transaction type
+  const getStatusLabel = (status: BusinessStatus, type: TransactionType): string => {
+    return type === 'income' ? statusLabels[status] : expenseStatusLabels[status];
+  };
+
+  // Compute overdue info (only for income with pending status)
+  const overdueInfo = transaction.type === 'income' && transaction.businessStatus === 'pending'
+    ? getOverdueInfo({ dueDateTime: transaction.dueDateTime, date: transaction.date })
+    : null;
+
+  // Human-friendly relative time formatter
+  // Rules:
+  // Overdue: < 1 hour → "เพิ่งเกินกำหนด", 1-23 hours → "เกินกำหนดแล้ว X ชั่วโมง", >= 1 day → "เกินกำหนดแล้ว X วัน"
+  // Not overdue: < 1 hour → "ใกล้ถึงกำหนด", 1-23 hours → "เหลืออีก X ชั่วโมง", >= 1 day → "เหลืออีก X วัน"
+  const formatRelativeTime = (info: NonNullable<ReturnType<typeof getOverdueInfo>>): string => {
+    const dueDate = new Date(transaction.dueDateTime ?? transaction.date);
+    
+    if (info.isOverdue) {
+      // Calculate hours since overdue
+      const hoursSinceOverdue = (Date.now() - dueDate.getTime()) / (1000 * 60 * 60);
+      
+      if (hoursSinceOverdue < 1) {
+        return '⚠️ เพิ่งเกินกำหนด';
+      }
+      
+      if (hoursSinceOverdue < 24) {
+        const hours = Math.floor(hoursSinceOverdue);
+        return `⚠️ เกินกำหนดแล้ว ${hours} ชั่วโมง`;
+      }
+      
+      const days = Math.floor(hoursSinceOverdue / 24);
+      return `⚠️ เกินกำหนดแล้ว ${days} วัน`;
+    } else {
+      // Time remaining
+      const hoursRemaining = info.hoursUntilDeadline;
+      
+      if (hoursRemaining < 1) {
+        return '⏳ ใกล้ถึงกำหนด';
+      }
+      
+      if (hoursRemaining < 24) {
+        const hours = Math.floor(hoursRemaining);
+        return `⏳ เหลืออีก ${hours} ชั่วโมง`;
+      }
+      
+      const days = Math.floor(hoursRemaining / 24);
+      return `⏳ เหลืออีก ${days} วัน`;
+    }
   };
 
   const formatDate = (dateStr: string) => {
@@ -1498,21 +1554,76 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
         </div>
       )}
 
-      {/* Category + Status on same line */}
+      {/* Category */}
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
         {transaction.type !== 'transfer' && transaction.categoryName && (
           <span className="text-sm font-medium text-slate-600">🏷️ {categoryDisplay}</span>
         )}
-        {transaction.businessStatus && (
-          <span className={`text-sm font-medium ${transaction.businessStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'}`}>
-            {transaction.businessStatus === 'pending' && isOverdue({ dueDateTime: transaction.dueDateTime, date: transaction.date }) ? (
-              <span className="text-rose-600">🟥 เกินกำหนด</span>
-            ) : (
-              statusLabels[transaction.businessStatus]
-            )}
-          </span>
-        )}
       </div>
+
+      {/* Business Status + Due Date + Overdue Warning - For Income with Pending status */}
+      {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
+        <div className="mt-3 space-y-2">
+          {/* Business Status Badge */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-amber-600">
+              ⏳ {getStatusLabel(transaction.businessStatus, transaction.type)}
+            </span>
+          </div>
+
+          {/* Due Date Display */}
+          {transaction.dueDateTime && (
+            <div className="text-sm text-slate-600">
+              <span className="mr-1">📅</span>
+              {new Date(transaction.dueDateTime).toLocaleDateString('th-TH', {
+                timeZone: 'Asia/Bangkok',
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+              })} น.
+            </div>
+          )}
+
+          {/* Overdue Warning Banner */}
+          {overdueInfo && overdueInfo.isOverdue && (
+            <div className="rounded-lg bg-rose-50 px-3 py-2">
+              <p className="text-sm font-medium text-rose-600">
+                {formatRelativeTime(overdueInfo)}
+              </p>
+            </div>
+          )}
+
+          {/* Time Remaining Banner - For not overdue */}
+          {overdueInfo && !overdueInfo.isOverdue && (
+            <div className="rounded-lg bg-amber-50 px-3 py-2">
+              <p className="text-sm font-medium text-amber-600">
+                {formatRelativeTime(overdueInfo)}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Business Status - For Income with Received status */}
+      {transaction.type === 'income' && transaction.businessStatus === 'received' && (
+        <div className="mt-3">
+          <span className="text-sm font-medium text-emerald-600">
+            ✅ {getStatusLabel(transaction.businessStatus, transaction.type)}
+          </span>
+        </div>
+      )}
+
+      {/* Business Status - For Expense (future support) */}
+      {transaction.type === 'expense' && transaction.businessStatus && (
+        <div className="mt-3">
+          <span className={`text-sm font-medium ${transaction.businessStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'}`}>
+            {transaction.businessStatus === 'pending' ? '⏳' : '✅'} {getStatusLabel(transaction.businessStatus, transaction.type)}
+          </span>
+        </div>
+      )}
 
       {/* Adjustment Reason */}
       {transaction.type === 'adjustment' && transaction.adjustmentReason && (
@@ -2389,6 +2500,83 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
     received: 'bg-emerald-50 text-emerald-700',
   };
 
+  // Business Status labels
+  const incomeStatusLabels: Record<BusinessStatus, string> = {
+    pending: 'รอรับเงิน',
+    received: 'รับชำระแล้ว',
+  };
+  const expenseStatusLabels: Record<BusinessStatus, string> = {
+    pending: 'รอจ่าย',
+    received: 'จ่ายแล้ว',
+  };
+  const getStatusLabel = (status: BusinessStatus, type: TransactionType): string => {
+    return type === 'income' ? incomeStatusLabels[status] : expenseStatusLabels[status];
+  };
+
+  // Compute overdue info (only for income with pending status)
+  const overdueInfo = transaction.type === 'income' && transaction.businessStatus === 'pending'
+    ? getOverdueInfo({ dueDateTime: transaction.dueDateTime, date: transaction.date })
+    : null;
+
+  // Format due date for display
+  const formatDueDateDisplay = (dueDateTimeStr: string | null | undefined) => {
+    if (!dueDateTimeStr) return null;
+    const date = new Date(dueDateTimeStr);
+    const bangkokDate = date.toLocaleDateString('th-TH', {
+      timeZone: 'Asia/Bangkok',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+    const bangkokTime = date.toLocaleTimeString('th-TH', {
+      timeZone: 'Asia/Bangkok',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    return `${bangkokDate} เวลา ${bangkokTime} น.`;
+  };
+
+  // Human-friendly relative time formatter
+  // Rules:
+  // Overdue: < 1 hour → "เพิ่งเกินกำหนด", 1-23 hours → "เกินกำหนดแล้ว X ชั่วโมง", >= 1 day → "เกินกำหนดแล้ว X วัน"
+  // Not overdue: < 1 hour → "ใกล้ถึงกำหนด", 1-23 hours → "เหลืออีก X ชั่วโมง", >= 1 day → "เหลืออีก X วัน"
+  const formatRelativeTime = (info: NonNullable<ReturnType<typeof getOverdueInfo>>): string => {
+    const dueDate = new Date(transaction.dueDateTime ?? transaction.date);
+    
+    if (info.isOverdue) {
+      // Calculate hours since overdue
+      const hoursSinceOverdue = (Date.now() - dueDate.getTime()) / (1000 * 60 * 60);
+      
+      if (hoursSinceOverdue < 1) {
+        return '⚠️ เพิ่งเกินกำหนด';
+      }
+      
+      if (hoursSinceOverdue < 24) {
+        const hours = Math.floor(hoursSinceOverdue);
+        return `⚠️ เกินกำหนดแล้ว ${hours} ชั่วโมง`;
+      }
+      
+      const days = Math.floor(hoursSinceOverdue / 24);
+      return `⚠️ เกินกำหนดแล้ว ${days} วัน`;
+    } else {
+      // Time remaining
+      const hoursRemaining = info.hoursUntilDeadline;
+      
+      if (hoursRemaining < 1) {
+        return '⏳ ใกล้ถึงกำหนด';
+      }
+      
+      if (hoursRemaining < 24) {
+        const hours = Math.floor(hoursRemaining);
+        return `⏳ เหลืออีก ${hours} ชั่วโมง`;
+      }
+      
+      const days = Math.floor(hoursRemaining / 24);
+      return `⏳ เหลืออีก ${days} วัน`;
+    }
+  };
+
   // Hide edit/delete for adjustments unless admin
   const canEdit = transaction.type !== 'adjustment' || isAdmin;
   const canDelete = transaction.type !== 'adjustment' || isAdmin;
@@ -2417,12 +2605,47 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
             <p className="mt-1 text-sm text-slate-500">
               {formatDateFull(new Date(transaction.date))}
             </p>
-            {transaction.businessStatus && (
-              <span className={`mt-2 inline-block rounded-full px-3 py-1 text-sm font-medium ${statusColors[transaction.businessStatus]}`}>
-                {businessStatusLabels[transaction.businessStatus]}
-              </span>
-            )}
           </div>
+
+          {/* Business Status Section */}
+          {transaction.businessStatus && (
+            <div className="space-y-3">
+              {/* Status Badge */}
+              <div className="flex items-center justify-center">
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-base font-medium ${statusColors[transaction.businessStatus]}`}>
+                  {transaction.businessStatus === 'pending' ? '⏳' : '✅'} {getStatusLabel(transaction.businessStatus, transaction.type)}
+                </span>
+              </div>
+
+              {/* Due Date Section - For Income with Pending status */}
+              {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="mb-2 text-center text-sm font-semibold text-slate-700">📅 กำหนดรับเงิน</p>
+                  <p className="text-center text-base font-medium text-slate-900">
+                    {formatDueDateDisplay(transaction.dueDateTime) || 'ไม่ได้กำหนด'}
+                  </p>
+                  
+                  {/* Overdue Warning */}
+                  {overdueInfo && overdueInfo.isOverdue && (
+                    <div className="mt-3 rounded-lg bg-rose-100 p-3 text-center">
+                      <p className="text-sm font-semibold text-rose-700">
+                        {formatRelativeTime(overdueInfo)}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Time Remaining - For not overdue */}
+                  {overdueInfo && !overdueInfo.isOverdue && (
+                    <div className="mt-3 rounded-lg bg-amber-50 p-3 text-center">
+                      <p className="text-sm font-semibold text-amber-700">
+                        {formatRelativeTime(overdueInfo)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Divider */}
           <div className="my-5 border-t border-slate-100" />

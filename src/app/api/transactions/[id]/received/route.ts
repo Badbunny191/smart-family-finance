@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ));
 
     if (!tx) {
-      return NextResponse.json({ error: 'รายการนี้ไม่อยู่ในสถานะรอชำระ' }, { status: 409 });
+      return NextResponse.json({ error: 'รายการนี้ไม่อยู่ในสถานะรอรับเงิน' }, { status: 409 });
     }
 
     // อัพเดท businessStatus และ status ให้สอดคล้องกัน

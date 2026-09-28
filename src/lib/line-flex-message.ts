@@ -68,7 +68,7 @@ const COLORS = {
   
   // Semantic - Pending (yellow)
   pending: '#D97706',      // Amber 600
-  pendingBg: '#FFFBEB',    // Amber 50 (light - รอชำระ)
+  pendingBg: '#FFFBEB',    // Amber 50 (light - รอรับเงิน)
   
   // Brand
   accent: '#0EA5E9',       // Sky 500
@@ -148,7 +148,7 @@ function getDateHeader(): { date: string; dayName: string; monthYear: string; ti
  * 5. ──── (divider)
  * 6. 💳 สถานะการชำระเงิน
  * 7. 🚨 เกินกำหนด
- * 8. ⚠️ รอชำระ
+ * 8. ⚠️ รอรับเงิน
  */
 export function buildDailySummaryFlexMessage(
   metrics: LineNotificationMetrics,
@@ -448,7 +448,7 @@ export function buildDailySummaryFlexMessage(
   }
   
   // ========================================
-  // 8. ⚠️ รอชำระ (Pending - LAST per requirement)
+  // 8. ⚠️ รอรับเงิน (Pending - LAST per requirement)
   // ========================================
   if (settings.showPending) {
     const hasPendingItems = metrics.pendingCount > 0 && metrics.pendingItems.length > 0;
@@ -466,7 +466,7 @@ export function buildDailySummaryFlexMessage(
           contents: [
             {
               type: 'text',
-              text: '⚠️ รอชำระ',
+              text: '⚠️ รอรับเงิน',
               color: COLORS.pending,
               weight: 'bold',
               size: 'sm',
@@ -549,7 +549,7 @@ export function buildDailySummaryFlexMessage(
           color: COLORS.pending,
         }, {
           type: 'text',
-          text: '✅ ไม่มีรายการรอชำระ',
+          text: '✅ ไม่มีรายการรอรับเงิน',
           color: COLORS.positiveDark,
           size: 'xs',
           align: 'center',

@@ -112,9 +112,9 @@ const SHOW_FIELDS: { key: ShowKey; label: string; emoji: string }[] = [
   { key: 'showIncome', label: 'รายรับเดือนนี้', emoji: '📈' },
   { key: 'showExpense', label: 'รายจ่ายเดือนนี้', emoji: '📉' },
   { key: 'showNet', label: 'ยอดสุทธิ', emoji: '✅' },
-  { key: 'showPending', label: 'รายการรอชำระ', emoji: '⚠️' },
+  { key: 'showPending', label: 'รายการรอรับเงิน', emoji: '⚠️' },
   { key: 'showOverdue', label: 'รายการเกินกำหนด', emoji: '🚨' },
-  { key: 'showPendingDetails', label: 'แสดงรายละเอียดรอชำระ', emoji: '📝' },
+  { key: 'showPendingDetails', label: 'แสดงรายละเอียดรอรับเงิน', emoji: '📝' },
   { key: 'showOverdueDetails', label: 'แสดงรายละเอียดเกินกำหนด', emoji: '📋' },
 ];
 

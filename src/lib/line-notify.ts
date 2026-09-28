@@ -175,7 +175,7 @@ export function formatDailySummaryMessage(
       const pendingText = metrics.pendingCount > 0
         ? `${metrics.pendingCount} รายการ  ${formatCurrency(metrics.pendingTotal)}`
         : '0 รายการ';
-      lines.push(`⚠️ รอชำระ    ${pendingText}`);
+      lines.push(`⚠️ รอรับเงิน  ${pendingText}`);
 
       // Item details (top 3)
       if (settings.showPendingDetails && metrics.pendingCount > 0 && metrics.pendingItems) {

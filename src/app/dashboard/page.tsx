@@ -639,7 +639,7 @@ export default async function DashboardPage() {
                   <div className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-50 text-amber-600">
                     <AlertTriangle size={22} />
                   </div>
-                  <p className="mt-2 text-sm font-medium text-amber-700">รอชำระ</p>
+                  <p className="mt-2 text-sm font-medium text-amber-700">รอรับเงิน</p>
                   <p className="text-xs text-amber-600/70">{data.pending.count} รายการ</p>
                   <p className="mt-1 text-lg font-bold text-amber-700">
                     {formatCurrency(data.pending.total)}
@@ -678,7 +678,7 @@ export default async function DashboardPage() {
                     <AlertTriangle size={22} />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-slate-900">รอชำระ</p>
+                    <p className="text-sm font-medium text-slate-900">รอรับเงิน</p>
                     <p className="text-xs text-slate-500">{data.pending.count} รายการ</p>
                   </div>
                 </div>
