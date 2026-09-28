@@ -101,7 +101,7 @@ export async function POST(_request: NextRequest) {
       const result = await sendDailySummaryFlexToUser(
         recipient.lineUserId,
         metrics,
-        recipient.settings as Parameters<typeof sendDailySummaryFlexToUser>[2],
+        recipient.settings as unknown as Parameters<typeof sendDailySummaryFlexToUser>[2],
         LINE_ACCESS_TOKEN
       );
       results.push({

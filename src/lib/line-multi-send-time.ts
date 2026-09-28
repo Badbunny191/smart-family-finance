@@ -43,8 +43,11 @@ export function normalizeSettings(raw: unknown): {
   showIncome: boolean;
   showExpense: boolean;
   showNet: boolean;
-  showPending: boolean;
-  showOverdue: boolean;
+  showToday: boolean;
+  showOverdueReceive: boolean;
+  showOverduePay: boolean;
+  showPendingReceive: boolean;
+  showPendingPay: boolean;
   showPendingDetails: boolean;
   showOverdueDetails: boolean;
 } {
@@ -58,6 +61,10 @@ export function normalizeSettings(raw: unknown): {
   const additionalTimes = additionalRaw.filter(isValidHHmm);
 
   // Boolean fields default true for visibility (match DEFAULT_DAILY_SUMMARY_SETTINGS)
+  // Backward compat: ถ้าไม่มี 4 ฝั่งใหม่ ให้ใช้ legacy showOverdue/showPending แทน
+  const legacyShow = typeof s.showOverdue === 'boolean' ? s.showOverdue : true;
+  const legacyPending = typeof s.showPending === 'boolean' ? s.showPending : true;
+
   return {
     sendTime,
     additionalTimes,
@@ -65,8 +72,11 @@ export function normalizeSettings(raw: unknown): {
     showIncome: typeof s.showIncome === 'boolean' ? s.showIncome : true,
     showExpense: typeof s.showExpense === 'boolean' ? s.showExpense : true,
     showNet: typeof s.showNet === 'boolean' ? s.showNet : true,
-    showPending: typeof s.showPending === 'boolean' ? s.showPending : true,
-    showOverdue: typeof s.showOverdue === 'boolean' ? s.showOverdue : true,
+    showToday: typeof s.showToday === 'boolean' ? s.showToday : true,
+    showOverdueReceive: typeof s.showOverdueReceive === 'boolean' ? s.showOverdueReceive : legacyShow,
+    showOverduePay: typeof s.showOverduePay === 'boolean' ? s.showOverduePay : legacyShow,
+    showPendingReceive: typeof s.showPendingReceive === 'boolean' ? s.showPendingReceive : legacyPending,
+    showPendingPay: typeof s.showPendingPay === 'boolean' ? s.showPendingPay : legacyPending,
     showPendingDetails:
       typeof s.showPendingDetails === 'boolean' ? s.showPendingDetails : true,
     showOverdueDetails:

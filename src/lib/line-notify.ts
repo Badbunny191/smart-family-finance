@@ -18,10 +18,15 @@ export interface DailySummarySettings {
   showIncome: boolean;
   showExpense: boolean;
   showNet: boolean;       // show monthly net as separate toggle
-  showPending: boolean;
-  showOverdue: boolean;
+  showToday?: boolean;
+  showOverdueReceive?: boolean;
+  showOverduePay?: boolean;
+  showPendingReceive?: boolean;
+  showPendingPay?: boolean;
   showPendingDetails: boolean;   // show top-3 pending items
   showOverdueDetails: boolean;   // show top-3 overdue items
+  showPending?: boolean;          // legacy
+  showOverdue?: boolean;          // legacy
 }
 
 export interface LineNotificationMetrics {

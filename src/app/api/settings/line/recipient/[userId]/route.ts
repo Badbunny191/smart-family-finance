@@ -24,8 +24,11 @@ export interface DailySummarySettings {
   showIncome: boolean;
   showExpense: boolean;
   showNet: boolean;
-  showPending: boolean;
-  showOverdue: boolean;
+  showToday: boolean;
+  showOverdueReceive: boolean;
+  showOverduePay: boolean;
+  showPendingReceive: boolean;
+  showPendingPay: boolean;
   showPendingDetails: boolean;
   showOverdueDetails: boolean;
 }
@@ -56,7 +59,7 @@ function validateSettings(input: unknown): DailySummarySettings | { error: strin
     ).sort();
   }
 
-  const boolFields = ['showBalance', 'showIncome', 'showExpense', 'showNet', 'showPending', 'showOverdue', 'showPendingDetails', 'showOverdueDetails'] as const;
+  const boolFields = ['showBalance', 'showIncome', 'showExpense', 'showNet', 'showToday', 'showOverdueReceive', 'showOverduePay', 'showPendingReceive', 'showPendingPay', 'showPendingDetails', 'showOverdueDetails'] as const;
   for (const f of boolFields) {
     if (s[f] !== undefined && typeof s[f] !== 'boolean') {
       return { error: `${f} must be a boolean` };
@@ -70,8 +73,11 @@ function validateSettings(input: unknown): DailySummarySettings | { error: strin
     showIncome: typeof s.showIncome === 'boolean' ? s.showIncome : DEFAULT_DAILY_SUMMARY_SETTINGS.showIncome,
     showExpense: typeof s.showExpense === 'boolean' ? s.showExpense : DEFAULT_DAILY_SUMMARY_SETTINGS.showExpense,
     showNet: typeof s.showNet === 'boolean' ? s.showNet : DEFAULT_DAILY_SUMMARY_SETTINGS.showNet,
-    showPending: typeof s.showPending === 'boolean' ? s.showPending : DEFAULT_DAILY_SUMMARY_SETTINGS.showPending,
-    showOverdue: typeof s.showOverdue === 'boolean' ? s.showOverdue : DEFAULT_DAILY_SUMMARY_SETTINGS.showOverdue,
+    showToday: typeof s.showToday === 'boolean' ? s.showToday : DEFAULT_DAILY_SUMMARY_SETTINGS.showToday,
+    showOverdueReceive: typeof s.showOverdueReceive === 'boolean' ? s.showOverdueReceive : DEFAULT_DAILY_SUMMARY_SETTINGS.showOverdueReceive,
+    showOverduePay: typeof s.showOverduePay === 'boolean' ? s.showOverduePay : DEFAULT_DAILY_SUMMARY_SETTINGS.showOverduePay,
+    showPendingReceive: typeof s.showPendingReceive === 'boolean' ? s.showPendingReceive : DEFAULT_DAILY_SUMMARY_SETTINGS.showPendingReceive,
+    showPendingPay: typeof s.showPendingPay === 'boolean' ? s.showPendingPay : DEFAULT_DAILY_SUMMARY_SETTINGS.showPendingPay,
     showPendingDetails: typeof s.showPendingDetails === 'boolean' ? s.showPendingDetails : DEFAULT_DAILY_SUMMARY_SETTINGS.showPendingDetails,
     showOverdueDetails: typeof s.showOverdueDetails === 'boolean' ? s.showOverdueDetails : DEFAULT_DAILY_SUMMARY_SETTINGS.showOverdueDetails,
   };

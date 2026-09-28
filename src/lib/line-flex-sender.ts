@@ -7,10 +7,10 @@
  * - Test send functionality
  */
 
-import { buildDailySummaryFlexMessage } from './line-flex-message';
+import { buildFlexMessage, LineFlexMetrics, TransactionItem } from './line-flex-builder';
 
 // ============================================================
-// TYPES (matching line-flex-message.ts)
+// TYPES (compatible with line-cron-service.ts)
 // ============================================================
 
 export interface LineNotificationItem {
@@ -27,8 +27,8 @@ export interface LineNotificationMetrics {
   pendingTotal: number;
   overdueCount: number;
   overdueTotal: number;
-  pendingItems: LineNotificationItem[];
-  overdueItems: LineNotificationItem[];
+  pendingItems?: Array<{ title: string; amount: number }>;
+  overdueItems?: Array<{ title: string; amount: number }>;
 }
 
 export interface DailySummarySettings {
@@ -107,8 +107,51 @@ export async function sendFlexMessage(
 }
 
 /**
+ * Convert LineNotificationMetrics (from line-cron-service) to LineFlexMetrics (for line-flex-builder)
+ * 
+ * LineNotificationMetrics only has:
+ * - pendingItems (income)
+ * - overdueItems (income)
+ * 
+ * LineFlexMetrics needs:
+ * - pendingReceive, pendingPay
+ * - overdueReceive, overduePay
+ * 
+ * Since line-flex-builder expects separate receive/pay arrays,
+ * we put everything in the receive arrays (pendingItems/overdueItems are income-based)
+ * 
+ * EXPORTED so that Preview / Test-Send / Cron all share the same conversion logic.
+ */
+export function toFlexMetrics(metrics: LineNotificationMetrics): LineFlexMetrics {
+  return {
+    totalBalance: metrics.totalBalance,
+    monthly: {
+      income: metrics.monthlyIncome,
+      expense: metrics.monthlyExpense,
+    },
+    today: {
+      receivedCount: 0,
+      receivedAmount: 0,
+      paidCount: 0,
+      paidAmount: 0,
+    },
+    // pendingItems and overdueItems are income-based (รอรับเงิน)
+    overdueReceive: (metrics.overdueItems ?? []).map(item => ({
+      title: item.title,
+      amount: item.amount,
+    })),
+    overduePay: [],
+    pendingReceive: (metrics.pendingItems ?? []).map(item => ({
+      title: item.title,
+      amount: item.amount,
+    })),
+    pendingPay: [],
+  };
+}
+
+/**
  * Build Flex Message and send to LINE user
- * Convenience function that combines building and sending
+ * Uses the new flex builder with dynamic data from database
  */
 export async function sendDailySummaryFlexToUser(
   lineUserId: string,
@@ -116,30 +159,23 @@ export async function sendDailySummaryFlexToUser(
   settings: DailySummarySettings,
   accessToken: string
 ): Promise<SendResult> {
-  const flexMessage = buildDailySummaryFlexMessage(
-    {
-      totalBalance: metrics.totalBalance,
-      monthlyIncome: metrics.monthlyIncome,
-      monthlyExpense: metrics.monthlyExpense,
-      monthlyNet: metrics.monthlyNet,
-      pendingCount: metrics.pendingCount,
-      pendingTotal: metrics.pendingTotal,
-      overdueCount: metrics.overdueCount,
-      overdueTotal: metrics.overdueTotal,
-      pendingItems: metrics.pendingItems,
-      overdueItems: metrics.overdueItems,
-    },
-    {
-      sendTime: settings.sendTime,
-      showBalance: settings.showBalance,
-      showIncome: settings.showIncome,
-      showExpense: settings.showExpense,
-      showPending: settings.showPending,
-      showOverdue: settings.showOverdue,
-      showPendingDetails: settings.showPendingDetails,
-      showOverdueDetails: settings.showOverdueDetails,
-    }
-  );
+  // Convert from LineNotificationMetrics to LineFlexMetrics
+  const flexMetrics = toFlexMetrics(metrics);
+  
+  // Backward compat: ถ้า settings เก่ามี showOverdue/showPending → map เป็น 2 ฝั่ง
+  const legacyShow = settings.showOverdue ?? true;
+  const legacyPending = settings.showPending ?? true;
+  
+  const flexMessage = buildFlexMessage(flexMetrics, {
+    sendTime: settings.sendTime,
+    showBalance: settings.showBalance ?? true,
+    showMonthly: settings.showIncome ?? true,
+    showToday: false,
+    showOverdueReceive: (settings as any).showOverdueReceive ?? legacyShow,
+    showOverduePay: (settings as any).showOverduePay ?? legacyShow,
+    showPendingReceive: (settings as any).showPendingReceive ?? legacyPending,
+    showPendingPay: (settings as any).showPendingPay ?? legacyPending,
+  });
 
   return sendFlexMessage(lineUserId, flexMessage, accessToken);
 }

@@ -5,34 +5,26 @@
  *
  * Sends a FLEX MESSAGE to test on real LINE app.
  * Does NOT trigger cron logic (sendTime check bypassed).
+ *
+ * SINGLE BUILDER: uses `buildFlexMessage` from `line-flex-builder.ts`
+ * — the SAME builder used by Cron, Preview, and Production.
+ * No template duplication.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import { getRequestContext, handleApiError } from '@/lib/api-auth';
 import { getD1 } from '@/lib/cloudflare';
 import { getDb } from '@/db/client';
-import { lineAccounts, notificationSettings } from '@/db/schema';
+import { lineAccounts, notificationSettings, transactions } from '@/db/schema';
 import { getLineNotificationMetrics, type LineNotificationItem } from '@/lib/dashboard-summary';
-import { buildDailySummaryFlexMessage, SAMPLE_METRICS } from '@/lib/line-flex-message';
+import { buildFlexMessage, LineFlexMetrics, LineFlexSettings } from '@/lib/line-flex-builder';
 import { sendFlexMessage } from '@/lib/line-flex-sender';
-import { DEFAULT_DAILY_SUMMARY_SETTINGS, getBangkokDateString } from '@/lib/notification-settings';
+import { DEFAULT_DAILY_SUMMARY_SETTINGS, getBangkokDateString, type DailySummarySettings } from '@/lib/notification-settings';
 
 export const runtime = 'nodejs';
 
-// Interface matching line-flex-message.ts
-interface DailySummarySettings {
-  sendTime: string;
-  showBalance: boolean;
-  showIncome: boolean;
-  showExpense: boolean;
-  showPending: boolean;
-  showOverdue: boolean;
-  showPendingDetails: boolean;
-  showOverdueDetails: boolean;
-}
-
-// Full metrics with items
+// Full metrics with items (matches getLineNotificationMetrics output)
 interface LineNotificationMetrics {
   totalBalance: number;
   monthlyIncome: number;
@@ -44,6 +36,25 @@ interface LineNotificationMetrics {
   overdueTotal: number;
   pendingItems: LineNotificationItem[];
   overdueItems: LineNotificationItem[];
+}
+
+/**
+ * Map DB settings (11 fields) → LineFlexSettings (7 fields used by builder)
+ */
+function toFlexSettings(s: DailySummarySettings): LineFlexSettings {
+  const legacyShow = (s as any).showOverdue ?? true;
+  const legacyPending = (s as any).showPending ?? true;
+
+  return {
+    sendTime: s.sendTime,
+    showBalance: s.showBalance ?? true,
+    showMonthly: s.showIncome ?? true,
+    showToday: s.showToday ?? true,
+    showOverdueReceive: s.showOverdueReceive ?? legacyShow,
+    showOverduePay: s.showOverduePay ?? legacyShow,
+    showPendingReceive: s.showPendingReceive ?? legacyPending,
+    showPendingPay: s.showPendingPay ?? legacyPending,
+  };
 }
 
 export async function POST(
@@ -103,35 +114,57 @@ export async function POST(
       settings = { ...DEFAULT_DAILY_SUMMARY_SETTINGS, ...parsed };
     }
 
-    // 3) Get metrics with items
-    const metrics = await getLineNotificationMetrics(db) as LineNotificationMetrics;
+    // 3) Get metrics with items — same source as production cron
+    const rawMetrics = await getLineNotificationMetrics(db) as LineNotificationMetrics;
+
+    // 3.5) Query Pay items (รอจ่าย + ค้างจ่าย) — expense type only
+    // Due date logic matches dashboard-summary.ts:
+    // COALESCE(dueDateTime, date + 126000) > now = pending | <= now = overdue
+    const pendingPayItems = await db
+      .select({ title: transactions.title, amount: transactions.amount })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.type, 'expense'),
+          eq(transactions.businessStatus, 'pending'),
+          sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
+        )
+      )
+      .orderBy(transactions.date)
+      .limit(5);
+
+    const overduePayItems = await db
+      .select({ title: transactions.title, amount: transactions.amount })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.type, 'expense'),
+          eq(transactions.businessStatus, 'pending'),
+          sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
+        )
+      )
+      .orderBy(transactions.date)
+      .limit(5);
+
+    // 4) Build flexMetrics with ALL 4 arrays (รอรับ + รอจ่าย + ค้างรับ + ค้างจ่าย)
+    const flexMetrics: LineFlexMetrics = {
+      totalBalance: rawMetrics.totalBalance,
+      monthly: {
+        income: rawMetrics.monthlyIncome,
+        expense: rawMetrics.monthlyExpense,
+      },
+      today: { receivedCount: 0, receivedAmount: 0, paidCount: 0, paidAmount: 0 },
+      // รอรับเงิน (income-based, from dashboard-summary)
+      overdueReceive: rawMetrics.overdueItems.map((it) => ({ title: it.title, amount: Number(it.amount) })),
+      pendingReceive: rawMetrics.pendingItems.map((it) => ({ title: it.title, amount: Number(it.amount) })),
+      // รอจ่าย (expense-based, from direct queries above)
+      overduePay: overduePayItems.map((it) => ({ title: it.title || 'ไม่ระบุ', amount: Number(it.amount) })),
+      pendingPay: pendingPayItems.map((it) => ({ title: it.title || 'ไม่ระบุ', amount: Number(it.amount) })),
+    };
     const dateString = getBangkokDateString();
 
-    // 4) Build Flex Message
-    const flexMessage = buildDailySummaryFlexMessage(
-      {
-        totalBalance: metrics.totalBalance,
-        monthlyIncome: metrics.monthlyIncome,
-        monthlyExpense: metrics.monthlyExpense,
-        monthlyNet: metrics.monthlyNet,
-        pendingCount: metrics.pendingCount,
-        pendingTotal: metrics.pendingTotal,
-        overdueCount: metrics.overdueCount,
-        overdueTotal: metrics.overdueTotal,
-        pendingItems: metrics.pendingItems || [],
-        overdueItems: metrics.overdueItems || [],
-      },
-      {
-        sendTime: settings.sendTime,
-        showBalance: settings.showBalance,
-        showIncome: settings.showIncome,
-        showExpense: settings.showExpense,
-        showPending: settings.showPending,
-        showOverdue: settings.showOverdue,
-        showPendingDetails: settings.showPendingDetails,
-        showOverdueDetails: settings.showOverdueDetails,
-      }
-    );
+    // 4) Build Flex Message — SAME builder as production
+    const flexMessage = buildFlexMessage(flexMetrics, toFlexSettings(settings));
 
     // DEBUG: Log flex message
     console.log('\n========== FLEX MESSAGE JSON ==========');

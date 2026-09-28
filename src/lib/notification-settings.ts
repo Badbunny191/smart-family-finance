@@ -23,8 +23,11 @@ export interface DailySummarySettings {
   showIncome: boolean;
   showExpense: boolean;
   showNet: boolean;       // show monthly net (income - expense)
-  showPending: boolean;
-  showOverdue: boolean;
+  showToday: boolean;
+  showOverdueReceive: boolean;
+  showOverduePay: boolean;
+  showPendingReceive: boolean;
+  showPendingPay: boolean;
   showPendingDetails: boolean;  // show top-3 pending items (bullet list)
   showOverdueDetails: boolean;  // show top-3 overdue items (bullet list)
 }
@@ -54,8 +57,11 @@ export const DEFAULT_DAILY_SUMMARY_SETTINGS: DailySummarySettings = {
   showIncome: true,
   showExpense: true,
   showNet: true,
-  showPending: true,
-  showOverdue: true,
+  showToday: true,
+  showOverdueReceive: true,
+  showOverduePay: true,
+  showPendingReceive: true,
+  showPendingPay: true,
   showPendingDetails: true,
   showOverdueDetails: true,
 };

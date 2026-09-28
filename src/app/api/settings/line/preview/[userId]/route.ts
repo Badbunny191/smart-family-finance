@@ -25,10 +25,15 @@ interface DailySummarySettings {
   showIncome: boolean;
   showExpense: boolean;
   showNet: boolean;
-  showPending: boolean;
-  showOverdue: boolean;
+  showToday: boolean;
+  showOverdueReceive: boolean;
+  showOverduePay: boolean;
+  showPendingReceive: boolean;
+  showPendingPay: boolean;
   showPendingDetails: boolean;
   showOverdueDetails: boolean;
+  showPending?: boolean;
+  showOverdue?: boolean;
 }
 
 export async function POST(

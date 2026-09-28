@@ -24,7 +24,7 @@
 import { and, eq, isNull, sql, gte, lt, or } from 'drizzle-orm';
 import { accounts, transactions } from '@/db/schema';
 import type { AppDatabase } from '@/db/client';
-import { sendDailySummaryFlexToUser, type LineNotificationMetrics as FlexMetrics } from './line-flex-sender';
+import { sendDailySummaryFlexToUser, type LineNotificationMetrics } from './line-flex-sender';
 import {
   effectiveSlots,
   readSlotHistory,
@@ -33,21 +33,10 @@ import {
 } from './line-multi-send-time';
 
 // ============================================================
-// TYPES
+// TYPES (imported from line-flex-sender.ts)
 // ============================================================
 
-export interface LineNotificationMetrics {
-  totalBalance: number;
-  monthlyIncome: number;
-  monthlyExpense: number;
-  monthlyNet: number;
-  pendingCount: number;
-  pendingTotal: number;
-  overdueCount: number;
-  overdueTotal: number;
-  pendingItems?: Array<{ title: string; amount: number }>;
-  overdueItems?: Array<{ title: string; amount: number }>;
-}
+export type { LineNotificationMetrics } from './line-flex-sender';
 
 export interface DailySummarySettings {
   sendTime: string;
@@ -198,32 +187,27 @@ export async function runLineCron(
 
   for (const { recipient, matchedSlots } of matchResult.toSend) {
     for (const slot of matchedSlots) {
+      // Backward compat: ถ้า settings เก่ามี showOverdue/showPending → map เป็น 2 ฝั่ง
+      const legacyShow = (recipient.settings as any).showOverdue ?? true;
+      const legacyPending = (recipient.settings as any).showPending ?? true;
+      
       const result = await sendDailySummaryFlexToUser(
         recipient.lineUserId,
-        // Convert to the flex-sender expected shape
-        {
-          totalBalance: metrics.totalBalance,
-          monthlyIncome: metrics.monthlyIncome,
-          monthlyExpense: metrics.monthlyExpense,
-          monthlyNet: metrics.monthlyNet,
-          pendingCount: metrics.pendingCount,
-          pendingTotal: metrics.pendingTotal,
-          overdueCount: metrics.overdueCount,
-          overdueTotal: metrics.overdueTotal,
-          pendingItems: metrics.pendingItems ?? [],
-          overdueItems: metrics.overdueItems ?? [],
-        } as FlexMetrics,
+        metrics,
         {
           // sendTime stays as the primary field (per constraint)
           sendTime: recipient.settings.sendTime,
           showBalance: recipient.settings.showBalance,
           showIncome: recipient.settings.showIncome,
           showExpense: recipient.settings.showExpense,
-          showPending: recipient.settings.showPending,
-          showOverdue: recipient.settings.showOverdue,
+          // Map legacy fields → 4 ฝั่งใหม่
+          showOverdueReceive: (recipient.settings as any).showOverdueReceive ?? legacyShow,
+          showOverduePay: (recipient.settings as any).showOverduePay ?? legacyShow,
+          showPendingReceive: (recipient.settings as any).showPendingReceive ?? legacyPending,
+          showPendingPay: (recipient.settings as any).showPendingPay ?? legacyPending,
           showPendingDetails: recipient.settings.showPendingDetails ?? true,
           showOverdueDetails: recipient.settings.showOverdueDetails ?? true,
-        },
+        } as unknown as Parameters<typeof sendDailySummaryFlexToUser>[2],
         LINE_ACCESS_TOKEN
       );
       // Tag result with which slot this was for (logging)
@@ -604,8 +588,11 @@ export async function getEnabledRecipients(db: D1Database): Promise<LineRecipien
     showBalance: true,
     showIncome: true,
     showExpense: true,
-    showPending: true,
-    showOverdue: true,
+    showToday: true,
+    showOverdueReceive: true,
+    showOverduePay: true,
+    showPendingReceive: true,
+    showPendingPay: true,
     showPendingDetails: true,
     showOverdueDetails: true,
   });

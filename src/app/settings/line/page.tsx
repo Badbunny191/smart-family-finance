@@ -50,8 +50,11 @@ interface DailySummarySettings {
   showIncome: boolean;
   showExpense: boolean;
   showNet: boolean;
-  showPending: boolean;
-  showOverdue: boolean;
+  showToday: boolean;
+  showOverdueReceive: boolean;
+  showOverduePay: boolean;
+  showPendingReceive: boolean;
+  showPendingPay: boolean;
   showPendingDetails: boolean;
   showOverdueDetails: boolean;
 }
@@ -99,21 +102,38 @@ const DEFAULT_SETTINGS: DailySummarySettings = {
   showIncome: true,
   showExpense: true,
   showNet: true,
-  showPending: true,
-  showOverdue: true,
+  showToday: true,
+  showOverdueReceive: true,
+  showOverduePay: true,
+  showPendingReceive: true,
+  showPendingPay: true,
   showPendingDetails: true,
   showOverdueDetails: true,
 };
 
-type ShowKey = 'showBalance' | 'showIncome' | 'showExpense' | 'showNet' | 'showPending' | 'showOverdue' | 'showPendingDetails' | 'showOverdueDetails';
+type ShowKey =
+  | 'showBalance'
+  | 'showIncome'
+  | 'showExpense'
+  | 'showNet'
+  | 'showToday'
+  | 'showOverdueReceive'
+  | 'showOverduePay'
+  | 'showPendingReceive'
+  | 'showPendingPay'
+  | 'showPendingDetails'
+  | 'showOverdueDetails';
 
 const SHOW_FIELDS: { key: ShowKey; label: string; emoji: string }[] = [
   { key: 'showBalance', label: 'ยอดคงเหลือรวม', emoji: '💰' },
   { key: 'showIncome', label: 'รายรับเดือนนี้', emoji: '📈' },
   { key: 'showExpense', label: 'รายจ่ายเดือนนี้', emoji: '📉' },
   { key: 'showNet', label: 'ยอดสุทธิ', emoji: '✅' },
-  { key: 'showPending', label: 'รายการรอรับเงิน', emoji: '⚠️' },
-  { key: 'showOverdue', label: 'รายการเกินกำหนด', emoji: '🚨' },
+  { key: 'showToday', label: 'รายการวันนี้', emoji: '📅' },
+  { key: 'showOverdueReceive', label: 'เกินกำหนดรับ', emoji: '⏰' },
+  { key: 'showOverduePay', label: 'เกินกำหนดจ่าย', emoji: '🚨' },
+  { key: 'showPendingReceive', label: 'รอรับเงิน', emoji: '💰' },
+  { key: 'showPendingPay', label: 'รอจ่าย', emoji: '💸' },
   { key: 'showPendingDetails', label: 'แสดงรายละเอียดรอรับเงิน', emoji: '📝' },
   { key: 'showOverdueDetails', label: 'แสดงรายละเอียดเกินกำหนด', emoji: '📋' },
 ];

@@ -24,8 +24,8 @@
 import { drizzle } from 'drizzle-orm/d1';
 import { and, eq, gte, lt, isNull, inArray, sql, or } from 'drizzle-orm';
 import * as schema from '../../db/schema';
-import { buildDailySummaryFlexMessage } from '../../lib/line-flex-message';
-import { sendFlexMessage } from '../../lib/line-flex-sender';
+import { buildFlexMessage, LineFlexMetrics, TransactionItem } from '../../lib/line-flex-builder';
+import { sendFlexMessage, LineNotificationMetrics } from '../../lib/line-flex-sender';
 
 // ============================================================
 // TYPES
@@ -41,33 +41,20 @@ export interface CronEvent {
   cron: string;
 }
 
-interface LineNotificationItem {
-  title: string;
-  amount: number;
-}
-
-interface LineNotificationMetrics {
-  totalBalance: number;
-  monthlyIncome: number;
-  monthlyExpense: number;
-  monthlyNet: number;
-  pendingCount: number;
-  pendingTotal: number;
-  overdueCount: number;
-  overdueTotal: number;
-  pendingItems: LineNotificationItem[];
-  overdueItems: LineNotificationItem[];
-}
-
 interface DailySummarySettings {
   sendTime: string;
   showBalance: boolean;
   showIncome: boolean;
   showExpense: boolean;
-  showPending: boolean;
-  showOverdue: boolean;
+  showToday?: boolean;
+  showOverdueReceive?: boolean;
+  showOverduePay?: boolean;
+  showPendingReceive?: boolean;
+  showPendingPay?: boolean;
   showPendingDetails: boolean;
   showOverdueDetails: boolean;
+  showPending?: boolean;
+  showOverdue?: boolean;
 }
 
 interface RecipientWithSettings {
@@ -88,7 +75,7 @@ interface CronResult {
   success: boolean;
   timestamp: string;
   sentAt: string;
-  metrics: LineNotificationMetrics;
+  metrics: LineFlexMetrics;
   recipients: { lineUserId: string; sent: boolean; error?: string; skipped?: string }[];
   summary: {
     totalRecipients: number;
@@ -154,7 +141,7 @@ export default {
       const bangkokTime = getCurrentBangkokTimeString();
       const bangkokDate = getBangkokDateString();
 
-      let metrics: LineNotificationMetrics | null = null;
+      let metrics: LineFlexMetrics | null = null;
       try {
         metrics = await getLineNotificationMetrics(env.DB);
       } catch (e) {
@@ -306,7 +293,21 @@ async function runLineCron(
   let totalFailed = 0;
 
   for (const recipient of toSend) {
-    const flexMessage = buildDailySummaryFlexMessage(metrics, recipient.settings);
+    // Backward compat: ถ้า settings เก่ามี showOverdue/showPending → map เป็น 2 ฝั่ง
+    const legacyShow = recipient.settings.showOverdue ?? true;
+    const legacyPending = recipient.settings.showPending ?? true;
+    
+    // Use new flex builder with new metrics format
+    const flexMessage = buildFlexMessage(metrics, {
+      sendTime: recipient.settings.sendTime,
+      showBalance: recipient.settings.showBalance,
+      showMonthly: recipient.settings.showIncome,
+      showToday: true,
+      showOverdueReceive: (recipient.settings as any).showOverdueReceive ?? legacyShow,
+      showOverduePay: (recipient.settings as any).showOverduePay ?? legacyShow,
+      showPendingReceive: (recipient.settings as any).showPendingReceive ?? legacyPending,
+      showPendingPay: (recipient.settings as any).showPendingPay ?? legacyPending,
+    });
     const result = await sendFlexMessage(recipient.lineUserId, flexMessage, LINE_ACCESS_TOKEN);
     results.push(result);
 
@@ -385,7 +386,7 @@ async function updateLastSentAt(db: D1Database, userId: string): Promise<void> {
  * Get metrics for LINE notification — same as dashboard/test-send,
  * plus top-5 items for the Flex Message.
  */
-async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificationMetrics> {
+async function getLineNotificationMetrics(db: D1Database): Promise<LineFlexMetrics> {
   const { monthStart, nextMonthStart } = getCurrentMonthRange();
 
   const drizzleDb = drizzle(db, { schema });
@@ -487,6 +488,40 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
     .orderBy(schema.transactions.date)
     .limit(5);
 
+  // Pending Pay items (expense + not yet overdue) — FIX: previously missing
+  const pendingPayItemsResult = await drizzleDb
+    .select({
+      title: schema.transactions.title,
+      amount: schema.transactions.amount,
+    })
+    .from(schema.transactions)
+    .where(
+      and(
+        eq(schema.transactions.type, 'expense'),
+        eq(schema.transactions.businessStatus, 'pending'),
+        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
+      )
+    )
+    .orderBy(schema.transactions.date)
+    .limit(5);
+
+  // Overdue Pay items (expense + overdue) — FIX: previously missing
+  const overduePayItemsResult = await drizzleDb
+    .select({
+      title: schema.transactions.title,
+      amount: schema.transactions.amount,
+    })
+    .from(schema.transactions)
+    .where(
+      and(
+        eq(schema.transactions.type, 'expense'),
+        eq(schema.transactions.businessStatus, 'pending'),
+        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
+      )
+    )
+    .orderBy(schema.transactions.date)
+    .limit(5);
+
   const totalBalance = Number(balanceResult[0]?.totalBalance) || 0;
 
   let monthlyIncome = 0;
@@ -502,24 +537,38 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
   const pendingMetrics = pendingResult[0] || { total: 0, count: 0 };
   const overdueMetrics = overdueResult[0] || { total: 0, count: 0 };
 
-  return {
+  // Convert to new LineFlexMetrics format
+  const flexMetrics: LineFlexMetrics = {
     totalBalance,
-    monthlyIncome,
-    monthlyExpense,
-    monthlyNet: monthlyIncome - monthlyExpense,
-    pendingCount: Number(pendingMetrics.count) || 0,
-    pendingTotal: Number(pendingMetrics.total) || 0,
-    overdueCount: Number(overdueMetrics.count) || 0,
-    overdueTotal: Number(overdueMetrics.total) || 0,
-    pendingItems: pendingItemsResult.map((it) => ({
-      title: it.title,
+    monthly: {
+      income: monthlyIncome,
+      expense: monthlyExpense,
+    },
+    today: {
+      receivedCount: 0,
+      receivedAmount: 0,
+      paidCount: 0,
+      paidAmount: 0,
+    },
+    pendingReceive: pendingItemsResult.map((it) => ({
+      title: it.title || 'ไม่ระบุ',
       amount: Number(it.amount) || 0,
     })),
-    overdueItems: overdueItemsResult.map((it) => ({
-      title: it.title,
+    pendingPay: pendingPayItemsResult.map((it) => ({
+      title: it.title || 'ไม่ระบุ',
+      amount: Number(it.amount) || 0,
+    })),
+    overdueReceive: overdueItemsResult.map((it) => ({
+      title: it.title || 'ไม่ระบุ',
+      amount: Number(it.amount) || 0,
+    })),
+    overduePay: overduePayItemsResult.map((it) => ({
+      title: it.title || 'ไม่ระบุ',
       amount: Number(it.amount) || 0,
     })),
   };
+
+  return flexMetrics;
 }
 
 /**
@@ -530,7 +579,7 @@ async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettin
     SELECT
       la.line_user_id,
       la.user_id,
-      COALESCE(ns.settings, '{"sendTime":"08:00","showBalance":true,"showIncome":true,"showExpense":true,"showPending":true,"showOverdue":true,"showPendingDetails":true,"showOverdueDetails":true}') as settings,
+      COALESCE(ns.settings, '{"sendTime":"08:00","showBalance":true,"showIncome":true,"showExpense":true,"showToday":true,"showOverdueReceive":true,"showOverduePay":true,"showPendingReceive":true,"showPendingPay":true,"showPendingDetails":true,"showOverdueDetails":true}') as settings,
       ns.last_sent_at as last_sent_at
     FROM line_accounts la
     LEFT JOIN notification_settings ns
@@ -558,8 +607,11 @@ async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettin
       showBalance: true,
       showIncome: true,
       showExpense: true,
-      showPending: true,
-      showOverdue: true,
+      showToday: true,
+      showOverdueReceive: true,
+      showOverduePay: true,
+      showPendingReceive: true,
+      showPendingPay: true,
       showPendingDetails: true,
       showOverdueDetails: true,
     };
