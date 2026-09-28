@@ -32,11 +32,17 @@ export interface DashboardMetrics {
   monthlyAdjustment: number;
   monthlyNet: number;
   
-  // Pending & Overdue
+  // Pending & Overdue (Income)
   pendingCount: number;
   pendingTotal: number;
   overdueCount: number;
   overdueTotal: number;
+  
+  // Pending & Overdue (Expense)
+  expensePendingCount: number;
+  expensePendingTotal: number;
+  expenseOverdueCount: number;
+  expenseOverdueTotal: number;
   
   // Personal accounts breakdown
   personalAccounts: PersonalAccountSummary[];
@@ -228,6 +234,36 @@ export async function getDashboardMetrics(db: AppDatabase) {
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
+    // QUERY 3c: Pending expense (not yet overdue)
+    // Phase 1.2: deadline = COALESCE(due_date_time, date + 126000)
+    // Not overdue = now <= deadline
+    db
+      .select({
+        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.businessStatus, 'pending'),
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
+      )),
+
+    // QUERY 3d: Overdue expense
+    // Phase 1.2: deadline = COALESCE(due_date_time, date + 126000)
+    // Overdue = now > deadline
+    db
+      .select({
+        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.businessStatus, 'pending'),
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
+      )),
+
     // QUERY 5: Personal accounts with person names
     db
       .select({
@@ -279,8 +315,10 @@ export async function getDashboardMetrics(db: AppDatabase) {
   const adjustmentResult = queryResults[2].status === 'fulfilled' ? queryResults[2].value as SimpleTotalResult[] : [];
   const pendingResult = queryResults[3].status === 'fulfilled' ? queryResults[3].value as CountTotalResult[] : [];
   const overdueResult = queryResults[4].status === 'fulfilled' ? queryResults[4].value as CountTotalResult[] : [];
-  const personalAccountsResult = queryResults[5].status === 'fulfilled' ? queryResults[5].value as AccountPersonResult[] : [];
-  const businessAccountsResult = queryResults[6].status === 'fulfilled' ? queryResults[6].value as AccountPersonResult[] : [];
+  const expensePendingResult = queryResults[5].status === 'fulfilled' ? queryResults[5].value as CountTotalResult[] : [];
+  const expenseOverdueResult = queryResults[6].status === 'fulfilled' ? queryResults[6].value as CountTotalResult[] : [];
+  const personalAccountsResult = queryResults[7].status === 'fulfilled' ? queryResults[7].value as AccountPersonResult[] : [];
+  const businessAccountsResult = queryResults[8].status === 'fulfilled' ? queryResults[8].value as AccountPersonResult[] : [];
 
   // Account metrics
   const accountMetrics = accountResult[0] || {
@@ -307,6 +345,10 @@ export async function getDashboardMetrics(db: AppDatabase) {
   // Pending & Overdue
   const pendingMetrics = pendingResult[0] || { total: 0, count: 0 };
   const overdueMetrics = overdueResult[0] || { total: 0, count: 0 };
+  
+  // Expense Pending & Overdue
+  const expensePendingMetrics = expensePendingResult[0] || { total: 0, count: 0 };
+  const expenseOverdueMetrics = expenseOverdueResult[0] || { total: 0, count: 0 };
 
   // Personal & Business accounts
   const personalAccounts: PersonalAccountSummary[] = personalAccountsResult.map(r => ({
@@ -345,11 +387,17 @@ export async function getDashboardMetrics(db: AppDatabase) {
     monthlyAdjustment: Number(monthlyAdjustment) || 0,
     monthlyNet: monthlyIncome - monthlyExpense,
     
-    // Pending & Overdue
+    // Pending & Overdue (Income)
     pendingCount: Number(pendingMetrics.count) || 0,
     pendingTotal: Number(pendingMetrics.total) || 0,
     overdueCount: Number(overdueMetrics.count) || 0,
     overdueTotal: Number(overdueMetrics.total) || 0,
+    
+    // Pending & Overdue (Expense)
+    expensePendingCount: Number(expensePendingMetrics.count) || 0,
+    expensePendingTotal: Number(expensePendingMetrics.total) || 0,
+    expenseOverdueCount: Number(expenseOverdueMetrics.count) || 0,
+    expenseOverdueTotal: Number(expenseOverdueMetrics.total) || 0,
     
     // Account breakdowns
     personalAccounts,

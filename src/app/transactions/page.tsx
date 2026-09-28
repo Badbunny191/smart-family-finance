@@ -133,7 +133,7 @@ const emptyForm: FormState = {
   title: '',
   propertyId: '',
   categoryId: '',
-  businessStatus: '',
+  businessStatus: '', // UX-003: Required selection - no default
   dueDate: '', // Will be set by openCreate with Bangkok date
   dueTime: '18:00', // UI default per Master Spec v3.0
   sourceAccountId: '',
@@ -433,12 +433,15 @@ function TransactionsContent() {
   }, [selectedType, selectedStatusFilter, selectedBusinessStatus, selectedCategory, selectedAccount, selectedDateFilter, customDateFrom, customDateTo]);
 
   const openCreate = (type: TransactionType = 'expense') => {
+    // UX-003: User must select businessStatus for income/expense
+    // Transfer: set to 'received' internally (no UI shown)
+    const defaultBusinessStatus = type === 'transfer' ? 'received' : '';
     setForm({
       ...emptyForm,
       type,
-      date: getBangkokDateString(), // Always use current Bangkok date
+      date: getBangkokDateString(),
       dueDate: getBangkokDateString(), // Phase 1 v3.0: default to today
-      businessStatus: '',
+      businessStatus: defaultBusinessStatus,
     });
     setErrorMessage(null);
     setIsFormOpen(true);
@@ -449,6 +452,14 @@ function TransactionsContent() {
 
     // Double-submit prevention
     if (isSaving) return;
+
+    // UX-003: Validate required businessStatus for income/expense
+    if ((form.type === 'income' || form.type === 'expense') && !form.businessStatus) {
+      setIsSaving(false);
+      showToast('กรุณาเลือกสถานะ', 'error');
+      return;
+    }
+
     setIsSaving(true);
 
     const response = await fetch('/api/transactions', {
@@ -460,13 +471,14 @@ function TransactionsContent() {
         date: new Date(`${form.date}T00:00:00`).toISOString(),
         // Phase 1 v3.0: combine dueDate (YYYY-MM-DD) + dueTime (HH:mm)
         // Both are in Bangkok/ICT timezone → convert to UTC ISO before send.
+        // Only create dueDateTime when businessStatus === 'pending' AND dueDate is not empty.
         dueDateTime:
-          form.businessStatus === 'pending'
-            ? new Date(`${form.dueDate}T${form.dueTime}:00+07:00`).toISOString()
+          form.businessStatus === 'pending' && form.dueDate
+            ? new Date(`${form.dueDate}T${form.dueTime || '18:00'}:00+07:00`).toISOString()
             : null,
         propertyId: form.propertyId || null,
         categoryId: form.categoryId || null,
-        businessStatus: form.businessStatus || null,
+        businessStatus: form.businessStatus,
         sourceAccountId: form.sourceAccountId || null,
         destinationAccountId: form.destinationAccountId || null,
         note: form.note || null,
@@ -828,6 +840,68 @@ function TransactionsContent() {
           </div>
         )}
 
+        {/* Status Pills for Expense */}
+        {selectedType === 'expense' && (
+          <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatusFilter('all');
+                setSelectedDateFilter('month');
+              }}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedStatusFilter === 'all'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              ทั้งหมด
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatusFilter('received');
+                setSelectedDateFilter('month');
+              }}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedStatusFilter === 'received'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              จ่ายแล้ว
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatusFilter('pending');
+                setSelectedDateFilter('all');
+              }}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedStatusFilter === 'pending'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+              }`}
+            >
+              รอจ่าย
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatusFilter('overdue');
+                setSelectedDateFilter('all');
+              }}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedStatusFilter === 'overdue'
+                  ? 'bg-rose-600 text-white'
+                  : 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+              }`}
+            >
+              เกินกำหนดจ่าย
+            </button>
+          </div>
+        )}
+
         {/* Row 2: Date Filter Pills */}
         <div className="flex gap-2 overflow-x-auto pb-3 scrollbar-hide">
           {(Object.keys(dateFilterLabels) as DateFilterOption[]).map((option) => (
@@ -1080,12 +1154,24 @@ function FilterBottomSheet({
     { value: 'adjustment', label: 'ปรับยอด' },
   ];
 
-  const statusOptions: { value: 'all' | BusinessStatus | 'overdue'; label: string }[] = [
-    { value: 'all', label: 'ทั้งหมด' },
-    { value: 'pending', label: 'รอรับเงิน' },
-    { value: 'received', label: 'รับชำระแล้ว' },
-    { value: 'overdue', label: 'เกินกำหนด' },
-  ];
+  // Type-specific status options
+  const statusOptions: { value: 'all' | BusinessStatus | 'overdue'; label: string }[] = selectedType === 'expense'
+    ? [
+        { value: 'all', label: 'ทั้งหมด' },
+        { value: 'pending', label: 'รอจ่าย' },
+        { value: 'received', label: 'จ่ายแล้ว' },
+        { value: 'overdue', label: 'เกินกำหนดจ่าย' },
+      ]
+    : selectedType === 'income'
+      ? [
+          { value: 'all', label: 'ทั้งหมด' },
+          { value: 'pending', label: 'รอรับเงิน' },
+          { value: 'received', label: 'รับชำระแล้ว' },
+          { value: 'overdue', label: 'เกินกำหนด' },
+        ]
+      : [
+          { value: 'all', label: 'ทั้งหมด' },
+        ];
 
   const activeCategories = categories.filter(c => c.isActive);
 
@@ -1412,8 +1498,8 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
     return type === 'income' ? statusLabels[status] : expenseStatusLabels[status];
   };
 
-  // Compute overdue info (only for income with pending status)
-  const overdueInfo = transaction.type === 'income' && transaction.businessStatus === 'pending'
+  // Compute overdue info (for income AND expense with pending status)
+  const overdueInfo = transaction.businessStatus === 'pending' && (transaction.type === 'income' || transaction.type === 'expense')
     ? getOverdueInfo({ dueDateTime: transaction.dueDateTime, date: transaction.date })
     : null;
 
@@ -1616,12 +1702,58 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
         </div>
       )}
 
-      {/* Business Status - For Expense (future support) */}
-      {transaction.type === 'expense' && transaction.businessStatus && (
+      {/* Business Status - For Expense with Received status */}
+      {transaction.type === 'expense' && transaction.businessStatus === 'received' && (
         <div className="mt-3">
-          <span className={`text-sm font-medium ${transaction.businessStatus === 'pending' ? 'text-amber-600' : 'text-emerald-600'}`}>
-            {transaction.businessStatus === 'pending' ? '⏳' : '✅'} {getStatusLabel(transaction.businessStatus, transaction.type)}
+          <span className="text-sm font-medium text-emerald-600">
+            ✅ {getStatusLabel(transaction.businessStatus, transaction.type)}
           </span>
+        </div>
+      )}
+
+      {/* Business Status + Due Date + Overdue Warning - For Expense with Pending status */}
+      {transaction.type === 'expense' && transaction.businessStatus === 'pending' && (
+        <div className="mt-3 space-y-2">
+          {/* Business Status Badge */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-amber-600">
+              ⏳ {getStatusLabel(transaction.businessStatus, transaction.type)}
+            </span>
+          </div>
+
+          {/* Due Date Display */}
+          {transaction.dueDateTime && (
+            <div className="text-sm text-slate-600">
+              <span className="mr-1">📅</span>
+              {new Date(transaction.dueDateTime).toLocaleDateString('th-TH', {
+                timeZone: 'Asia/Bangkok',
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+              })} น.
+            </div>
+          )}
+
+          {/* Overdue Warning Banner */}
+          {overdueInfo && overdueInfo.isOverdue && (
+            <div className="rounded-lg bg-rose-50 px-3 py-2">
+              <p className="text-sm font-medium text-rose-600">
+                {formatRelativeTime(overdueInfo)}
+              </p>
+            </div>
+          )}
+
+          {/* Time Remaining Banner - For not overdue */}
+          {overdueInfo && !overdueInfo.isOverdue && (
+            <div className="rounded-lg bg-amber-50 px-3 py-2">
+              <p className="text-sm font-medium text-amber-600">
+                {formatRelativeTime(overdueInfo)}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -1633,7 +1765,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
         </div>
       )}
 
-      {/* Date & Received Button */}
+      {/* Date & Received/Paid Button */}
       <div className="mt-3 flex items-center justify-between">
         <p className="text-xs text-slate-400">{formatDate(transaction.date)}</p>
         {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
@@ -1644,6 +1776,16 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
             className="touch-button rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
             {isMarkingReceived ? 'กำลังอัปเดต...' : 'รับชำระแล้ว'}
+          </button>
+        )}
+        {transaction.type === 'expense' && transaction.businessStatus === 'pending' && (
+          <button
+            type="button"
+            onClick={() => void onReceived(transaction.id)}
+            disabled={isMarkingReceived}
+            className="touch-button rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {isMarkingReceived ? 'กำลังอัปเดต...' : 'จ่ายแล้ว'}
           </button>
         )}
       </div>
@@ -1711,16 +1853,16 @@ function TransactionForm({ form, setForm, properties, accounts, categories, sele
             </FormLabel>
           )}
 
-          {form.type === 'income' && (
+          {(form.type === 'income' || form.type === 'expense') && (
             <FormLabel label="สถานะ">
-              <BusinessStatusSelect value={form.businessStatus} onChange={(value) => update({ businessStatus: value })} />
+              <BusinessStatusSelect value={form.businessStatus} onChange={(value) => update({ businessStatus: value })} type={form.type} />
             </FormLabel>
           )}
 
           {/* Phase 1 v3.0: Per-transaction Due DateTime
-              - Rendered only when income + businessStatus === 'pending'
+              - Rendered only when (income OR expense) + businessStatus === 'pending'
               - Date Picker + Time Picker (default 18:00, editable) */}
-          {form.type === 'income' && form.businessStatus === 'pending' && (
+          {(form.type === 'income' || form.type === 'expense') && form.businessStatus === 'pending' && (
             <div className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
               <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
                 <span aria-hidden>📅</span>
@@ -1868,11 +2010,17 @@ function AccountSelect({ value, accounts, onChange }: { value: string; accounts:
   );
 }
 
-function BusinessStatusSelect({ value, onChange }: { value: '' | BusinessStatus; onChange: (value: '' | BusinessStatus) => void }) {
+function BusinessStatusSelect({ value, onChange, type }: { value: '' | BusinessStatus; onChange: (value: BusinessStatus) => void; type?: TransactionType }) {
+  const expenseLabels: Record<BusinessStatus, string> = {
+    pending: 'รอจ่าย',
+    received: 'จ่ายแล้ว',
+  };
+  const labels = type === 'expense' ? expenseLabels : businessStatusLabels;
+  
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value as '' | BusinessStatus)} className="form-input">
-      <option value="">ไม่ระบุ</option>
-      {Object.entries(businessStatusLabels).map(([key, label]) => (
+    <select value={value} onChange={(event) => onChange(event.target.value as BusinessStatus)} className="form-input">
+      <option value="">โปรดเลือกสถานะ</option>
+      {Object.entries(labels).map(([key, label]) => (
         <option key={key} value={key}>{label}</option>
       ))}
     </select>
@@ -1929,8 +2077,9 @@ function TransactionMetadataForm({
   const [title, setTitle] = useState(transaction.title || '');
   const [note, setNote] = useState(transaction.note || '');
   const [categoryId, setCategoryId] = useState(transaction.categoryId || '');
-  const [businessStatus, setBusinessStatus] = useState<'' | BusinessStatus>(
-    transaction.businessStatus || ''
+  // Default to existing businessStatus or 'pending' for legacy null data
+  const [businessStatus, setBusinessStatus] = useState<BusinessStatus>(
+    transaction.businessStatus || 'pending'
   );
   const [propertyId, setPropertyId] = useState(transaction.propertyId || '');
   const [existingAttachments, setExistingAttachments] = useState<Attachment[]>([]);
@@ -2171,7 +2320,7 @@ function TransactionMetadataForm({
           // Otherwise send `null` so we don't overwrite server value
           // when user just edits other metadata fields.
           let computedDueDateTime: string | null = null;
-          if (transaction.type === 'income' && businessStatus === 'pending') {
+          if ((transaction.type === 'income' || transaction.type === 'expense') && businessStatus === 'pending') {
             if (dueDate && dueTime) {
               // Bangkok (UTC+7) → UTC ISO
               computedDueDateTime = new Date(`${dueDate}T${dueTime}:00+07:00`).toISOString();
@@ -2242,18 +2391,18 @@ function TransactionMetadataForm({
             </FormLabel>
           )}
 
-          {transaction.type === 'income' && (
+          {(transaction.type === 'income' || transaction.type === 'expense') && (
             <FormLabel label="สถานะ">
-              <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} />
+              <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} type={transaction.type} />
             </FormLabel>
           )}
 
           {/* Phase 1 v3.0: Due Date + Due Time for Edit modal
-              - Rendered only when income + businessStatus === 'pending'
+              - Rendered only when (income OR expense) + businessStatus === 'pending'
               - Preloaded from transaction.dueDateTime (or legacy fallback)
               - User edits are tracked via `dueTouched`; only sent in PATCH
                 if user touched them OR if backend already returned a value. */}
-          {transaction.type === 'income' && businessStatus === 'pending' && (
+          {(transaction.type === 'income' || transaction.type === 'expense') && businessStatus === 'pending' && (
             <div className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
               <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
                 <span aria-hidden>📅</span>
@@ -2513,8 +2662,8 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
     return type === 'income' ? incomeStatusLabels[status] : expenseStatusLabels[status];
   };
 
-  // Compute overdue info (only for income with pending status)
-  const overdueInfo = transaction.type === 'income' && transaction.businessStatus === 'pending'
+  // Compute overdue info (for income AND expense with pending status)
+  const overdueInfo = transaction.businessStatus === 'pending' && (transaction.type === 'income' || transaction.type === 'expense')
     ? getOverdueInfo({ dueDateTime: transaction.dueDateTime, date: transaction.date })
     : null;
 

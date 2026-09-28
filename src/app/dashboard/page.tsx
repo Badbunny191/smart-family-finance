@@ -174,6 +174,32 @@ export default async function DashboardPage() {
       ))
       .orderBy(transactions.date),
 
+    // QUERY 3e: Pending expense (not yet overdue)
+    db
+      .select({
+        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.businessStatus, 'pending'),
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
+      )),
+
+    // QUERY 3f: Overdue expense
+    db
+      .select({
+        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.businessStatus, 'pending'),
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
+      )),
+
     // QUERY 4: Recent transactions (include all types: income, expense, transfer, adjustment)
     db
       .select({
@@ -254,7 +280,7 @@ export default async function DashboardPage() {
   ]);
 
   // Extract results
-  const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, overdueResult, pendingDetails, overdueDetails, recentRows, personalAccountsRows, businessAccountsRows] = queryResults.map((result) =>
+  const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, overdueResult, pendingDetails, overdueDetails, expensePendingResult, expenseOverdueResult, recentRows, personalAccountsRows, businessAccountsRows] = queryResults.map((result) =>
     result.status === 'fulfilled' ? result.value : null
   );
 
@@ -275,6 +301,8 @@ export default async function DashboardPage() {
   const typedMonthlyAdjustments = monthlyAdjustments as MonthlyAdjustmentsRow[];
   const typedPendingDetails = (pendingDetails ?? []) as PendingDetailRow[];
   const typedOverdueDetails = (overdueDetails ?? []) as PendingDetailRow[];
+  const typedExpensePendingResult = expensePendingResult as PendingRow[];
+  const typedExpenseOverdueResult = expenseOverdueResult as OverdueRow[];
   const typedPersonalAccountsRows = (personalAccountsRows ?? []) as (PersonalAccountRow & { personId: string; accountId: string })[];
   const typedBusinessAccountsRows = (businessAccountsRows ?? []) as (BusinessAccountRow & { personId: string; accountId: string })[];
 
@@ -422,6 +450,15 @@ export default async function DashboardPage() {
     overdue: {
       total: Number(typedOverdueResult?.[0]?.total) || 0,
       count: Number(typedOverdueResult?.[0]?.count) || 0
+    },
+    // Expense Pending & Overdue
+    expensePending: {
+      total: Number(typedExpensePendingResult?.[0]?.total) || 0,
+      count: Number(typedExpensePendingResult?.[0]?.count) || 0
+    },
+    expenseOverdue: {
+      total: Number(typedExpenseOverdueResult?.[0]?.total) || 0,
+      count: Number(typedExpenseOverdueResult?.[0]?.count) || 0
     },
     businessTotal,
     businessCashTotal,
@@ -704,6 +741,102 @@ export default async function DashboardPage() {
                 <div className="text-right">
                   <p className="text-xl font-bold text-rose-700">
                     {formatCurrency(data.overdue.total)}
+                  </p>
+                </div>
+              </Link>
+            )}
+          </section>
+        )}
+
+        {/* ========================================
+            PENDING / OVERDUE EXPENSE ACTIONS
+            ======================================== */}
+        {(data.expensePending.total > 0 || data.expenseOverdue.total > 0) && (
+          <section>
+            {/* Case 3: มีทั้ง Pending และ Overdue → 2 columns */}
+            {data.expensePending.total > 0 && data.expenseOverdue.total > 0 && (
+              <div className="grid grid-cols-2 gap-3">
+                {/* Expense Pending Card */}
+                <Link
+                  href="/transactions?type=expense&businessStatus=pending&overdue=false&dateFilter=all"
+                  prefetch={false}
+                  className="surface-card flex flex-col items-center overflow-hidden p-4 transition-transform active:scale-[0.98]"
+                >
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-50 text-amber-600">
+                    <AlertTriangle size={22} />
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-amber-700">รอจ่าย</p>
+                  <p className="text-xs text-amber-600/70">{data.expensePending.count} รายการ</p>
+                  <p className="mt-1 text-lg font-bold text-amber-700">
+                    {formatCurrency(data.expensePending.total)}
+                  </p>
+                </Link>
+
+                {/* Expense Overdue Card */}
+                <Link
+                  href="/transactions?type=expense&businessStatus=pending&overdue=true&dateFilter=all"
+                  prefetch={false}
+                  className="surface-card flex flex-col items-center overflow-hidden border border-rose-200 bg-rose-50 p-4 transition-transform active:scale-[0.98]"
+                >
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-rose-100 text-rose-600">
+                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold text-rose-700">เกินกำหนดจ่าย</p>
+                  <p className="text-xs text-rose-600/70">{data.expenseOverdue.count} รายการ</p>
+                  <p className="mt-1 text-lg font-bold text-rose-700">
+                    {formatCurrency(data.expenseOverdue.total)}
+                  </p>
+                </Link>
+              </div>
+            )}
+
+            {/* Case 1: มีเฉพาะ Expense Pending (full width) */}
+            {data.expensePending.total > 0 && data.expenseOverdue.total === 0 && (
+              <Link
+                href="/transactions?type=expense&businessStatus=pending&overdue=false&dateFilter=all"
+                prefetch={false}
+                className="surface-card flex items-center justify-between overflow-hidden p-4 transition-transform active:scale-[0.98]"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-amber-50 text-amber-600">
+                    <AlertTriangle size={22} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">รอจ่าย</p>
+                    <p className="text-xs text-slate-500">{data.expensePending.count} รายการ</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xl font-bold text-amber-700">
+                    {formatCurrency(data.expensePending.total)}
+                  </p>
+                </div>
+              </Link>
+            )}
+
+            {/* Case 2: มีเฉพาะ Expense Overdue (full width) */}
+            {data.expenseOverdue.total > 0 && data.expensePending.total === 0 && (
+              <Link
+                href="/transactions?type=expense&businessStatus=pending&overdue=true&dateFilter=all"
+                prefetch={false}
+                className="surface-card flex items-center justify-between overflow-hidden border border-rose-200 bg-rose-50 p-4 transition-transform active:scale-[0.98]"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-rose-100 text-rose-600">
+                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-rose-700">เกินกำหนดจ่าย</p>
+                    <p className="text-xs text-rose-600">{data.expenseOverdue.count} รายการ</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-xl font-bold text-rose-700">
+                    {formatCurrency(data.expenseOverdue.total)}
                   </p>
                 </div>
               </Link>
