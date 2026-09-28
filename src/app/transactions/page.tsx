@@ -369,9 +369,11 @@ function TransactionsContent() {
       if (selectedAccount !== 'all') {
         filterParams.set('accountId', selectedAccount);
       }
-      // Date range filter
-      filterParams.set('dateFrom', dateRangeStart.toISOString());
-      filterParams.set('dateTo', dateRangeEnd.toISOString());
+      // Date range filter - only apply if not 'all'
+      if (selectedDateFilter !== 'all') {
+        filterParams.set('dateFrom', dateRangeStart.toISOString());
+        filterParams.set('dateTo', dateRangeEnd.toISOString());
+      }
 
       const responses = await Promise.all([
         fetch(`/api/transactions?${filterParams.toString()}`),
@@ -1084,6 +1086,7 @@ function TransactionsContent() {
           onClose={() => setEditingTransaction(null)}
           onSubmit={updateMetadata}
           isSaving={isUpdating}
+          showToast={showToast}
         />
       )}
 
@@ -2010,7 +2013,7 @@ function AccountSelect({ value, accounts, onChange }: { value: string; accounts:
   );
 }
 
-function BusinessStatusSelect({ value, onChange, type }: { value: '' | BusinessStatus; onChange: (value: BusinessStatus) => void; type?: TransactionType }) {
+function BusinessStatusSelect({ value, onChange, type, isEdit = false }: { value: '' | BusinessStatus; onChange: (value: BusinessStatus) => void; type?: TransactionType; isEdit?: boolean }) {
   const expenseLabels: Record<BusinessStatus, string> = {
     pending: 'รอจ่าย',
     received: 'จ่ายแล้ว',
@@ -2019,7 +2022,7 @@ function BusinessStatusSelect({ value, onChange, type }: { value: '' | BusinessS
   
   return (
     <select value={value} onChange={(event) => onChange(event.target.value as BusinessStatus)} className="form-input">
-      <option value="">โปรดเลือกสถานะ</option>
+      {!isEdit && <option value="">โปรดเลือกสถานะ</option>}
       {Object.entries(labels).map(([key, label]) => (
         <option key={key} value={key}>{label}</option>
       ))}
@@ -2055,6 +2058,7 @@ function TransactionMetadataForm({
   onClose,
   onSubmit,
   isSaving,
+  showToast,
 }: {
   transaction: Transaction;
   categories: Category[];
@@ -2073,6 +2077,7 @@ function TransactionMetadataForm({
     deletedAttachmentIds: string[];
   }) => Promise<void>;
   isSaving: boolean;
+  showToast: (message: string, type: 'success' | 'error') => void;
 }) {
   const [title, setTitle] = useState(transaction.title || '');
   const [note, setNote] = useState(transaction.note || '');
@@ -2330,6 +2335,12 @@ function TransactionMetadataForm({
           // on the transaction, send null (i.e., no change request).
           const shouldSend = dueTouched || Boolean(transaction.dueDateTime) || computedDueDateTime !== null;
 
+          // Bug-003: Validate required businessStatus for income/expense in Edit
+          if ((transaction.type === 'income' || transaction.type === 'expense') && !businessStatus) {
+            showToast('กรุณาเลือกสถานะ', 'error');
+            return;
+          }
+
           void onSubmit({
             title: title.trim(),
             note: note.trim(),
@@ -2393,7 +2404,7 @@ function TransactionMetadataForm({
 
           {(transaction.type === 'income' || transaction.type === 'expense') && (
             <FormLabel label="สถานะ">
-              <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} type={transaction.type} />
+              <BusinessStatusSelect value={businessStatus} onChange={setBusinessStatus} type={transaction.type} isEdit={true} />
             </FormLabel>
           )}
 
