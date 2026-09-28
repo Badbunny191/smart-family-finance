@@ -21,7 +21,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const existingRows = await db
       .select()
       .from(transactions)
-      .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+      .where(eq(transactions.id, id))
       .limit(1);
 
     if (!existingRows[0]) return NextResponse.json({ error: 'ไม่พบรายการ' }, { status: 404 });
@@ -166,14 +166,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 }
 
+// DELETE /api/transactions/[id] - Hard delete transaction
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { db, session } = await getRequestContext(request);
     const { id } = await params;
+
+    // Fetch transaction
     const transaction = await db
       .select()
       .from(transactions)
-      .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+      .where(eq(transactions.id, id))
       .limit(1);
     if (!transaction[0]) return NextResponse.json({ error: 'ไม่พบรายการ' }, { status: 404 });
 
@@ -208,24 +211,29 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // [3] Hard delete all attachment records from D1
+    // [3] Hard delete all attachment records from D1 (before deleting transaction)
     if (txAttachments.length > 0) {
       await db.delete(attachments).where(eq(attachments.transactionId, id));
     }
 
-    // [4] Soft delete transaction + rollback balances
-    await db.batch([
-      db.update(transactions).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(transactions.id, id)),
-      ...rollbackStatements(
-        db,
-        row.type,
-        row.amount,
-        row.status,
-        row.adjustmentDirection,
-        row.sourceAccountId,
-        row.destinationAccountId,
-      ),
-    ]);
+    // [4] Rollback balances first
+    const rollbackStmts = rollbackStatements(
+      db,
+      row.type,
+      row.amount,
+      row.status,
+      row.adjustmentDirection,
+      row.sourceAccountId,
+      row.destinationAccountId,
+    );
+
+    // [5] Hard delete transaction
+    // Execute rollback statements sequentially, then delete transaction
+    for (const stmt of rollbackStmts) {
+      await stmt;
+    }
+    await db.delete(transactions).where(eq(transactions.id, id));
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error);

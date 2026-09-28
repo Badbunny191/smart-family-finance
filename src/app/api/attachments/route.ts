@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const txRows = await db
       .select({ id: transactions.id })
       .from(transactions)
-      .where(and(eq(transactions.id, transactionId), isNull(transactions.deletedAt)))
+      .where(eq(transactions.id, transactionId))
       .limit(1);
 
     if (!txRows[0]) {
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     const txRows = await db
       .select({ id: transactions.id })
       .from(transactions)
-      .where(and(eq(transactions.id, txId), isNull(transactions.deletedAt)))
+      .where(eq(transactions.id, txId))
       .limit(1);
 
     if (!txRows[0]) {

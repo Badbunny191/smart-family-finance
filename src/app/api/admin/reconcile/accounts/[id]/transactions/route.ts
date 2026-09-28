@@ -16,8 +16,7 @@ type RouteParams = { params: Promise<{ id: string }> };
  * GET /api/admin/reconcile/accounts/:id/transactions
  *
  * Admin-only. Returns the full transaction list that participates in
- * this account's expected balance, plus any soft-deleted transactions
- * that touched this account (for forensics).
+ * this account's expected balance.
  *
  * Note: Includes both `completed` and `pending` so an admin can verify
  * which transactions actually moved money vs. which were never applied.
@@ -62,7 +61,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         adjustmentDirection: transactions.adjustmentDirection,
         note: transactions.note,
         createdAt: transactions.createdAt,
-        deletedAt: transactions.deletedAt,
       })
       .from(transactions)
       .where(

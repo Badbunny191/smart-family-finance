@@ -506,7 +506,6 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
         AND date >= ?
         AND date < ?
         AND type IN ('income', 'expense')
-        AND deleted_at IS NULL
         GROUP BY type
     `)
     .bind(monthStart, nextMonthStart)
@@ -530,7 +529,6 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       FROM transactions
       WHERE type = 'income'
         AND business_status = 'pending'
-        AND deleted_at IS NULL
         AND COALESCE(due_date_time, date + 126000) > CAST(strftime('%s', 'now') AS INTEGER)
     `)
     .first<{ cnt: number; total: number }>();
@@ -544,7 +542,6 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       FROM transactions
       WHERE type = 'income'
         AND business_status = 'pending'
-        AND deleted_at IS NULL
         AND COALESCE(due_date_time, date + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)
     `)
     .first<{ cnt: number; total: number }>();
@@ -557,7 +554,6 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       FROM transactions
       WHERE type = 'income'
         AND business_status = 'pending'
-        AND deleted_at IS NULL
         AND COALESCE(due_date_time, date + 126000) > CAST(strftime('%s', 'now') AS INTEGER)
       ORDER BY date ASC
       LIMIT 5
@@ -572,7 +568,6 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       FROM transactions
       WHERE type = 'income'
         AND business_status = 'pending'
-        AND deleted_at IS NULL
         AND COALESCE(due_date_time, date + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)
       ORDER BY date ASC
       LIMIT 5

@@ -565,7 +565,6 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
           eq(schema.transactions.type, 'income'),
           eq(schema.transactions.type, 'expense')
         ),
-        isNull(schema.transactions.deletedAt)
       )
     )
     .groupBy(schema.transactions.type);
@@ -581,7 +580,6 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
       and(
         eq(schema.transactions.type, 'income'),
         eq(schema.transactions.businessStatus, 'pending'),
-        isNull(schema.transactions.deletedAt),
         sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
       )
     );
@@ -597,7 +595,6 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
       and(
         eq(schema.transactions.type, 'income'),
         eq(schema.transactions.businessStatus, 'pending'),
-        isNull(schema.transactions.deletedAt),
         sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
       )
     );
@@ -613,7 +610,6 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
       and(
         eq(schema.transactions.type, 'income'),
         eq(schema.transactions.businessStatus, 'pending'),
-        isNull(schema.transactions.deletedAt),
         sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
       )
     )
@@ -631,7 +627,6 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificat
       and(
         eq(schema.transactions.type, 'income'),
         eq(schema.transactions.businessStatus, 'pending'),
-        isNull(schema.transactions.deletedAt),
         sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
       )
     )

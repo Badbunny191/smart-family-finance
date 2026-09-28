@@ -15,7 +15,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const usage = await db
       .select({ count: sql<number>`count(*)` })
       .from(transactions)
-      .where(and(eq(transactions.categoryId, id), isNull(transactions.deletedAt)));
     
     return NextResponse.json({ count: usage[0].count });
   } catch (error) {

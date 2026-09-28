@@ -18,7 +18,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .from(transactions)
       .where(
         and(
-          isNull(transactions.deletedAt),
           or(
             eq(transactions.sourceAccountId, id),
             eq(transactions.destinationAccountId, id)

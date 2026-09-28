@@ -31,8 +31,9 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get('dateFrom');
     const dateTo = searchParams.get('dateTo');
 
-    // Build filters array
-    const filters = [isNull(transactions.deletedAt)];
+    // Build filters array (no deletedAt filter - using hard delete)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const filters: any[] = [];
 
     // Type filter
     if (type === 'income' || type === 'expense' || type === 'transfer' || type === 'adjustment') {

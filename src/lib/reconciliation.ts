@@ -10,7 +10,7 @@
  *   Always worded as "Possible Cause".
  */
 
-import { and, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import type { AppDatabase } from '@/db/client';
 import { accounts, transactions } from '@/db/schema';
 import {
@@ -91,7 +91,6 @@ export async function runReconciliation(
     .from(transactions)
     .where(
       and(
-        isNull(transactions.deletedAt),
         or(eq(transactions.status, 'completed'), eq(transactions.status, 'pending'))
       )
     );
@@ -182,7 +181,6 @@ export async function runReconciliation(
 export type PossibleCause =
   | 'pending_inconsistency'
   | 'historical_bug'
-  | 'deleted_tx_inconsistency'
   | 'adjustment_inconsistency'
   | 'unknown';
 
@@ -225,7 +223,6 @@ export async function analyzePossibleCauses(
     .from(transactions)
     .where(
       and(
-        isNull(transactions.deletedAt),
         eq(transactions.status, 'pending'),
         or(
           eq(transactions.sourceAccountId, accountId),
@@ -242,68 +239,12 @@ export async function analyzePossibleCauses(
     });
   }
 
-  // 2. Soft-deleted transactions that, had they existed, would have caused this exact discrepancy
-  const deletedRows = await db
-    .select({
-      id: transactions.id,
-      type: transactions.type,
-      amount: transactions.amount,
-      status: transactions.status,
-      adjustmentDirection: transactions.adjustmentDirection,
-      sourceAccountId: transactions.sourceAccountId,
-      destinationAccountId: transactions.destinationAccountId,
-      deletedAt: transactions.deletedAt,
-    })
-    .from(transactions)
-    .where(
-      and(
-        sql`${transactions.deletedAt} IS NOT NULL`,
-        or(
-          eq(transactions.sourceAccountId, accountId),
-          eq(transactions.destinationAccountId, accountId)
-        )
-      )
-    );
-
-  // For each deleted tx, compute the impact it WOULD have had (if completed)
-  const matchedDeleted: string[] = [];
-  for (const tx of deletedRows) {
-    const txForBalance: TransactionForBalance = {
-      type: tx.type,
-      amount: tx.amount,
-      status: tx.status,
-      adjustmentDirection: tx.adjustmentDirection,
-      sourceAccountId: tx.sourceAccountId,
-      destinationAccountId: tx.destinationAccountId,
-    };
-    let impactOnAccount = 0;
-    if (tx.type === 'transfer') {
-      impactOnAccount = getTransferImpact(txForBalance, accountId);
-    } else {
-      impactOnAccount = getBalanceImpact(txForBalance);
-    }
-    // If the impact is exactly equal to the discrepancy (with sign),
-    // this deleted transaction is a strong candidate for explaining the discrepancy.
-    if (Math.abs(impactOnAccount - discrepancy) < MISMATCH_EPSILON && impactOnAccount !== 0) {
-      matchedDeleted.push(tx.id);
-    }
-  }
-
-  if (matchedDeleted.length > 0) {
-    causes.push({
-      code: 'deleted_tx_inconsistency',
-      description: `พบรายการที่ถูกลบไปแล้ว ${matchedDeleted.length} รายการ — ยอดที่หายไปอาจเกิดจากการลบรายการที่เคยหัก/เพิ่มยอดไปแล้ว`,
-      relatedTransactionIds: matchedDeleted,
-    });
-  }
-
-  // 3. Adjustments on this account — possible adjustment inconsistency
+  // 2. Adjustments on this account — possible adjustment inconsistency
   const adjustments = await db
     .select({ id: transactions.id })
     .from(transactions)
     .where(
       and(
-        isNull(transactions.deletedAt),
         eq(transactions.type, 'adjustment'),
         eq(transactions.sourceAccountId, accountId)
       )

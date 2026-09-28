@@ -86,7 +86,6 @@ export default async function DashboardPage() {
         gte(transactions.date, monthStart),
         lt(transactions.date, nextMonthStart),
         or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
-        isNull(transactions.deletedAt)
       ))
       .groupBy(transactions.type),
 
@@ -101,7 +100,6 @@ export default async function DashboardPage() {
         eq(transactions.type, 'adjustment'),
         gte(transactions.date, monthStart),
         lt(transactions.date, nextMonthStart),
-        isNull(transactions.deletedAt)
       )),
 
     // QUERY 3a: Pending income (not yet overdue)
@@ -118,7 +116,6 @@ export default async function DashboardPage() {
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         // deadline = date + 7h (UTC->Bangkok) + 1 day + 18:00 (Bangkok time)
         // NOTE: transactions.date is stored as seconds (unix timestamp)
         // Not overdue if: now(Bangkok) <= deadline
@@ -139,7 +136,6 @@ export default async function DashboardPage() {
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         // deadline = date + 7h (UTC->Bangkok) + 1 day + 18:00 (Bangkok time)
         // NOTE: transactions.date is stored as seconds (unix timestamp)
         // Overdue if: now(Bangkok) > deadline
@@ -158,7 +154,6 @@ export default async function DashboardPage() {
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       ))
       .orderBy(transactions.date),
@@ -175,7 +170,6 @@ export default async function DashboardPage() {
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       ))
       .orderBy(transactions.date),
@@ -210,7 +204,6 @@ export default async function DashboardPage() {
       .leftJoin(destinationAccountAlias, eq(transactions.destinationAccountId, destinationAccountAlias.id))
       .where(and(
         eq(transactions.status, 'completed'),
-        isNull(transactions.deletedAt)
       ))
       .orderBy(desc(transactions.date), desc(transactions.createdAt))
       .limit(10),

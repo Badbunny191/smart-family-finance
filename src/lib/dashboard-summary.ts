@@ -180,7 +180,6 @@ export async function getDashboardMetrics(db: AppDatabase) {
         gte(transactions.date, monthStart),
         lt(transactions.date, nextMonthStart),
         or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
-        isNull(transactions.deletedAt)
       ))
       .groupBy(transactions.type),
 
@@ -195,7 +194,6 @@ export async function getDashboardMetrics(db: AppDatabase) {
         eq(transactions.type, 'adjustment'),
         gte(transactions.date, monthStart),
         lt(transactions.date, nextMonthStart),
-        isNull(transactions.deletedAt)
       )),
 
     // QUERY 3a: Pending income (not yet overdue)
@@ -212,7 +210,6 @@ export async function getDashboardMetrics(db: AppDatabase) {
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
@@ -228,7 +225,6 @@ export async function getDashboardMetrics(db: AppDatabase) {
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
@@ -397,7 +393,6 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
         gte(transactions.date, monthStart),
         lt(transactions.date, nextMonthStart),
         or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
-        isNull(transactions.deletedAt)
       ))
       .groupBy(transactions.type),
 
@@ -411,7 +406,6 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
@@ -425,7 +419,6 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       )),
 
@@ -439,7 +432,6 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
       ))
       .orderBy(transactions.date)
@@ -455,7 +447,6 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
       .where(and(
         eq(transactions.type, 'income'),
         eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt),
         sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
       ))
       .orderBy(transactions.date)

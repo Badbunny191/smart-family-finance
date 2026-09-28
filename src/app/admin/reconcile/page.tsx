@@ -48,7 +48,6 @@ interface ReconcileReport {
 type PossibleCauseCode =
   | 'pending_inconsistency'
   | 'historical_bug'
-  | 'deleted_tx_inconsistency'
   | 'adjustment_inconsistency'
   | 'unknown';
 
@@ -84,7 +83,6 @@ interface TxRow {
   adjustmentDirection?: 'increase' | 'decrease' | null;
   note?: string | null;
   createdAt: number;
-  deletedAt: number | null;
 }
 
 interface RepairResult {
@@ -140,7 +138,6 @@ const severityConfig: Record<
 const causeLabel: Record<PossibleCauseCode, string> = {
   pending_inconsistency: '📋 รายการรอดำเนินการ',
   historical_bug: '🐛 บั๊กระบบก่อนหน้า',
-  deleted_tx_inconsistency: '🗑️ รายการที่ถูกลบ',
   adjustment_inconsistency: '⚙️ การปรับยอดไม่สมดุล',
   unknown: '❓ ไม่ทราบสาเหตุ',
 };
@@ -174,7 +171,6 @@ function SeverityBadge({ severity }: { severity: Severity }) {
 function TxRow({ tx, accountId }: { tx: TxRow; accountId: string }) {
   const [open, setOpen] = useState(false);
   const date = new Date(tx.date);
-  const isDeleted = tx.deletedAt !== null;
 
   const direction =
     tx.type === 'income'
@@ -192,11 +188,9 @@ function TxRow({ tx, accountId }: { tx: TxRow; accountId: string }) {
   return (
     <div
       className={`rounded-lg border p-3 text-sm ${
-        isDeleted
-          ? 'border-dashed border-red-300 bg-red-50/40 opacity-70'
-          : tx.status === 'pending'
-            ? 'border-amber-200 bg-amber-50/40'
-            : 'border-slate-200 bg-white'
+        tx.status === 'pending'
+          ? 'border-amber-200 bg-amber-50/40'
+          : 'border-slate-200 bg-white'
       }`}
     >
       <button
@@ -213,11 +207,6 @@ function TxRow({ tx, accountId }: { tx: TxRow; accountId: string }) {
               {txTypeLabel[tx.type]?.label ?? tx.type}
             </span>
             <span className="text-slate-400 text-xs">{direction}</span>
-            {isDeleted && (
-              <span className="flex items-center gap-0.5 text-xs text-red-500">
-                <Trash2 size={11} /> ลบแล้ว
-              </span>
-            )}
             {tx.status === 'pending' && (
               <span className="rounded bg-amber-200 px-1.5 py-0.5 text-xs text-amber-700">
                 รอดำเนินการ

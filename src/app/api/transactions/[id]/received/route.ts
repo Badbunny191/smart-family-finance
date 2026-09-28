@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { accounts, transactions } from '@/db/schema';
 import { getRequestContext, handleApiError } from '@/lib/api-auth';
@@ -19,8 +19,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .from(transactions)
       .where(and(
         eq(transactions.id, id),
-        eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt)
+        eq(transactions.businessStatus, 'pending')
       ));
 
     if (!tx) {
@@ -38,8 +37,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       })
       .where(and(
         eq(transactions.id, id),
-        eq(transactions.businessStatus, 'pending'),
-        isNull(transactions.deletedAt)
+        eq(transactions.businessStatus, 'pending')
       ))
       .returning();
 
