@@ -12,6 +12,20 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 // ============================================================
+// HELPERS
+// ============================================================
+
+/**
+ * Mask a LINE User ID for safe logging.
+ * Keeps first 4 and last 2 chars, masks the middle.
+ * Example: U1234567890abcdef → U1234***ef
+ */
+function maskLineUserId(id: string): string {
+  if (!id || id.length <= 6) return '***';
+  return `${id.slice(0, 4)}***${id.slice(-2)}`;
+}
+
+// ============================================================
 // TYPES
 // ============================================================
 
@@ -47,10 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         console.log('[LINE Webhook] Event type:', event.type);
         
         if (event.source?.userId) {
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('Received LINE User ID:');
-          console.log(event.source.userId);
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('[LINE Webhook] User:', maskLineUserId(event.source.userId));
         }
       }
     }
