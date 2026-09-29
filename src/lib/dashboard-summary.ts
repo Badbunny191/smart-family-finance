@@ -97,12 +97,20 @@ export interface LineNotificationMetrics {
   monthlyIncome: number;
   monthlyExpense: number;
   monthlyNet: number;
+  // Income (รอรับเงิน / รับเงินเกินกำหนด)
   pendingCount: number;
   pendingTotal: number;
   overdueCount: number;
   overdueTotal: number;
+  // Expense (รอจ่าย / จ่ายเงินเกินกำหนด)
+  pendingPayCount: number;
+  pendingPayAmount: number;
+  overduePayCount: number;
+  overduePayAmount: number;
   pendingItems: LineNotificationItem[];   // top N items (for bullet list)
   overdueItems: LineNotificationItem[];
+  pendingPayItems: LineNotificationItem[];
+  overduePayItems: LineNotificationItem[];
   today: TodaySummary;                   // today's completed transactions
 }
 
@@ -534,6 +542,63 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
       .orderBy(transactions.date)
       .limit(5),
 
+    // === EXPENSE queries (NEW) — Phase 1.2 ===
+    // Pending expense (รอจ่าย)
+    db
+      .select({
+        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.businessStatus, 'pending'),
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
+      )),
+
+    // Overdue expense (เกินกำหนดจ่าย)
+    db
+      .select({
+        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+        count: sql<number>`COUNT(*)`,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.businessStatus, 'pending'),
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
+      )),
+
+    // Pending expense items (top 5 oldest)
+    db
+      .select({
+        title: transactions.title,
+        amount: transactions.amount,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.businessStatus, 'pending'),
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
+      ))
+      .orderBy(transactions.date)
+      .limit(5),
+
+    // Overdue expense items (top 5 oldest)
+    db
+      .select({
+        title: transactions.title,
+        amount: transactions.amount,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.type, 'expense'),
+        eq(transactions.businessStatus, 'pending'),
+        sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
+      ))
+      .orderBy(transactions.date)
+      .limit(5),
+
     // Today's Transactions (completed only) - for Flex "รายการวันนี้" section
     db
       .select({
@@ -557,7 +622,12 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
   const overdueResult = queryResults[3].status === 'fulfilled' ? queryResults[3].value as CountTotalResult[] : [];
   const pendingItemsResult = queryResults[4].status === 'fulfilled' ? queryResults[4].value as LineNotificationItem[] : [];
   const overdueItemsResult = queryResults[5].status === 'fulfilled' ? queryResults[5].value as LineNotificationItem[] : [];
-  const todayResult = queryResults[6].status === 'fulfilled' ? queryResults[6].value as { type: string; count: number; total: number }[] : [];
+  // Expense results (indices 6-9)
+  const pendingPayResult = queryResults[6].status === 'fulfilled' ? queryResults[6].value as CountTotalResult[] : [];
+  const overduePayResult = queryResults[7].status === 'fulfilled' ? queryResults[7].value as CountTotalResult[] : [];
+  const pendingPayItemsResult = queryResults[8].status === 'fulfilled' ? queryResults[8].value as LineNotificationItem[] : [];
+  const overduePayItemsResult = queryResults[9].status === 'fulfilled' ? queryResults[9].value as LineNotificationItem[] : [];
+  const todayResult = queryResults[10].status === 'fulfilled' ? queryResults[10].value as { type: string; count: number; total: number }[] : [];
 
   // 🚨 AUDIT: Dump today query result raw
   console.log('[getLineNotificationMetrics] today query raw result:', todayResult);
@@ -613,8 +683,15 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
     pendingTotal: Number(pendingMetrics.total) || 0,
     overdueCount: Number(overdueMetrics.count) || 0,
     overdueTotal: Number(overdueMetrics.total) || 0,
+    // Expense (รอจ่าย / จ่ายเกินกำหนด) — NEW
+    pendingPayCount: Number(pendingPayResult[0]?.count) || 0,
+    pendingPayAmount: Number(pendingPayResult[0]?.total) || 0,
+    overduePayCount: Number(overduePayResult[0]?.count) || 0,
+    overduePayAmount: Number(overduePayResult[0]?.total) || 0,
     pendingItems: pendingItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
     overdueItems: overdueItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
+    pendingPayItems: pendingPayItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
+    overduePayItems: overduePayItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
     today: {
       receivedCount: todayReceivedCount,
       receivedAmount: todayReceivedAmount,

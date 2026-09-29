@@ -30,12 +30,21 @@ export interface LineNotificationMetrics {
   monthlyIncome: number;
   monthlyExpense: number;
   monthlyNet: number;
+  // Income (รอรับเงิน / รับเงินเกินกำหนด)
   pendingCount: number;
   pendingTotal: number;
   overdueCount: number;
   overdueTotal: number;
+  // Expense (รอจ่าย / จ่ายเงินเกินกำหนด)
+  pendingPayCount: number;
+  pendingPayAmount: number;
+  overduePayCount: number;
+  overduePayAmount: number;
+  // Items for Flex details
   pendingItems?: Array<{ title: string; amount: number }>;
   overdueItems?: Array<{ title: string; amount: number }>;
+  pendingPayItems?: Array<{ title: string; amount: number }>;
+  overduePayItems?: Array<{ title: string; amount: number }>;
   today: TodaySummary;  // today's completed transactions
 }
 
@@ -146,17 +155,24 @@ export function toFlexMetrics(metrics: LineNotificationMetrics): LineFlexMetrics
       paidCount: metrics.today.paidCount,
       paidAmount: metrics.today.paidAmount,
     },
-    // pendingItems and overdueItems are income-based (รอรับเงิน)
+    // Receive = income
     overdueReceive: (metrics.overdueItems ?? []).map(item => ({
       title: item.title,
       amount: item.amount,
     })),
-    overduePay: [],
     pendingReceive: (metrics.pendingItems ?? []).map(item => ({
       title: item.title,
       amount: item.amount,
     })),
-    pendingPay: [],
+    // Pay = expense (map จาก metrics จริง ไม่ hardcode แล้ว)
+    overduePay: (metrics.overduePayItems ?? []).map(item => ({
+      title: item.title,
+      amount: item.amount,
+    })),
+    pendingPay: (metrics.pendingPayItems ?? []).map(item => ({
+      title: item.title,
+      amount: item.amount,
+    })),
   };
 }
 
