@@ -40,6 +40,12 @@ export interface LineNotificationMetrics {
   overdueTotal: number;
   pendingItems: Array<{ title: string; amount: number }>;
   overdueItems: Array<{ title: string; amount: number }>;
+  today: {
+    receivedCount: number;
+    receivedAmount: number;
+    paidCount: number;
+    paidAmount: number;
+  };
 }
 
 export interface SendResult {

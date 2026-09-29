@@ -26,6 +26,7 @@ import { and, eq, gte, lt, isNull, inArray, sql, or } from 'drizzle-orm';
 import * as schema from '../../db/schema';
 import { buildFlexMessage, LineFlexMetrics, TransactionItem } from '../../lib/line-flex-builder';
 import { sendFlexMessage, LineNotificationMetrics } from '../../lib/line-flex-sender';
+import { getTodayRange } from '../../lib/line-cron-service';
 
 // ============================================================
 // TYPES
@@ -292,10 +293,21 @@ async function runLineCron(
   let totalSent = 0;
   let totalFailed = 0;
 
+  // 🚨 AUDIT: Dump metrics before send loop
+  console.log(`[${WORKER_NAME}] metrics.today:`, JSON.stringify({
+    receivedCount: metrics.today.receivedCount,
+    receivedAmount: metrics.today.receivedAmount,
+    paidCount: metrics.today.paidCount,
+    paidAmount: metrics.today.paidAmount,
+  }));
+
   for (const recipient of toSend) {
     // Backward compat: ถ้า settings เก่ามี showOverdue/showPending → map เป็น 2 ฝั่ง
     const legacyShow = recipient.settings.showOverdue ?? true;
     const legacyPending = recipient.settings.showPending ?? true;
+
+    // 🚨 AUDIT: Log settings
+    console.log(`[${WORKER_NAME}] recipient settings.showToday:`, (recipient.settings as any).showToday);
     
     // Use new flex builder with new metrics format
     const flexMessage = buildFlexMessage(metrics, {
@@ -522,6 +534,32 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineFlexMetri
     .orderBy(schema.transactions.date)
     .limit(5);
 
+  // Today's Transactions (completed only) - Bangkok timezone
+  // Use shared getTodayRange to ensure consistency with Preview Route
+  const { todayStart: todayStartStr, todayEnd: todayEndStr } = getTodayRange();
+  const todayStart = new Date(todayStartStr);
+  const todayEnd = new Date(todayEndStr);
+
+  console.log(`[${WORKER_NAME}] today range (UTC):`, { todayStart: todayStart.toISOString(), todayEnd: todayEnd.toISOString() });
+
+  const todayResult = await drizzleDb
+    .select({
+      type: schema.transactions.type,
+      count: sql<number>`COUNT(*)`,
+      total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
+    })
+    .from(schema.transactions)
+    .where(
+      and(
+        eq(schema.transactions.status, 'completed'),
+        gte(schema.transactions.date, todayStart),
+        lt(schema.transactions.date, todayEnd)
+      )
+    )
+    .groupBy(schema.transactions.type);
+
+  console.log(`[${WORKER_NAME}] todayResult:`, todayResult);
+
   const totalBalance = Number(balanceResult[0]?.totalBalance) || 0;
 
   let monthlyIncome = 0;
@@ -537,6 +575,29 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineFlexMetri
   const pendingMetrics = pendingResult[0] || { total: 0, count: 0 };
   const overdueMetrics = overdueResult[0] || { total: 0, count: 0 };
 
+  // Today's Transactions - separate received (income) vs paid (expense)
+  let todayReceivedCount = 0;
+  let todayReceivedAmount = 0;
+  let todayPaidCount = 0;
+  let todayPaidAmount = 0;
+
+  for (const row of todayResult) {
+    if (row.type === 'income') {
+      todayReceivedCount = Number(row.count) || 0;
+      todayReceivedAmount = Number(row.total) || 0;
+    } else if (row.type === 'expense') {
+      todayPaidCount = Number(row.count) || 0;
+      todayPaidAmount = Number(row.total) || 0;
+    }
+  }
+
+  console.log(`[${WORKER_NAME}] today:`, {
+    receivedCount: todayReceivedCount,
+    receivedAmount: todayReceivedAmount,
+    paidCount: todayPaidCount,
+    paidAmount: todayPaidAmount,
+  });
+
   // Convert to new LineFlexMetrics format
   const flexMetrics: LineFlexMetrics = {
     totalBalance,
@@ -545,10 +606,10 @@ async function getLineNotificationMetrics(db: D1Database): Promise<LineFlexMetri
       expense: monthlyExpense,
     },
     today: {
-      receivedCount: 0,
-      receivedAmount: 0,
-      paidCount: 0,
-      paidAmount: 0,
+      receivedCount: todayReceivedCount,
+      receivedAmount: todayReceivedAmount,
+      paidCount: todayPaidCount,
+      paidAmount: todayPaidAmount,
     },
     pendingReceive: pendingItemsResult.map((it) => ({
       title: it.title || 'ไม่ระบุ',

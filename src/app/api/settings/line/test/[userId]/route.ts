@@ -36,6 +36,12 @@ interface LineNotificationMetrics {
   overdueTotal: number;
   pendingItems: LineNotificationItem[];
   overdueItems: LineNotificationItem[];
+  today: {
+    receivedCount: number;
+    receivedAmount: number;
+    paidCount: number;
+    paidAmount: number;
+  };
 }
 
 /**
@@ -115,7 +121,11 @@ export async function POST(
     }
 
     // 3) Get metrics with items — same source as production cron
+    // 🚨 AUDIT: Dump metrics for debugging
     const rawMetrics = await getLineNotificationMetrics(db) as LineNotificationMetrics;
+    console.log('[TestFlex:userId] rawMetrics.today:', JSON.stringify(rawMetrics.today));
+    console.log('[TestFlex:userId] rawMetrics.today.receivedCount:', rawMetrics.today.receivedCount);
+    console.log('[TestFlex:userId] rawMetrics.today.paidCount:', rawMetrics.today.paidCount);
 
     // 3.5) Query Pay items (รอจ่าย + ค้างจ่าย) — expense type only
     // Due date logic matches dashboard-summary.ts:
@@ -147,13 +157,14 @@ export async function POST(
       .limit(5);
 
     // 4) Build flexMetrics with ALL 4 arrays (รอรับ + รอจ่าย + ค้างรับ + ค้างจ่าย)
+    // 🚨 FIX: Use rawMetrics.today instead of hardcoded zeros
     const flexMetrics: LineFlexMetrics = {
       totalBalance: rawMetrics.totalBalance,
       monthly: {
         income: rawMetrics.monthlyIncome,
         expense: rawMetrics.monthlyExpense,
       },
-      today: { receivedCount: 0, receivedAmount: 0, paidCount: 0, paidAmount: 0 },
+      today: rawMetrics.today,  // ✅ Fixed: was { receivedCount: 0, ... }
       // รอรับเงิน (income-based, from dashboard-summary)
       overdueReceive: rawMetrics.overdueItems.map((it) => ({ title: it.title, amount: Number(it.amount) })),
       pendingReceive: rawMetrics.pendingItems.map((it) => ({ title: it.title, amount: Number(it.amount) })),

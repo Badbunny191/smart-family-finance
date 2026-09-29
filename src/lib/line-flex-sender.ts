@@ -172,16 +172,33 @@ export async function sendDailySummaryFlexToUser(
 ): Promise<SendResult> {
   // Convert from LineNotificationMetrics to LineFlexMetrics
   const flexMetrics = toFlexMetrics(metrics);
+
+  // 🚨 AUDIT: Dump metrics before buildFlexMessage
+  console.log('[ManualSend] flexMetrics.today:', JSON.stringify(flexMetrics.today));
+  console.log('[ManualSend] flexMetrics:', JSON.stringify(flexMetrics, null, 2));
   
   // Backward compat: ถ้า settings เก่ามี showOverdue/showPending → map เป็น 2 ฝั่ง
   const legacyShow = settings.showOverdue ?? true;
   const legacyPending = settings.showPending ?? true;
   
+  // 🚨 AUDIT: Log settings.showToday
+  console.log('[ManualSend] settings.showToday:', (settings as any).showToday);
+  console.log('[ManualSend] final flexSettings:', {
+    sendTime: settings.sendTime,
+    showBalance: settings.showBalance ?? true,
+    showMonthly: settings.showIncome ?? true,
+    showToday: (settings as any).showToday ?? false,
+    showOverdueReceive: (settings as any).showOverdueReceive ?? legacyShow,
+    showOverduePay: (settings as any).showOverduePay ?? legacyShow,
+    showPendingReceive: (settings as any).showPendingReceive ?? legacyPending,
+    showPendingPay: (settings as any).showPendingPay ?? legacyPending,
+  });
+  
   const flexMessage = buildFlexMessage(flexMetrics, {
     sendTime: settings.sendTime,
     showBalance: settings.showBalance ?? true,
     showMonthly: settings.showIncome ?? true,
-    showToday: false,
+    showToday: (settings as any).showToday ?? false,
     showOverdueReceive: (settings as any).showOverdueReceive ?? legacyShow,
     showOverduePay: (settings as any).showOverduePay ?? legacyShow,
     showPendingReceive: (settings as any).showPendingReceive ?? legacyPending,

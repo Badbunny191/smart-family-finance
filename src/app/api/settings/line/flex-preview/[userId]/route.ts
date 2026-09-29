@@ -120,7 +120,10 @@ export async function POST(
     }
 
     // 3) Get metrics from dashboard-summary (รอรับเงิน + คงเหลือ + รายเดือน)
+    // 🚨 AUDIT: Add source tag to differentiate from Manual Send
+    console.log('[FlexPreview:POST] Calling getLineNotificationMetrics for userId:', userId);
     const raw = await getLineNotificationMetrics(db) as FullLineNotificationMetrics;
+    console.log('[FlexPreview:POST] raw.today:', JSON.stringify(raw.today));
 
     // 4) Query Pay items (รอจ่าย + ค้างจ่าย) — expense type only
     // Due date logic matches dashboard-summary.ts:
@@ -177,10 +180,20 @@ export async function POST(
 
     console.log('[FlexPreview] metrics.today:', raw.today);
 
+    // 🚨 AUDIT: Dump full flexMetrics before buildFlexMessage
+    console.log('[FlexPreview] flexMetrics.today:', JSON.stringify({
+      receivedCount: raw.today.receivedCount,
+      receivedAmount: raw.today.receivedAmount,
+      paidCount: raw.today.paidCount,
+      paidAmount: raw.today.paidAmount,
+    }));
+
     // 4) Build Flex Message — SAME builder as production
     let flexMessage;
     try {
-      flexMessage = buildFlexMessage(flexMetrics, toFlexSettings(settings));
+      const flexSettings = toFlexSettings(settings);
+      console.log('[FlexPreview] flexSettings.showToday:', flexSettings.showToday);
+      flexMessage = buildFlexMessage(flexMetrics, flexSettings);
     } catch (err) {
       console.error('[FlexPreview] build error:', err);
       return NextResponse.json({

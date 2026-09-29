@@ -446,6 +446,10 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
   const { monthStart, nextMonthStart } = getCurrentMonthRange();
   const { todayStart, todayEnd } = getTodayRange();
 
+  // 🚨 AUDIT: Dump today query params
+  const nowTs = Math.floor(Date.now() / 1000);
+  console.log('[getLineNotificationMetrics] today query params:', { todayStart, todayEnd, now: nowTs });
+
   // Run only the queries we need
   const queryResults = await Promise.allSettled([
     // Total Balance
@@ -555,6 +559,9 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
   const overdueItemsResult = queryResults[5].status === 'fulfilled' ? queryResults[5].value as LineNotificationItem[] : [];
   const todayResult = queryResults[6].status === 'fulfilled' ? queryResults[6].value as { type: string; count: number; total: number }[] : [];
 
+  // 🚨 AUDIT: Dump today query result raw
+  console.log('[getLineNotificationMetrics] today query raw result:', todayResult);
+  
   // Total Balance
   const totalBalance = Number(balanceResult[0]?.totalBalance) || 0;
 

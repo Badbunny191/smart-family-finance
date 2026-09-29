@@ -190,6 +190,14 @@ export async function runLineCron(
       // Backward compat: ถ้า settings เก่ามี showOverdue/showPending → map เป็น 2 ฝั่ง
       const legacyShow = (recipient.settings as any).showOverdue ?? true;
       const legacyPending = (recipient.settings as any).showPending ?? true;
+
+      // 🚨 AUDIT: Dump metrics before sendDailySummaryFlexToUser
+      console.log('[CronAPI] metrics.today:', JSON.stringify(metrics.today));
+      console.log('[CronAPI] recipient settings:', JSON.stringify({
+        showToday: (recipient.settings as any).showToday,
+        showBalance: recipient.settings.showBalance,
+        showIncome: recipient.settings.showIncome,
+      }));
       
       const result = await sendDailySummaryFlexToUser(
         recipient.lineUserId,
@@ -471,7 +479,7 @@ function getCurrentMonthRange(): { monthStart: string; nextMonthStart: string } 
  * Uses Bangkok timezone (UTC+7)
  * Returns date range in UTC for database query
  */
-function getTodayRange(): { todayStart: string; todayEnd: string } {
+export function getTodayRange(): { todayStart: string; todayEnd: string } {
   const now = new Date();
   // Bangkok timezone = UTC+7, so get today's date in Bangkok
   const bangkokDate = new Date(now.getTime() + (7 * 60 * 60 * 1000));
