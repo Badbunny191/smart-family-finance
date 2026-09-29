@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getD1 } from '@/lib/cloudflare';
+import { getD1, getR2 } from '@/lib/cloudflare';
 import { getDb } from '@/db/client';
+import { getRequestContext } from '@/lib/api-auth';
+import { and, eq, isNull } from 'drizzle-orm';
+import { attachments, transactions } from '@/db/schema';
 
 export const runtime = 'nodejs';
 
@@ -8,7 +11,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 
 // GET /api/attachments/[id]/image?size=preview
 // size: 'original' (default) | 'preview'
-// Public endpoint - returns image if it exists (auth check is done at page level)
+// Requires auth + ownership check via transaction.createdByUserId
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
   const { searchParams } = new URL(request.url);
@@ -16,13 +19,32 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const isPreview = size === 'preview';
 
   try {
+    // [SECURITY] Auth required
+    const { db, session } = await getRequestContext(request);
+
+    // [SECURITY] Ownership check - must be attachment owner or admin
+    const ownershipRows = await db
+      .select({ userId: transactions.createdByUserId })
+      .from(attachments)
+      .leftJoin(transactions, eq(attachments.transactionId, transactions.id))
+      .where(and(eq(attachments.id, id), isNull(attachments.deletedAt)))
+      .limit(1);
+
+    if (!ownershipRows[0]) {
+      return NextResponse.json({ error: 'ไม่พบไฟล์' }, { status: 404 });
+    }
+
+    const isOwner = ownershipRows[0].userId === session.user.id;
+    const isUserAdmin = (session.user as { role?: string }).role === 'admin';
+    if (!isOwner && !isUserAdmin) {
+      return NextResponse.json({ error: 'ไม่มีสิทธิ์เข้าถึง' }, { status: 403 });
+    }
+
     // DB Query
     const d1 = await getD1();
-    const db = getDb(d1);
-    const { attachments } = await import('@/db/schema');
-    const { and, eq, isNull } = await import('drizzle-orm');
+    const dbClient = getDb(d1);
 
-    const rows = await db
+    const rows = await dbClient
       .select({ fileKey: attachments.fileKey, fileType: attachments.fileType })
       .from(attachments)
       .where(and(eq(attachments.id, id), isNull(attachments.deletedAt)))
@@ -33,7 +55,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     const { fileKey, fileType } = rows[0];
-    const { getR2 } = await import('@/lib/cloudflare');
     const r2 = getR2();
 
     // R2 GET - prefer preview, fallback to original
