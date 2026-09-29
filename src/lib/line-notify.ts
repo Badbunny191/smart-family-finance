@@ -38,8 +38,8 @@ export interface LineNotificationMetrics {
   pendingTotal: number;
   overdueCount: number;
   overdueTotal: number;
-  pendingItems: Array<{ title: string; amount: number }>;
-  overdueItems: Array<{ title: string; amount: number }>;
+  pendingItems?: Array<{ title: string; amount: number }>;
+  overdueItems?: Array<{ title: string; amount: number }>;
   today: {
     receivedCount: number;
     receivedAmount: number;

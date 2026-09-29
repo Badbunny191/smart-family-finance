@@ -27,7 +27,8 @@ export async function POST(_request: NextRequest) {
   try {
     // Auth required — any logged-in user can test
     await getRequestContext(_request);
-    const db = getDb(await getD1());
+    const d1 = await getD1();
+    const db = getDb(d1);
 
     const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!LINE_ACCESS_TOKEN) {
@@ -91,7 +92,7 @@ export async function POST(_request: NextRequest) {
     // 4) Fetch metrics (with items for Flex Message)
     // 🚨 AUDIT: Add source tag to differentiate from FlexPreview
     console.log('[ManualSend:POST] Calling getLineNotificationMetrics');
-    const metrics = await getLineNotificationMetrics(db);
+    const metrics = await getLineNotificationMetrics(d1);
     console.log('[ManualSend:POST] metrics.today:', JSON.stringify(metrics.today));
     const dateString = getBangkokDateString();
 

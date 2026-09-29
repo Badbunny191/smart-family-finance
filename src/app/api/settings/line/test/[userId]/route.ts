@@ -51,7 +51,8 @@ export async function POST(
     // Auth required
     await getRequestContext(_request);
     const { userId } = await params;
-    const db = getDb(await getD1());
+    const d1 = await getD1();
+    const db = getDb(d1);
 
     const LINE_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!LINE_ACCESS_TOKEN) {
@@ -102,7 +103,7 @@ export async function POST(
 
     // 3) Get metrics from line-cron-service (SSOT)
     console.log('[TestFlex:userId] Calling getLineNotificationMetrics');
-    const metrics = await getLineNotificationMetrics(db);
+    const metrics = await getLineNotificationMetrics(d1);
     console.log('[TestFlex:userId] metrics.today:', JSON.stringify(metrics.today));
 
     // 4) Build flexMetrics with ALL 4 arrays from SSOT

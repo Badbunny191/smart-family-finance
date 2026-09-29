@@ -44,7 +44,8 @@ export async function POST(
     // Auth required
     await getRequestContext(_request);
     const { userId } = await params;
-    const db = getDb(await getD1());
+    const d1 = await getD1();
+    const db = getDb(d1);
 
     // 1) Get LINE account info
     const lineAccount = await db
@@ -84,7 +85,7 @@ export async function POST(
     }
 
     // 3) Get metrics
-    const metrics = await getLineNotificationMetrics(db);
+    const metrics = await getLineNotificationMetrics(d1);
     const dateString = getBangkokDateString();
 
     // 4) Format message
