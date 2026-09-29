@@ -14,7 +14,8 @@
  * │   LINE Cron Worker (ES Module)                              │
  * │   - Has scheduled() export (required by Cloudflare)        │
  * │   - Has fetch() for health check                           │
- * │   - Uses D1 database with Drizzle ORM                      │
+ * │   - Uses D1 database via line-cron-service.ts               │
+ * │   - SHARES Single Source of Truth with Preview/Test-Send   │
  * │   - Same business logic as Dashboard / Test Send           │
  * │   - SENDS FLEX MESSAGE (not text)                          │
  * │   - DEDUP via last_sent_at (Asia/Bangkok date)             │
@@ -24,9 +25,9 @@
 import { drizzle } from 'drizzle-orm/d1';
 import { and, eq, gte, lt, isNull, inArray, sql, or } from 'drizzle-orm';
 import * as schema from '../../db/schema';
-import { buildFlexMessage, LineFlexMetrics, TransactionItem } from '../../lib/line-flex-builder';
-import { sendFlexMessage, LineNotificationMetrics } from '../../lib/line-flex-sender';
-import { getTodayRange } from '../../lib/line-cron-service';
+import { buildFlexMessage } from '../../lib/line-flex-builder';
+import { sendFlexMessage, toFlexMetrics } from '../../lib/line-flex-sender';
+import { getLineNotificationMetrics, getEnabledRecipients, LineRecipient, LineNotificationMetrics } from '../../lib/line-cron-service';
 
 // ============================================================
 // TYPES
@@ -58,12 +59,8 @@ interface DailySummarySettings {
   showOverdue?: boolean;
 }
 
-interface RecipientWithSettings {
-  lineUserId: string;
-  userId: string | null;
-  settings: DailySummarySettings;
-  lastSentAt: number | null;
-}
+// Use LineRecipient from line-cron-service (aliased for clarity)
+type RecipientWithSettings = LineRecipient;
 
 interface SendResult {
   success: boolean;
@@ -76,7 +73,7 @@ interface CronResult {
   success: boolean;
   timestamp: string;
   sentAt: string;
-  metrics: LineFlexMetrics;
+  metrics: LineNotificationMetrics;
   recipients: { lineUserId: string; sent: boolean; error?: string; skipped?: string }[];
   summary: {
     totalRecipients: number;
@@ -142,7 +139,7 @@ export default {
       const bangkokTime = getCurrentBangkokTimeString();
       const bangkokDate = getBangkokDateString();
 
-      let metrics: LineFlexMetrics | null = null;
+      let metrics: LineNotificationMetrics | null = null;
       try {
         metrics = await getLineNotificationMetrics(env.DB);
       } catch (e) {
@@ -306,11 +303,24 @@ async function runLineCron(
     const legacyShow = recipient.settings.showOverdue ?? true;
     const legacyPending = recipient.settings.showPending ?? true;
 
-    // 🚨 AUDIT: Log settings
-    console.log(`[${WORKER_NAME}] recipient settings.showToday:`, (recipient.settings as any).showToday);
+    // 🚨 AUDIT: Log metrics and settings before buildFlexMessage
+    console.log(`[${WORKER_NAME}] ============================================`);
+    console.log(`[${WORKER_NAME}] TODAY_METRICS:`, JSON.stringify({
+      receivedCount: metrics.today.receivedCount,
+      receivedAmount: metrics.today.receivedAmount,
+      paidCount: metrics.today.paidCount,
+      paidAmount: metrics.today.paidAmount,
+    }));
+    console.log(`[${WORKER_NAME}] SETTINGS.showToday:`, (recipient.settings as any).showToday);
+    console.log(`[${WORKER_NAME}] recipient.settings:`, JSON.stringify(recipient.settings));
+    
+    // Convert LineNotificationMetrics → LineFlexMetrics using shared function
+    const flexMetrics = toFlexMetrics(metrics);
+    
+    console.log(`[${WORKER_NAME}] FLEX_METRICS.today:`, JSON.stringify(flexMetrics.today));
     
     // Use new flex builder with new metrics format
-    const flexMessage = buildFlexMessage(metrics, {
+    const flexSettings = {
       sendTime: recipient.settings.sendTime,
       showBalance: recipient.settings.showBalance,
       showMonthly: recipient.settings.showIncome,
@@ -319,7 +329,14 @@ async function runLineCron(
       showOverduePay: (recipient.settings as any).showOverduePay ?? legacyShow,
       showPendingReceive: (recipient.settings as any).showPendingReceive ?? legacyPending,
       showPendingPay: (recipient.settings as any).showPendingPay ?? legacyPending,
-    });
+    };
+    console.log(`[${WORKER_NAME}] FLEX_SETTINGS:`, JSON.stringify(flexSettings));
+    
+    const flexMessage = buildFlexMessage(flexMetrics, flexSettings);
+    
+    // Log final payload
+    console.log(`[${WORKER_NAME}] FINAL_PAYLOAD:`, JSON.stringify(flexMessage, null, 2));
+    console.log(`[${WORKER_NAME}] ============================================`);
     const result = await sendFlexMessage(recipient.lineUserId, flexMessage, LINE_ACCESS_TOKEN);
     results.push(result);
 
@@ -369,15 +386,12 @@ async function runLineCron(
 }
 
 // ============================================================
-// DATABASE QUERIES
+// TIME MATCHING (with 60-second window)
 // ============================================================
 
-function getCurrentMonthRange(): { monthStart: Date; nextMonthStart: Date } {
-  const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  return { monthStart, nextMonthStart };
-}
+// ============================================================
+// TIME MATCHING (with 60-second window)
+// ============================================================
 
 /**
  * Update last_sent_at after successful send (used for daily dedup).
@@ -393,310 +407,6 @@ async function updateLastSentAt(db: D1Database, userId: string): Promise<void> {
     .bind(nowSec, nowSec, userId)
     .run();
 }
-
-/**
- * Get metrics for LINE notification — same as dashboard/test-send,
- * plus top-5 items for the Flex Message.
- */
-async function getLineNotificationMetrics(db: D1Database): Promise<LineFlexMetrics> {
-  const { monthStart, nextMonthStart } = getCurrentMonthRange();
-
-  const drizzleDb = drizzle(db, { schema });
-
-  // Total Balance
-  const balanceResult = await drizzleDb
-    .select({
-      totalBalance: sql<number>`COALESCE(SUM(${schema.accounts.currentBalance}), 0)`,
-    })
-    .from(schema.accounts)
-    .where(
-      and(
-        inArray(schema.accounts.accountType, ['cash', 'bank']),
-        isNull(schema.accounts.deletedAt)
-      )
-    );
-
-  // Monthly income/expense
-  const incomeExpenseResult = await drizzleDb
-    .select({
-      type: schema.transactions.type,
-      total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
-    })
-    .from(schema.transactions)
-    .where(
-      and(
-        eq(schema.transactions.status, 'completed'),
-        gte(schema.transactions.date, monthStart),
-        lt(schema.transactions.date, nextMonthStart),
-        or(
-          eq(schema.transactions.type, 'income'),
-          eq(schema.transactions.type, 'expense')
-        ),
-      )
-    )
-    .groupBy(schema.transactions.type);
-
-  // Pending (not yet overdue)
-  const pendingResult = await drizzleDb
-    .select({
-      total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
-      count: sql<number>`COUNT(*)`,
-    })
-    .from(schema.transactions)
-    .where(
-      and(
-        eq(schema.transactions.type, 'income'),
-        eq(schema.transactions.businessStatus, 'pending'),
-        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
-      )
-    );
-
-  // Overdue
-  const overdueResult = await drizzleDb
-    .select({
-      total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
-      count: sql<number>`COUNT(*)`,
-    })
-    .from(schema.transactions)
-    .where(
-      and(
-        eq(schema.transactions.type, 'income'),
-        eq(schema.transactions.businessStatus, 'pending'),
-        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
-      )
-    );
-
-  // Pending items (top 5 oldest)
-  const pendingItemsResult = await drizzleDb
-    .select({
-      title: schema.transactions.title,
-      amount: schema.transactions.amount,
-    })
-    .from(schema.transactions)
-    .where(
-      and(
-        eq(schema.transactions.type, 'income'),
-        eq(schema.transactions.businessStatus, 'pending'),
-        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
-      )
-    )
-    .orderBy(schema.transactions.date)
-    .limit(5);
-
-  // Overdue items (top 5 oldest)
-  const overdueItemsResult = await drizzleDb
-    .select({
-      title: schema.transactions.title,
-      amount: schema.transactions.amount,
-    })
-    .from(schema.transactions)
-    .where(
-      and(
-        eq(schema.transactions.type, 'income'),
-        eq(schema.transactions.businessStatus, 'pending'),
-        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
-      )
-    )
-    .orderBy(schema.transactions.date)
-    .limit(5);
-
-  // Pending Pay items (expense + not yet overdue) — FIX: previously missing
-  const pendingPayItemsResult = await drizzleDb
-    .select({
-      title: schema.transactions.title,
-      amount: schema.transactions.amount,
-    })
-    .from(schema.transactions)
-    .where(
-      and(
-        eq(schema.transactions.type, 'expense'),
-        eq(schema.transactions.businessStatus, 'pending'),
-        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') > datetime('now', '+7 hours')`
-      )
-    )
-    .orderBy(schema.transactions.date)
-    .limit(5);
-
-  // Overdue Pay items (expense + overdue) — FIX: previously missing
-  const overduePayItemsResult = await drizzleDb
-    .select({
-      title: schema.transactions.title,
-      amount: schema.transactions.amount,
-    })
-    .from(schema.transactions)
-    .where(
-      and(
-        eq(schema.transactions.type, 'expense'),
-        eq(schema.transactions.businessStatus, 'pending'),
-        sql`datetime(datetime(${schema.transactions.date}, 'unixepoch', '+7 hours'), '+1 day', '18:00:00') <= datetime('now', '+7 hours')`
-      )
-    )
-    .orderBy(schema.transactions.date)
-    .limit(5);
-
-  // Today's Transactions (completed only) - Bangkok timezone
-  // Use shared getTodayRange to ensure consistency with Preview Route
-  const { todayStart: todayStartStr, todayEnd: todayEndStr } = getTodayRange();
-  const todayStart = new Date(todayStartStr);
-  const todayEnd = new Date(todayEndStr);
-
-  console.log(`[${WORKER_NAME}] today range (UTC):`, { todayStart: todayStart.toISOString(), todayEnd: todayEnd.toISOString() });
-
-  const todayResult = await drizzleDb
-    .select({
-      type: schema.transactions.type,
-      count: sql<number>`COUNT(*)`,
-      total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
-    })
-    .from(schema.transactions)
-    .where(
-      and(
-        eq(schema.transactions.status, 'completed'),
-        gte(schema.transactions.date, todayStart),
-        lt(schema.transactions.date, todayEnd)
-      )
-    )
-    .groupBy(schema.transactions.type);
-
-  console.log(`[${WORKER_NAME}] todayResult:`, todayResult);
-
-  const totalBalance = Number(balanceResult[0]?.totalBalance) || 0;
-
-  let monthlyIncome = 0;
-  let monthlyExpense = 0;
-  for (const row of incomeExpenseResult) {
-    if (row.type === 'income') {
-      monthlyIncome = Number(row.total) || 0;
-    } else if (row.type === 'expense') {
-      monthlyExpense = Number(row.total) || 0;
-    }
-  }
-
-  const pendingMetrics = pendingResult[0] || { total: 0, count: 0 };
-  const overdueMetrics = overdueResult[0] || { total: 0, count: 0 };
-
-  // Today's Transactions - separate received (income) vs paid (expense)
-  let todayReceivedCount = 0;
-  let todayReceivedAmount = 0;
-  let todayPaidCount = 0;
-  let todayPaidAmount = 0;
-
-  for (const row of todayResult) {
-    if (row.type === 'income') {
-      todayReceivedCount = Number(row.count) || 0;
-      todayReceivedAmount = Number(row.total) || 0;
-    } else if (row.type === 'expense') {
-      todayPaidCount = Number(row.count) || 0;
-      todayPaidAmount = Number(row.total) || 0;
-    }
-  }
-
-  console.log(`[${WORKER_NAME}] today:`, {
-    receivedCount: todayReceivedCount,
-    receivedAmount: todayReceivedAmount,
-    paidCount: todayPaidCount,
-    paidAmount: todayPaidAmount,
-  });
-
-  // Convert to new LineFlexMetrics format
-  const flexMetrics: LineFlexMetrics = {
-    totalBalance,
-    monthly: {
-      income: monthlyIncome,
-      expense: monthlyExpense,
-    },
-    today: {
-      receivedCount: todayReceivedCount,
-      receivedAmount: todayReceivedAmount,
-      paidCount: todayPaidCount,
-      paidAmount: todayPaidAmount,
-    },
-    pendingReceive: pendingItemsResult.map((it) => ({
-      title: it.title || 'ไม่ระบุ',
-      amount: Number(it.amount) || 0,
-    })),
-    pendingPay: pendingPayItemsResult.map((it) => ({
-      title: it.title || 'ไม่ระบุ',
-      amount: Number(it.amount) || 0,
-    })),
-    overdueReceive: overdueItemsResult.map((it) => ({
-      title: it.title || 'ไม่ระบุ',
-      amount: Number(it.amount) || 0,
-    })),
-    overduePay: overduePayItemsResult.map((it) => ({
-      title: it.title || 'ไม่ระบุ',
-      amount: Number(it.amount) || 0,
-    })),
-  };
-
-  return flexMetrics;
-}
-
-/**
- * Get all enabled LINE recipients with their per-user settings and last_sent_at.
- */
-async function getEnabledRecipients(db: D1Database): Promise<RecipientWithSettings[]> {
-  const query = `
-    SELECT
-      la.line_user_id,
-      la.user_id,
-      COALESCE(ns.settings, '{"sendTime":"08:00","showBalance":true,"showIncome":true,"showExpense":true,"showToday":true,"showOverdueReceive":true,"showOverduePay":true,"showPendingReceive":true,"showPendingPay":true,"showPendingDetails":true,"showOverdueDetails":true}') as settings,
-      ns.last_sent_at as last_sent_at
-    FROM line_accounts la
-    LEFT JOIN notification_settings ns
-      ON ns.user_id = la.user_id
-      AND ns.notification_type = 'daily_summary'
-      AND ns.enabled = 1
-    WHERE la.notify_enabled = 1
-      AND la.deleted_at IS NULL
-  `;
-
-  const accountsResult = await db
-    .prepare(query)
-    .all<{
-      line_user_id: string;
-      user_id: string | number | null;
-      settings: string;
-      last_sent_at: number | null;
-    }>();
-
-  if (accountsResult.results.length === 0) return [];
-
-  return accountsResult.results.map((row) => {
-    let settings: DailySummarySettings = {
-      sendTime: '08:00',
-      showBalance: true,
-      showIncome: true,
-      showExpense: true,
-      showToday: true,
-      showOverdueReceive: true,
-      showOverduePay: true,
-      showPendingReceive: true,
-      showPendingPay: true,
-      showPendingDetails: true,
-      showOverdueDetails: true,
-    };
-
-    try {
-      if (row.settings) {
-        settings = JSON.parse(row.settings);
-      }
-    } catch {
-      // Use default
-    }
-
-    return {
-      lineUserId: row.line_user_id,
-      userId: row.user_id != null ? String(row.user_id) : null,
-      settings,
-      lastSentAt: row.last_sent_at ?? null,
-    };
-  });
-}
-
-// ============================================================
-// TIME MATCHING (with 60-second window)
-// ============================================================
 
 /**
  * Check if current time matches configured time within a 60-second window.

@@ -462,15 +462,19 @@ async function updateLastSentAt(
 // ============================================================
 
 /**
- * Get current month range in UTC
+ * Get current month range in UTC (unix timestamps for D1 integer comparison)
+ *
+ * IMPORTANT: Returns UNIX SECONDS (number), not ISO strings.
+ * SQLite CAST('2026-09-01T00:00:00.000Z' AS INTEGER) yields 2026 (just the year),
+ * so binding ISO strings to integer columns returns wrong results.
  */
-function getCurrentMonthRange(): { monthStart: string; nextMonthStart: string } {
+export function getCurrentMonthRange(): { monthStart: number; nextMonthStart: number } {
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   return {
-    monthStart: monthStart.toISOString(),
-    nextMonthStart: nextMonthStart.toISOString(),
+    monthStart: Math.floor(monthStart.getTime() / 1000),
+    nextMonthStart: Math.floor(nextMonthStart.getTime() / 1000),
   };
 }
 
@@ -478,23 +482,37 @@ function getCurrentMonthRange(): { monthStart: string; nextMonthStart: string } 
  * Get today's date range for "today" transactions
  * Uses Bangkok timezone (UTC+7)
  * Returns date range in UTC for database query
+ * 
+ * IMPORTANT: Use Intl.DateTimeFormat to get Bangkok date components
+ * because JavaScript's setHours() uses LOCAL timezone, not the target timezone.
  */
-export function getTodayRange(): { todayStart: string; todayEnd: string } {
+export function getTodayRange(): { todayStart: number; todayEnd: number } {
   const now = new Date();
-  // Bangkok timezone = UTC+7, so get today's date in Bangkok
-  const bangkokDate = new Date(now.getTime() + (7 * 60 * 60 * 1000));
 
-  // Start of today in Bangkok
-  const todayBangkok = new Date(bangkokDate);
-  todayBangkok.setHours(0, 0, 0, 0);
+  // Use Intl to get Bangkok date as string (YYYY-MM-DD)
+  const bangkokFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const bangkokDateStr = bangkokFormatter.format(now);
+  const [year, month, day] = bangkokDateStr.split('-').map(Number);
 
-  // Convert back to UTC
-  const todayStart = new Date(todayBangkok.getTime() - (7 * 60 * 60 * 1000));
-  const todayEnd = new Date(todayBangkok.getTime() + (24 * 60 * 60 * 1000) - 1 - (7 * 60 * 60 * 1000));
+  // Bangkok today at 00:00:00.000 in UTC milliseconds
+  // Bangkok = UTC + 7, so Bangkok 00:00 = UTC 17:00 (previous day)
+  const todayBangkokMs = Date.UTC(year, month - 1, day, 0, 0, 0, 0);
+
+  // Convert to UTC for database query
+  // Bangkok 00:00 = UTC - 7 hours
+  // Return as unix timestamps for D1 compatibility
+  const todayStart = Math.floor((todayBangkokMs - (7 * 60 * 60 * 1000)) / 1000);
+  // Bangkok tomorrow 00:00 - 1ms = Bangkok today 23:59:59.999
+  const todayEnd = Math.floor((todayBangkokMs + (24 * 60 * 60 * 1000) - 1 - (7 * 60 * 60 * 1000)) / 1000);
 
   return {
-    todayStart: todayStart.toISOString(),
-    todayEnd: todayEnd.toISOString(),
+    todayStart,
+    todayEnd,
   };
 }
 
@@ -504,6 +522,17 @@ export function getTodayRange(): { todayStart: string; todayEnd: string } {
 export async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificationMetrics> {
   const { monthStart, nextMonthStart } = getCurrentMonthRange();
   const { todayStart, todayEnd } = getTodayRange();
+
+  // 🚨 AUDIT: Log TODAY_RANGE
+  console.log('[getLineNotificationMetrics] TODAY_RANGE:', JSON.stringify({
+    timezone: 'Asia/Bangkok',
+    startDate: new Date(todayStart * 1000).toISOString(),
+    endDate: new Date(todayEnd * 1000).toISOString(),
+    startUnix: todayStart,
+    endUnix: todayEnd,
+    currentUTC: new Date().toISOString(),
+    currentBangkok: new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString(),
+  }));
 
   // Query 1: Total Balance
   const balanceResult = await db
