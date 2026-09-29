@@ -467,10 +467,35 @@ function getCurrentMonthRange(): { monthStart: string; nextMonthStart: string } 
 }
 
 /**
+ * Get today's date range for "today" transactions
+ * Uses Bangkok timezone (UTC+7)
+ * Returns date range in UTC for database query
+ */
+function getTodayRange(): { todayStart: string; todayEnd: string } {
+  const now = new Date();
+  // Bangkok timezone = UTC+7, so get today's date in Bangkok
+  const bangkokDate = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+
+  // Start of today in Bangkok
+  const todayBangkok = new Date(bangkokDate);
+  todayBangkok.setHours(0, 0, 0, 0);
+
+  // Convert back to UTC
+  const todayStart = new Date(todayBangkok.getTime() - (7 * 60 * 60 * 1000));
+  const todayEnd = new Date(todayBangkok.getTime() + (24 * 60 * 60 * 1000) - 1 - (7 * 60 * 60 * 1000));
+
+  return {
+    todayStart: todayStart.toISOString(),
+    todayEnd: todayEnd.toISOString(),
+  };
+}
+
+/**
  * Get metrics for LINE notification (with items for Flex Message).
  */
 export async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificationMetrics> {
   const { monthStart, nextMonthStart } = getCurrentMonthRange();
+  const { todayStart, todayEnd } = getTodayRange();
 
   // Query 1: Total Balance
   const balanceResult = await db
@@ -558,6 +583,41 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
     `)
     .all<{ title: string; amount: number }>();
 
+  // Query 7: Today's Transactions (completed only) - for Flex "รายการวันนี้" section
+  const todayResult = await db
+    .prepare(`
+      SELECT type, COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total
+      FROM transactions
+      WHERE status = 'completed'
+        AND date >= ?
+        AND date < ?
+      GROUP BY type
+    `)
+    .bind(todayStart, todayEnd)
+    .all<{ type: string; cnt: number; total: number }>();
+
+  let todayReceivedCount = 0;
+  let todayReceivedAmount = 0;
+  let todayPaidCount = 0;
+  let todayPaidAmount = 0;
+
+  for (const row of todayResult.results) {
+    if (row.type === 'income') {
+      todayReceivedCount = Number(row.cnt) || 0;
+      todayReceivedAmount = Number(row.total) || 0;
+    } else if (row.type === 'expense') {
+      todayPaidCount = Number(row.cnt) || 0;
+      todayPaidAmount = Number(row.total) || 0;
+    }
+  }
+
+  console.log('[LINE Cron] metrics.today:', {
+    receivedCount: todayReceivedCount,
+    receivedAmount: todayReceivedAmount,
+    paidCount: todayPaidCount,
+    paidAmount: todayPaidAmount,
+  });
+
   return {
     totalBalance: Number(balanceResult?.total_balance) || 0,
     monthlyIncome,
@@ -575,6 +635,12 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
       title: r.title,
       amount: Number(r.amount) || 0,
     })),
+    today: {
+      receivedCount: todayReceivedCount,
+      receivedAmount: todayReceivedAmount,
+      paidCount: todayPaidCount,
+      paidAmount: todayPaidAmount,
+    },
   };
 }
 
@@ -698,6 +764,12 @@ function createErrorResult(timestamp: string, reason: string): CronResult {
       overdueTotal: 0,
       pendingItems: [],
       overdueItems: [],
+      today: {
+        receivedCount: 0,
+        receivedAmount: 0,
+        paidCount: 0,
+        paidAmount: 0,
+      },
     },
     recipients: [],
     summary: { totalRecipients: 0, totalSent: 0, totalFailed: 0, totalSkipped: 0 },

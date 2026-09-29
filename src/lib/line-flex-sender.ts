@@ -18,6 +18,13 @@ export interface LineNotificationItem {
   amount: number;
 }
 
+export interface TodaySummary {
+  receivedCount: number;
+  receivedAmount: number;
+  paidCount: number;
+  paidAmount: number;
+}
+
 export interface LineNotificationMetrics {
   totalBalance: number;
   monthlyIncome: number;
@@ -29,6 +36,7 @@ export interface LineNotificationMetrics {
   overdueTotal: number;
   pendingItems?: Array<{ title: string; amount: number }>;
   overdueItems?: Array<{ title: string; amount: number }>;
+  today: TodaySummary;  // today's completed transactions
 }
 
 export interface DailySummarySettings {
@@ -109,13 +117,15 @@ export async function sendFlexMessage(
 /**
  * Convert LineNotificationMetrics (from line-cron-service) to LineFlexMetrics (for line-flex-builder)
  * 
- * LineNotificationMetrics only has:
+ * LineNotificationMetrics has:
  * - pendingItems (income)
  * - overdueItems (income)
+ * - today: receivedCount, receivedAmount, paidCount, paidAmount
  * 
  * LineFlexMetrics needs:
  * - pendingReceive, pendingPay
  * - overdueReceive, overduePay
+ * - today: same structure
  * 
  * Since line-flex-builder expects separate receive/pay arrays,
  * we put everything in the receive arrays (pendingItems/overdueItems are income-based)
@@ -129,11 +139,12 @@ export function toFlexMetrics(metrics: LineNotificationMetrics): LineFlexMetrics
       income: metrics.monthlyIncome,
       expense: metrics.monthlyExpense,
     },
+    // Use real today data from database query
     today: {
-      receivedCount: 0,
-      receivedAmount: 0,
-      paidCount: 0,
-      paidAmount: 0,
+      receivedCount: metrics.today.receivedCount,
+      receivedAmount: metrics.today.receivedAmount,
+      paidCount: metrics.today.paidCount,
+      paidAmount: metrics.today.paidAmount,
     },
     // pendingItems and overdueItems are income-based (รอรับเงิน)
     overdueReceive: (metrics.overdueItems ?? []).map(item => ({

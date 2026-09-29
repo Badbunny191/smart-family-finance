@@ -122,8 +122,13 @@ export function formatCurrency(amount: number): string {
 }
 
 // Buddhist Calendar date formatter (พ.ศ. ทุกครั้ง)
+// Uses Asia/Bangkok timezone to correctly display dates from database (stored as UTC)
 function createBuddhistFormatter(options: Intl.DateTimeFormatOptions) {
-  return new Intl.DateTimeFormat('th-TH', { calendar: 'buddhist', ...options });
+  return new Intl.DateTimeFormat('th-TH', { 
+    calendar: 'buddhist',
+    timeZone: 'Asia/Bangkok',
+    ...options 
+  });
 }
 
 /**

@@ -42,6 +42,12 @@ interface FullLineNotificationMetrics {
   overdueTotal: number;
   pendingItems: LineNotificationItem[];
   overdueItems: LineNotificationItem[];
+  today: {
+    receivedCount: number;
+    receivedAmount: number;
+    paidCount: number;
+    paidAmount: number;
+  };
 }
 
 /**
@@ -154,7 +160,13 @@ export async function POST(
         income: raw.monthlyIncome,
         expense: raw.monthlyExpense,
       },
-      today: { receivedCount: 0, receivedAmount: 0, paidCount: 0, paidAmount: 0 },
+      // Use real today data from getLineNotificationMetrics query
+      today: {
+        receivedCount: raw.today.receivedCount,
+        receivedAmount: raw.today.receivedAmount,
+        paidCount: raw.today.paidCount,
+        paidAmount: raw.today.paidAmount,
+      },
       // รอรับเงิน (income-based, from dashboard-summary)
       overdueReceive: raw.overdueItems.map((it) => ({ title: it.title, amount: Number(it.amount) })),
       pendingReceive: raw.pendingItems.map((it) => ({ title: it.title, amount: Number(it.amount) })),
@@ -162,6 +174,8 @@ export async function POST(
       overduePay: overduePayItems.map((it) => ({ title: it.title || 'ไม่ระบุ', amount: Number(it.amount) })),
       pendingPay: pendingPayItems.map((it) => ({ title: it.title || 'ไม่ระบุ', amount: Number(it.amount) })),
     };
+
+    console.log('[FlexPreview] metrics.today:', raw.today);
 
     // 4) Build Flex Message — SAME builder as production
     let flexMessage;

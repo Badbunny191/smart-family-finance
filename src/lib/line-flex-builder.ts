@@ -640,8 +640,8 @@ export function buildFlexMessage(
     body: {
       type: 'box',
       layout: 'vertical',
-      paddingAll: '16px',
-      spacing: 'md',
+      paddingAll: '12px',
+      spacing: 'sm',
       contents,
     },
   };

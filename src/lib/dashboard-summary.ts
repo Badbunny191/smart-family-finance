@@ -85,6 +85,13 @@ export interface LineNotificationItem {
   amount: number;
 }
 
+export interface TodaySummary {
+  receivedCount: number;
+  receivedAmount: number;
+  paidCount: number;
+  paidAmount: number;
+}
+
 export interface LineNotificationMetrics {
   totalBalance: number;
   monthlyIncome: number;
@@ -96,6 +103,7 @@ export interface LineNotificationMetrics {
   overdueTotal: number;
   pendingItems: LineNotificationItem[];   // top N items (for bullet list)
   overdueItems: LineNotificationItem[];
+  today: TodaySummary;                   // today's completed transactions
 }
 
 // Query result types
@@ -144,6 +152,27 @@ export function getCurrentMonthRange(): { monthStart: Date; nextMonthStart: Date
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   return { monthStart, nextMonthStart };
+}
+
+/**
+ * Get today's date range for "today" transactions
+ * Uses Bangkok timezone (UTC+7)
+ * Returns date range in UTC for database query
+ */
+export function getTodayRange(): { todayStart: Date; todayEnd: Date } {
+  const now = new Date();
+  // Bangkok timezone = UTC+7, so get today's date in Bangkok
+  const bangkokDate = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+
+  // Start of today in Bangkok
+  const todayBangkok = new Date(bangkokDate);
+  todayBangkok.setHours(0, 0, 0, 0);
+
+  // Convert back to UTC
+  const todayStart = new Date(todayBangkok.getTime() - (7 * 60 * 60 * 1000));
+  const todayEnd = new Date(todayBangkok.getTime() + (24 * 60 * 60 * 1000) - 1 - (7 * 60 * 60 * 1000));
+
+  return { todayStart, todayEnd };
 }
 
 // ============================================================
@@ -415,7 +444,8 @@ export async function getDashboardMetrics(db: AppDatabase) {
  */
 export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineNotificationMetrics> {
   const { monthStart, nextMonthStart } = getCurrentMonthRange();
-  
+  const { todayStart, todayEnd } = getTodayRange();
+
   // Run only the queries we need
   const queryResults = await Promise.allSettled([
     // Total Balance
@@ -499,6 +529,21 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
       ))
       .orderBy(transactions.date)
       .limit(5),
+
+    // Today's Transactions (completed only) - for Flex "รายการวันนี้" section
+    db
+      .select({
+        type: transactions.type,
+        count: sql<number>`COUNT(*)`,
+        total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+      })
+      .from(transactions)
+      .where(and(
+        eq(transactions.status, 'completed'),
+        gte(transactions.date, todayStart),
+        lt(transactions.date, todayEnd)
+      ))
+      .groupBy(transactions.type),
   ]);
 
   // Extract results with type safety
@@ -508,6 +553,7 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
   const overdueResult = queryResults[3].status === 'fulfilled' ? queryResults[3].value as CountTotalResult[] : [];
   const pendingItemsResult = queryResults[4].status === 'fulfilled' ? queryResults[4].value as LineNotificationItem[] : [];
   const overdueItemsResult = queryResults[5].status === 'fulfilled' ? queryResults[5].value as LineNotificationItem[] : [];
+  const todayResult = queryResults[6].status === 'fulfilled' ? queryResults[6].value as { type: string; count: number; total: number }[] : [];
 
   // Total Balance
   const totalBalance = Number(balanceResult[0]?.totalBalance) || 0;
@@ -528,6 +574,29 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
   const pendingMetrics = pendingResult[0] || { total: 0, count: 0 };
   const overdueMetrics = overdueResult[0] || { total: 0, count: 0 };
 
+  // Today's Transactions - separate received vs paid
+  let todayReceivedCount = 0;
+  let todayReceivedAmount = 0;
+  let todayPaidCount = 0;
+  let todayPaidAmount = 0;
+
+  for (const row of todayResult) {
+    if (row.type === 'income') {
+      todayReceivedCount = Number(row.count) || 0;
+      todayReceivedAmount = Number(row.total) || 0;
+    } else if (row.type === 'expense') {
+      todayPaidCount = Number(row.count) || 0;
+      todayPaidAmount = Number(row.total) || 0;
+    }
+  }
+
+  console.log('[getLineNotificationMetrics] today:', {
+    receivedCount: todayReceivedCount,
+    receivedAmount: todayReceivedAmount,
+    paidCount: todayPaidCount,
+    paidAmount: todayPaidAmount,
+  });
+
   return {
     totalBalance,
     monthlyIncome,
@@ -539,5 +608,11 @@ export async function getLineNotificationMetrics(db: AppDatabase): Promise<LineN
     overdueTotal: Number(overdueMetrics.total) || 0,
     pendingItems: pendingItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
     overdueItems: overdueItemsResult.map((it) => ({ title: it.title, amount: Number(it.amount) || 0 })),
+    today: {
+      receivedCount: todayReceivedCount,
+      receivedAmount: todayReceivedAmount,
+      paidCount: todayPaidCount,
+      paidAmount: todayPaidAmount,
+    },
   };
 }

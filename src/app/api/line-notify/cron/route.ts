@@ -32,6 +32,14 @@ const EMPTY_METRICS = {
   pendingTotal: 0,
   overdueCount: 0,
   overdueTotal: 0,
+  pendingItems: [],
+  overdueItems: [],
+  today: {
+    receivedCount: 0,
+    receivedAmount: 0,
+    paidCount: 0,
+    paidAmount: 0,
+  },
 };
 
 const EMPTY_SUMMARY = {
