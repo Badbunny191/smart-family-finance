@@ -17,7 +17,7 @@ import { getRequestContext, handleApiError } from '@/lib/api-auth';
 import { getD1 } from '@/lib/cloudflare';
 import { getDb } from '@/db/client';
 import { lineAccounts, notificationSettings } from '@/db/schema';
-import { getLineNotificationMetrics } from '@/lib/dashboard-summary';
+import { getLineNotificationMetrics } from '@/lib/line-cron-service';
 import { sendDailySummaryFlexToUser } from '@/lib/line-flex-sender';
 import { DEFAULT_DAILY_SUMMARY_SETTINGS, getBangkokDateString } from '@/lib/notification-settings';
 

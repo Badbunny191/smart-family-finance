@@ -12,37 +12,17 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { eq, and, isNull, sql } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { getRequestContext, handleApiError } from '@/lib/api-auth';
 import { getD1 } from '@/lib/cloudflare';
 import { getDb } from '@/db/client';
-import { lineAccounts, notificationSettings, transactions } from '@/db/schema';
-import { getLineNotificationMetrics, type LineNotificationItem } from '@/lib/dashboard-summary';
+import { lineAccounts, notificationSettings } from '@/db/schema';
+import { getLineNotificationMetrics } from '@/lib/line-cron-service';
 import { buildFlexMessage, LineFlexMetrics, LineFlexSettings } from '@/lib/line-flex-builder';
 import { sendFlexMessage } from '@/lib/line-flex-sender';
 import { DEFAULT_DAILY_SUMMARY_SETTINGS, getBangkokDateString, type DailySummarySettings } from '@/lib/notification-settings';
 
 export const runtime = 'nodejs';
-
-// Full metrics with items (matches getLineNotificationMetrics output)
-interface LineNotificationMetrics {
-  totalBalance: number;
-  monthlyIncome: number;
-  monthlyExpense: number;
-  monthlyNet: number;
-  pendingCount: number;
-  pendingTotal: number;
-  overdueCount: number;
-  overdueTotal: number;
-  pendingItems: LineNotificationItem[];
-  overdueItems: LineNotificationItem[];
-  today: {
-    receivedCount: number;
-    receivedAmount: number;
-    paidCount: number;
-    paidAmount: number;
-  };
-}
 
 /**
  * Map DB settings (11 fields) → LineFlexSettings (7 fields used by builder)
@@ -120,61 +100,27 @@ export async function POST(
       settings = { ...DEFAULT_DAILY_SUMMARY_SETTINGS, ...parsed };
     }
 
-    // 3) Get metrics with items — same source as production cron
-    // 🚨 AUDIT: Dump metrics for debugging
-    const rawMetrics = await getLineNotificationMetrics(db) as LineNotificationMetrics;
-    console.log('[TestFlex:userId] rawMetrics.today:', JSON.stringify(rawMetrics.today));
-    console.log('[TestFlex:userId] rawMetrics.today.receivedCount:', rawMetrics.today.receivedCount);
-    console.log('[TestFlex:userId] rawMetrics.today.paidCount:', rawMetrics.today.paidCount);
+    // 3) Get metrics from line-cron-service (SSOT)
+    console.log('[TestFlex:userId] Calling getLineNotificationMetrics');
+    const metrics = await getLineNotificationMetrics(db);
+    console.log('[TestFlex:userId] metrics.today:', JSON.stringify(metrics.today));
 
-    // 3.5) Query Pay items (รอจ่าย + ค้างจ่าย) — expense type only
-    // Due date logic matches dashboard-summary.ts:
-    // COALESCE(dueDateTime, date + 126000) > now = pending | <= now = overdue
-    const pendingPayItems = await db
-      .select({ title: transactions.title, amount: transactions.amount })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.type, 'expense'),
-          eq(transactions.businessStatus, 'pending'),
-          sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) > CAST(strftime('%s', 'now') AS INTEGER)`
-        )
-      )
-      .orderBy(transactions.date)
-      .limit(5);
-
-    const overduePayItems = await db
-      .select({ title: transactions.title, amount: transactions.amount })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.type, 'expense'),
-          eq(transactions.businessStatus, 'pending'),
-          sql`COALESCE(${transactions.dueDateTime}, ${transactions.date} + 126000) <= CAST(strftime('%s', 'now') AS INTEGER)`
-        )
-      )
-      .orderBy(transactions.date)
-      .limit(5);
-
-    // 4) Build flexMetrics with ALL 4 arrays (รอรับ + รอจ่าย + ค้างรับ + ค้างจ่าย)
-    // 🚨 FIX: Use rawMetrics.today instead of hardcoded zeros
+    // 4) Build flexMetrics with ALL 4 arrays from SSOT
     const flexMetrics: LineFlexMetrics = {
-      totalBalance: rawMetrics.totalBalance,
+      totalBalance: metrics.totalBalance,
       monthly: {
-        income: rawMetrics.monthlyIncome,
-        expense: rawMetrics.monthlyExpense,
+        income: metrics.monthlyIncome,
+        expense: metrics.monthlyExpense,
       },
-      today: rawMetrics.today,  // ✅ Fixed: was { receivedCount: 0, ... }
-      // รอรับเงิน (income-based, from dashboard-summary)
-      overdueReceive: rawMetrics.overdueItems.map((it) => ({ title: it.title, amount: Number(it.amount) })),
-      pendingReceive: rawMetrics.pendingItems.map((it) => ({ title: it.title, amount: Number(it.amount) })),
-      // รอจ่าย (expense-based, from direct queries above)
-      overduePay: overduePayItems.map((it) => ({ title: it.title || 'ไม่ระบุ', amount: Number(it.amount) })),
-      pendingPay: pendingPayItems.map((it) => ({ title: it.title || 'ไม่ระบุ', amount: Number(it.amount) })),
+      today: metrics.today,
+      overdueReceive: (metrics.overdueItems ?? []).map((it) => ({ title: it.title, amount: Number(it.amount) })),
+      pendingReceive: (metrics.pendingItems ?? []).map((it) => ({ title: it.title, amount: Number(it.amount) })),
+      overduePay: (metrics.overduePayItems ?? []).map((it) => ({ title: it.title, amount: Number(it.amount) })),
+      pendingPay: (metrics.pendingPayItems ?? []).map((it) => ({ title: it.title, amount: Number(it.amount) })),
     };
     const dateString = getBangkokDateString();
 
-    // 4) Build Flex Message — SAME builder as production
+    // 5) Build Flex Message — SAME builder as production
     const flexMessage = buildFlexMessage(flexMetrics, toFlexSettings(settings));
 
     // DEBUG: Log flex message
