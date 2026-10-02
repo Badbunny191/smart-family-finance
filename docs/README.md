@@ -20,6 +20,8 @@ npm run deploy
 
 npm run build:cloudflare
 npx wrangler deploy
+ดีพลอยคอน
+npx wrangler deploy --config wrangler-cron.toml
 
 Test Environment
 npm run build:cloudflare

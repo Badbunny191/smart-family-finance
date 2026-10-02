@@ -101,9 +101,7 @@ export async function POST(
     }
 
     // 3) Get metrics from line-cron-service (SSOT)
-    console.log('[FlexPreview:POST] Calling getLineNotificationMetrics for userId:', userId);
     const metrics = await getLineNotificationMetrics(d1);
-    console.log('[FlexPreview:POST] metrics.today:', JSON.stringify(metrics.today));
 
     // 4) Build flexMetrics with ALL 4 arrays from SSOT
     const flexMetrics: LineFlexMetrics = {

@@ -90,10 +90,7 @@ export async function POST(_request: NextRequest) {
     });
 
     // 4) Fetch metrics (with items for Flex Message)
-    // 🚨 AUDIT: Add source tag to differentiate from FlexPreview
-    console.log('[ManualSend:POST] Calling getLineNotificationMetrics');
     const metrics = await getLineNotificationMetrics(d1);
-    console.log('[ManualSend:POST] metrics.today:', JSON.stringify(metrics.today));
     const dateString = getBangkokDateString();
 
     // 5) Send FLEX MESSAGE to all recipients with their own settings

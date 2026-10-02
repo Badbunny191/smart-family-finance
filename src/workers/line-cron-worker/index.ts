@@ -185,7 +185,14 @@ async function runLineCron(
   const bangkokTimeParts = getBangkokTime();
 
   // 1. Get Dashboard Metrics
+  console.log('[WORKER CRON] ENTRYPOINT: line-cron-worker/index.ts');
+  console.log('[WORKER CRON] Calling getLineNotificationMetrics()...');
   const metrics = await getLineNotificationMetrics(db);
+  console.log('[WORKER CRON] getLineNotificationMetrics() COMPLETE');
+  console.log('[WORKER CRON] metrics.monthlyIncome:', metrics.monthlyIncome);
+  console.log('[WORKER CRON] metrics.monthlyExpense:', metrics.monthlyExpense);
+  console.log('[WORKER CRON] metrics.monthlyNet:', metrics.monthlyNet);
+  console.log('[WORKER CRON] metrics.today:', JSON.stringify(metrics.today));
 
   // 2. Get recipients with per-user settings (and last_sent_at for dedup)
   const recipients = await getEnabledRecipients(db);
@@ -317,7 +324,11 @@ async function runLineCron(
     // Convert LineNotificationMetrics → LineFlexMetrics using shared function
     const flexMetrics = toFlexMetrics(metrics);
     
-    console.log(`[${WORKER_NAME}] FLEX_METRICS.today:`, JSON.stringify(flexMetrics.today));
+    console.log(`[${WORKER_NAME}] FLEX_METRICS after toFlexMetrics:`, JSON.stringify({
+      monthly: flexMetrics.monthly,
+      totalBalance: flexMetrics.totalBalance,
+      today: flexMetrics.today,
+    }));
     
     // Use new flex builder with new metrics format
     const flexSettings = {
@@ -337,6 +348,9 @@ async function runLineCron(
     // Log final payload
     console.log(`[${WORKER_NAME}] FINAL_PAYLOAD:`, JSON.stringify(flexMessage, null, 2));
     console.log(`[${WORKER_NAME}] ============================================`);
+    
+    // Log BEFORE sendFlexMessage
+    console.log(`[${WORKER_NAME}] >>> CALLING sendFlexMessage NOW...`);
     const result = await sendFlexMessage(recipient.lineUserId, flexMessage, LINE_ACCESS_TOKEN);
     results.push(result);
 

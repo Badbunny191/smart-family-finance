@@ -9,6 +9,8 @@
 
 export type ReportPeriod = 'today' | 'week' | 'month' | 'custom';
 
+import { getCurrentMonthRange, getTodayRange, getWeekRange } from './line-cron-service';
+
 /**
  * Central resolver for category icon rendering in LINE Report.
  *
@@ -132,6 +134,10 @@ export type Report = {
 
 /**
  * Get date range for a given period
+ *
+ * IMPORTANT: For 'month' period, this uses Bangkok timezone boundary
+ * (same as Dashboard/Auto Send) to ensure consistent results.
+ * Uses Intl.DateTimeFormat to avoid browser local timezone issues.
  */
 export function getPeriodRange(
   period: ReportPeriod,
@@ -143,37 +149,60 @@ export function getPeriodRange(
   label: string;
 } {
   const now = new Date(reference);
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
 
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-
+  // Declare as `let` so week case can reassign after Intl parsing
+  let start: Date;
+  let end: Date;
   let label = '';
   let endOfWeek: Date | null = null;
 
+  // For 'month' period: use Bangkok timezone boundary (same as Dashboard)
+  // to avoid browser local timezone issues
+  if (period === 'month') {
+    const bangkokFormatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const bangkokDateStr = bangkokFormatter.format(now);
+    const [year, month] = bangkokDateStr.split('-').map(Number);
+
+    // Bangkok first of month at 00:00:00
+    start = new Date(Date.UTC(year, month - 1, 1));
+    // Bangkok last day of month (day = 0 in next month = last day of current)
+    end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+
+    label = `เดือน${getThaiMonthName(month - 1)} ${year + 543}`;
+    return { start, end, label };
+  }
+
+  // For 'today' and 'week': use Bangkok timezone
+  const bangkokFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const bangkokDateStr = bangkokFormatter.format(now);
+  const [year, month, day] = bangkokDateStr.split('-').map(Number);
+
+  // Bangkok today at midnight
+  start = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+  end = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+
   switch (period) {
     case 'today': {
-      label = `วันนี้ ${formatThaiDate(now, 'long')}`;
+      label = `วันนี้ ${formatThaiDate(new Date(start), 'long')}`;
       break;
     }
     case 'week': {
-      // Start of week = Monday (ISO week standard, also Thai convention)
-      const dayOfWeek = start.getDay();
-      const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      start.setDate(start.getDate() - daysSinceMonday);
-
-      endOfWeek = new Date(start);
-      endOfWeek.setDate(start.getDate() + 6);
-      endOfWeek.setHours(23, 59, 59, 999);
-      label = `สัปดาห์นี้ ${formatThaiDate(start)} - ${formatThaiDate(endOfWeek)}`;
-      break;
-    }
-    case 'month': {
-      start.setDate(1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      endOfMonth.setHours(23, 59, 59, 999);
-      label = `เดือน${getThaiMonthName(now.getMonth())} ${now.getFullYear() + 543}`;
+      // Use getWeekRange for consistent week boundary (unix seconds + label)
+      const { weekStart, weekEnd } = getWeekRange();
+      start = new Date((weekStart + 7 * 60 * 60) * 1000);
+      end = new Date((weekEnd + 7 * 60 * 60) * 1000);
+      label = `สัปดาห์นี้ ${formatThaiDate(start)} - ${formatThaiDate(end)}`;
+      endOfWeek = end;
       break;
     }
     case 'custom': {
@@ -212,9 +241,52 @@ export function buildReport(
 ): Report {
   const { start, end, label } = getPeriodRange(period, reference, customRange);
 
+  // For 'month' period: use Bangkok month boundary from line-cron-service
+  // (same as Dashboard and Flex) to ensure consistent results
+  const monthRange = period === 'month' ? getCurrentMonthRange() : null;
+  // For 'week' period: use Bangkok week boundary in unix seconds
+  const weekRange = period === 'week' ? getWeekRange() : null;
+  // For 'today' period: use Bangkok today range in unix seconds
+  const todayRange = period === 'today' ? getTodayRange() : null;
+
   // Filter: completed income/expense in date range
   const filtered = transactions.filter((tx) => {
     const txDate = new Date(tx.date);
+
+    // For 'month' period: use Bangkok unix seconds comparison (same as Dashboard/Flex)
+    if (monthRange) {
+      const txDateSec = txDate.getTime() / 1000;
+      return (
+        txDateSec >= monthRange.monthStart &&
+        txDateSec < monthRange.nextMonthStart &&
+        (tx.type === 'income' || tx.type === 'expense') &&
+        tx.status === 'completed'
+      );
+    }
+
+    // For 'week' period: use Bangkok unix seconds comparison
+    if (weekRange) {
+      const txDateSec = txDate.getTime() / 1000;
+      return (
+        txDateSec >= weekRange.weekStart &&
+        txDateSec <= weekRange.weekEnd &&
+        (tx.type === 'income' || tx.type === 'expense') &&
+        tx.status === 'completed'
+      );
+    }
+
+    // For 'today' period: use Bangkok unix seconds comparison
+    if (todayRange) {
+      const txDateSec = txDate.getTime() / 1000;
+      return (
+        txDateSec >= todayRange.todayStart &&
+        txDateSec <= todayRange.todayEnd &&
+        (tx.type === 'income' || tx.type === 'expense') &&
+        tx.status === 'completed'
+      );
+    }
+
+    // For 'custom': use Date comparison (legacy, less critical)
     return (
       txDate >= start &&
       txDate <= end &&
@@ -287,11 +359,20 @@ export function buildReport(
   const incomeTotal = incomeTxs.reduce((sum, tx) => sum + tx.amount, 0);
   const expenseTotal = expenseTxs.reduce((sum, tx) => sum + tx.amount, 0);
 
+  // For 'month' period: use Bangkok month boundary Dates for report display
+  // (same as Dashboard and Flex) — this makes startDate/endDate correct in report
+  const reportStart = monthRange
+    ? new Date(monthRange.monthStart * 1000)
+    : start;
+  const reportEnd = monthRange
+    ? new Date(monthRange.nextMonthStart * 1000 - 1) // inclusive end (one less than next month)
+    : end;
+
   return {
     period,
     periodLabel: label,
-    startDate: start,
-    endDate: end,
+    startDate: reportStart,
+    endDate: reportEnd,
     income: {
       total: incomeTotal,
       items: incomeItems,

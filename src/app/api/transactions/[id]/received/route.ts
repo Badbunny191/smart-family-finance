@@ -26,13 +26,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'รายการนี้ไม่อยู่ในสถานะรอรับเงิน' }, { status: 409 });
     }
 
-    // อัพเดท businessStatus และ status ให้สอดคล้องกัน
-    // businessStatus = received หมายถึง ได้รับเงินแล้ว → status ต้องเป็น completed
+    // อัพเดท businessStatus, status และ date ให้สอดคล้องกัน
+    // businessStatus = received หมายถึง ได้รับ/จ่ายเงินแล้ว → status ต้องเป็น completed
+    // date = วันที่จ่ายจริง (ปัจจุบัน) แทนวันที่นัดหมาย
     const [updated] = await db
       .update(transactions)
       .set({
         businessStatus: 'received',
         status: 'completed',
+        date: new Date(),
         updatedAt: new Date()
       })
       .where(and(

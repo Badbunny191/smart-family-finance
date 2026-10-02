@@ -68,19 +68,6 @@ export async function POST(request: NextRequest) {
     
     // Convert to Flex metrics using shared function
     const flexMetrics = toFlexMetrics(metrics);
-    
-    console.log('\n========== LINE FLEX TEST SEND ==========');
-    console.log('📊 Metrics from getLineNotificationMetrics():');
-    console.log('   totalBalance:', metrics.totalBalance);
-    console.log('   monthlyIncome:', metrics.monthlyIncome);
-    console.log('   monthlyExpense:', metrics.monthlyExpense);
-    console.log('   today.receivedCount:', metrics.today.receivedCount);
-    console.log('   today.receivedAmount:', metrics.today.receivedAmount);
-    console.log('   today.paidCount:', metrics.today.paidCount);
-    console.log('   today.paidAmount:', metrics.today.paidAmount);
-    console.log('   pendingItems:', metrics.pendingItems?.length);
-    console.log('   overdueItems:', metrics.overdueItems?.length);
-    console.log('==========================================\n');
 
     // Build Flex Message using shared function
     const flexMessage = buildFlexMessage(flexMetrics, {
@@ -93,10 +80,6 @@ export async function POST(request: NextRequest) {
       showPendingReceive: true,
       showPendingPay: true,
     });
-
-    console.log('\n========== LINE FLEX JSON (FINAL PAYLOAD) ==========');
-    console.log(JSON.stringify(flexMessage, null, 2));
-    console.log('====================================================\n');
 
     // Send Flex Message
     const result = await sendFlexMessage(targetLineUserId, flexMessage, LINE_ACCESS_TOKEN);

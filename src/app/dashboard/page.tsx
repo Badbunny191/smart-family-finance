@@ -56,30 +56,34 @@ export default async function DashboardPage() {
   const db = getDb(d1);
 
   // วันที่ของเดือนปัจจุบัน (UTC)
-  // transactions.date เก็บเป็น Unix timestamp (seconds) ดังนั้นต้องใช้ seconds สำหรับ query
+  // transactions.date เก็บเป็น Unix timestamp (seconds) โดยใช้ Bangkok date
+  // Bangkok = UTC+7 ดังนั้นต้องลบ offset 7 ชั่วโมง (25200 วินาที)
+  const BANGKOK_OFFSET_SEC = 7 * 60 * 60;
   const now = new Date();
-  const monthStartSec = Math.floor(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      1,
-      0,
-      0,
-      0,
-      0
-    ) / 1000
-  );
-  const nextMonthStartSec = Math.floor(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth() + 1,
-      1,
-      0,
-      0,
-      0,
-      0
-    ) / 1000
-  );
+  const monthStartSec =
+    Math.floor(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        1,
+        0,
+        0,
+        0,
+        0
+      ) / 1000
+    ) - BANGKOK_OFFSET_SEC;
+  const nextMonthStartSec =
+    Math.floor(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth() + 1,
+        1,
+        0,
+        0,
+        0,
+        0
+      ) / 1000
+    ) - BANGKOK_OFFSET_SEC;
 
   const queryResults = await Promise.allSettled([
     // QUERY 1: All account metrics
@@ -96,7 +100,8 @@ export default async function DashboardPage() {
       )),
 
     // QUERY 2: Monthly income/expense (exclude adjustments)
-    // ใช้ seconds สำหรับ date comparison เนื่องจาก transactions.date เก็บเป็น Unix timestamp (seconds)
+    // ใช้ raw SQL สำหรับ date comparison เนื่องจาก transactions.date เก็บเป็น Unix timestamp (seconds) ใน SQLite
+    // แม้ว่า Drizzle schema จะบอกว่าเป็น Date แต่ใน SQLite เป็น INTEGER
     db
       .select({
         type: transactions.type,
@@ -105,14 +110,14 @@ export default async function DashboardPage() {
       .from(transactions)
       .where(and(
         eq(transactions.status, 'completed'),
-        gte(transactions.date, monthStartSec),
-        lt(transactions.date, nextMonthStartSec),
+        sql`${transactions.date} >= ${monthStartSec}`,
+        sql`${transactions.date} < ${nextMonthStartSec}`,
         or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
       ))
       .groupBy(transactions.type),
 
     // QUERY 2b: Monthly adjustments (separate query)
-    // ใช้ seconds สำหรับ date comparison
+    // ใช้ raw SQL สำหรับ date comparison
     db
       .select({
         total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
@@ -121,8 +126,8 @@ export default async function DashboardPage() {
       .where(and(
         eq(transactions.status, 'completed'),
         eq(transactions.type, 'adjustment'),
-        gte(transactions.date, monthStartSec),
-        lt(transactions.date, nextMonthStartSec),
+        sql`${transactions.date} >= ${monthStartSec}`,
+        sql`${transactions.date} < ${nextMonthStartSec}`,
       )),
 
     // QUERY 3a: Pending income (not yet overdue)
@@ -306,15 +311,6 @@ export default async function DashboardPage() {
   const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, overdueResult, pendingDetails, overdueDetails, expensePendingResult, expenseOverdueResult, recentRows, personalAccountsRows, businessAccountsRows] = queryResults.map((result) =>
     result.status === 'fulfilled' ? result.value : null
   );
-
-  // DEBUG: Log monthly metrics query results
-  console.log('[Dashboard Debug] Monthly Cash Flow Query:', {
-    now: now.toISOString(),
-    monthStartSec,
-    nextMonthStartSec,
-    monthlyMetrics,
-    monthlyAdjustments,
-  });
 
   // Type definitions
   type AccountMetricsRow = { totalBalance: number; businessTotal: number; businessCashTotal: number } | null;

@@ -90,10 +90,6 @@ export async function sendFlexMessage(
     ],
   };
 
-  console.log('\n========== LINE FLEX DEBUG ==========');
-  console.log('📤 Request payload (without token):', JSON.stringify(requestPayload, null, 2));
-  console.log('======================================\n');
-
   try {
     const response = await fetch(`${LINE_API_BASE}/message/push`, {
       method: 'POST',
@@ -106,11 +102,6 @@ export async function sendFlexMessage(
 
     const statusCode = response.status;
     const responseBody = await response.text();
-
-    console.log('\n========== LINE API RESPONSE ==========');
-    console.log('HTTP Status:', statusCode);
-    console.log('Response body:', responseBody);
-    console.log('========================================\n');
 
     if (!response.ok) {
       return { success: false, lineUserId, error: `LINE API error ${statusCode}: ${responseBody}` };
@@ -189,9 +180,13 @@ export async function sendDailySummaryFlexToUser(
   // Convert from LineNotificationMetrics to LineFlexMetrics
   const flexMetrics = toFlexMetrics(metrics);
 
-  // 🚨 AUDIT: Dump metrics before buildFlexMessage
-  console.log('[ManualSend] flexMetrics.today:', JSON.stringify(flexMetrics.today));
-  console.log('[ManualSend] flexMetrics:', JSON.stringify(flexMetrics, null, 2));
+  console.log('[AUTO SEND FINAL METRICS]', {
+    monthlyIncome: flexMetrics.monthly.income,
+    monthlyExpense: flexMetrics.monthly.expense,
+    monthlyNet: flexMetrics.monthly.income - flexMetrics.monthly.expense,
+    totalBalance: flexMetrics.totalBalance,
+    today: flexMetrics.today,
+  });
   
   // Backward compat: ถ้า settings เก่ามี showOverdue/showPending → map เป็น 2 ฝั่ง
   const legacyShow = settings.showOverdue ?? true;

@@ -102,9 +102,7 @@ export async function POST(
     }
 
     // 3) Get metrics from line-cron-service (SSOT)
-    console.log('[TestFlex:userId] Calling getLineNotificationMetrics');
     const metrics = await getLineNotificationMetrics(d1);
-    console.log('[TestFlex:userId] metrics.today:', JSON.stringify(metrics.today));
 
     // 4) Build flexMetrics with ALL 4 arrays from SSOT
     const flexMetrics: LineFlexMetrics = {
@@ -124,21 +122,8 @@ export async function POST(
     // 5) Build Flex Message — SAME builder as production
     const flexMessage = buildFlexMessage(flexMetrics, toFlexSettings(settings));
 
-    // DEBUG: Log flex message
-    console.log('\n========== FLEX MESSAGE JSON ==========');
-    console.log(JSON.stringify(flexMessage, null, 2));
-    console.log('========================================\n');
-
     // 4.5) Validate Flex Message Schema
     const validation = validateFlexMessage(flexMessage);
-    console.log('\n========== FLEX SCHEMA VALIDATION ==========');
-    if (validation.valid) {
-      console.log('✅ VALID - All properties conform to LINE Flex Schema');
-    } else {
-      console.log('❌ INVALID - Found unsupported properties:');
-      validation.errors.forEach(err => console.log(`   - ${err}`));
-    }
-    console.log('==========================================\n');
 
     // 5) Send Flex Message to LINE
     const result = await sendFlexMessage(recipient.lineUserId, flexMessage, LINE_ACCESS_TOKEN);

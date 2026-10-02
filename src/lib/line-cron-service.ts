@@ -191,14 +191,6 @@ export async function runLineCron(
       const legacyShow = (recipient.settings as any).showOverdue ?? true;
       const legacyPending = (recipient.settings as any).showPending ?? true;
 
-      // 🚨 AUDIT: Dump metrics before sendDailySummaryFlexToUser
-      console.log('[CronAPI] metrics.today:', JSON.stringify(metrics.today));
-      console.log('[CronAPI] recipient settings:', JSON.stringify({
-        showToday: (recipient.settings as any).showToday,
-        showBalance: recipient.settings.showBalance,
-        showIncome: recipient.settings.showIncome,
-      }));
-      
       const result = await sendDailySummaryFlexToUser(
         recipient.lineUserId,
         metrics,
@@ -468,14 +460,39 @@ async function updateLastSentAt(
  * SQLite CAST('2026-09-01T00:00:00.000Z' AS INTEGER) yields 2026 (just the year),
  * so binding ISO strings to integer columns returns wrong results.
  */
+/**
+ * Get current month range using Bangkok timezone (UTC+7).
+ * Returns Unix timestamps in seconds.
+ *
+ * Bangkok offset = 7 * 60 * 60 = 25200 seconds
+ * Bangkok date 2026-10-01 00:00 = UTC 2026-09-30 17:00
+ *
+ * EXPORTED: used by both line-cron-service AND report.ts
+ * DO NOT duplicate this logic elsewhere.
+ */
 export function getCurrentMonthRange(): { monthStart: number; nextMonthStart: number } {
   const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  return {
-    monthStart: Math.floor(monthStart.getTime() / 1000),
-    nextMonthStart: Math.floor(nextMonthStart.getTime() / 1000),
-  };
+  const BANGKOK_OFFSET_SEC = 7 * 60 * 60;
+  
+  const monthStart =
+    Math.floor(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        1
+      ) / 1000
+    ) - BANGKOK_OFFSET_SEC;
+  
+  const nextMonthStart =
+    Math.floor(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth() + 1,
+        1
+      ) / 1000
+    ) - BANGKOK_OFFSET_SEC;
+
+  return { monthStart, nextMonthStart };
 }
 
 /**
@@ -517,22 +534,55 @@ export function getTodayRange(): { todayStart: number; todayEnd: number } {
 }
 
 /**
+ * Get the current Bangkok week range (Monday to Sunday).
+ * Uses Intl.DateTimeFormat with Asia/Bangkok to get correct week boundary.
+ * Returns unix seconds (same as getCurrentMonthRange / getTodayRange).
+ */
+export function getWeekRange(): { weekStart: number; weekEnd: number } {
+  const now = new Date();
+
+  // Get Bangkok date string (YYYY-MM-DD)
+  const bangkokFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const bangkokDateStr = bangkokFormatter.format(now);
+  const [year, month, day] = bangkokDateStr.split('-').map(Number);
+
+  // Get Bangkok day of week (Monday=1 ... Sunday=7)
+  const bangkokDayOfWeek = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    weekday: 'short',
+  }).format(now);
+  const dayMap: Record<string, number> = {
+    'Mon': 1, 'Tue': 2, 'Wed': 3, 'Thu': 4,
+    'Fri': 5, 'Sat': 6, 'Sun': 7,
+  };
+  const dayNum = dayMap[bangkokDayOfWeek] || 1;
+  // Days since Monday (Mon=0, Sun=6)
+  const daysSinceMonday = dayNum - 1;
+
+  // Bangkok midnight of Monday (the week start)
+  const bangkokWeekStartMs = Date.UTC(year, month - 1, day - daysSinceMonday, 0, 0, 0, 0);
+  // Bangkok 23:59:59.999 of Sunday (the week end)
+  const bangkokWeekEndMs = Date.UTC(year, month - 1, day - daysSinceMonday + 6, 23, 59, 59, 999);
+
+  // Convert Bangkok midnight to UTC unix seconds (Bangkok = UTC + 7)
+  const BANGKOK_OFFSET_SEC = 7 * 60 * 60;
+  const weekStart = Math.floor(bangkokWeekStartMs / 1000) - BANGKOK_OFFSET_SEC;
+  const weekEnd = Math.floor(bangkokWeekEndMs / 1000) - BANGKOK_OFFSET_SEC;
+
+  return { weekStart, weekEnd };
+}
+
+/**
  * Get metrics for LINE notification (with items for Flex Message).
  */
 export async function getLineNotificationMetrics(db: D1Database): Promise<LineNotificationMetrics> {
   const { monthStart, nextMonthStart } = getCurrentMonthRange();
   const { todayStart, todayEnd } = getTodayRange();
-
-  // 🚨 AUDIT: Log TODAY_RANGE
-  console.log('[getLineNotificationMetrics] TODAY_RANGE:', JSON.stringify({
-    timezone: 'Asia/Bangkok',
-    startDate: new Date(todayStart * 1000).toISOString(),
-    endDate: new Date(todayEnd * 1000).toISOString(),
-    startUnix: todayStart,
-    endUnix: todayEnd,
-    currentUTC: new Date().toISOString(),
-    currentBangkok: new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString(),
-  }));
 
   // Query 1: Total Balance
   const balanceResult = await db
