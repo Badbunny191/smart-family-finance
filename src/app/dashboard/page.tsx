@@ -56,9 +56,30 @@ export default async function DashboardPage() {
   const db = getDb(d1);
 
   // วันที่ของเดือนปัจจุบัน (UTC)
+  // transactions.date เก็บเป็น Unix timestamp (seconds) ดังนั้นต้องใช้ seconds สำหรับ query
   const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const monthStartSec = Math.floor(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      1,
+      0,
+      0,
+      0,
+      0
+    ) / 1000
+  );
+  const nextMonthStartSec = Math.floor(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth() + 1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ) / 1000
+  );
 
   const queryResults = await Promise.allSettled([
     // QUERY 1: All account metrics
@@ -75,6 +96,7 @@ export default async function DashboardPage() {
       )),
 
     // QUERY 2: Monthly income/expense (exclude adjustments)
+    // ใช้ seconds สำหรับ date comparison เนื่องจาก transactions.date เก็บเป็น Unix timestamp (seconds)
     db
       .select({
         type: transactions.type,
@@ -83,13 +105,14 @@ export default async function DashboardPage() {
       .from(transactions)
       .where(and(
         eq(transactions.status, 'completed'),
-        gte(transactions.date, monthStart),
-        lt(transactions.date, nextMonthStart),
+        gte(transactions.date, monthStartSec),
+        lt(transactions.date, nextMonthStartSec),
         or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
       ))
       .groupBy(transactions.type),
 
     // QUERY 2b: Monthly adjustments (separate query)
+    // ใช้ seconds สำหรับ date comparison
     db
       .select({
         total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
@@ -98,8 +121,8 @@ export default async function DashboardPage() {
       .where(and(
         eq(transactions.status, 'completed'),
         eq(transactions.type, 'adjustment'),
-        gte(transactions.date, monthStart),
-        lt(transactions.date, nextMonthStart),
+        gte(transactions.date, monthStartSec),
+        lt(transactions.date, nextMonthStartSec),
       )),
 
     // QUERY 3a: Pending income (not yet overdue)
@@ -283,6 +306,15 @@ export default async function DashboardPage() {
   const [accountMetrics, monthlyMetrics, monthlyAdjustments, pendingResult, overdueResult, pendingDetails, overdueDetails, expensePendingResult, expenseOverdueResult, recentRows, personalAccountsRows, businessAccountsRows] = queryResults.map((result) =>
     result.status === 'fulfilled' ? result.value : null
   );
+
+  // DEBUG: Log monthly metrics query results
+  console.log('[Dashboard Debug] Monthly Cash Flow Query:', {
+    now: now.toISOString(),
+    monthStartSec,
+    nextMonthStartSec,
+    monthlyMetrics,
+    monthlyAdjustments,
+  });
 
   // Type definitions
   type AccountMetricsRow = { totalBalance: number; businessTotal: number; businessCashTotal: number } | null;
