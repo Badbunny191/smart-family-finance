@@ -92,22 +92,16 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Date range filter — Asia/Bangkok boundary
-    // Client sends dateFrom/dateTo as ISO strings in Bangkok timezone (e.g. "2026-10-02T00:00:00.000Z"
-    // when Bangkok midnight is "2026-10-02T00:00:00+07:00").
-    // We MUST interpret them as Bangkok wall-clock dates, NOT UTC.
-    // Strategy: parse the ISO string as a Bangkok midnight timestamp.
+    // Date range filter
     if (dateFrom) {
-      // Bangkok midnight of that date = client date + "T00:00:00+07:00"
-      const [datePart] = dateFrom.split('T');
-      const bangkokMidnight = new Date(`${datePart}T00:00:00+07:00`);
-      filters.push(gte(transactions.date, bangkokMidnight));
+      const fromDate = new Date(dateFrom);
+      fromDate.setHours(0, 0, 0, 0);
+      filters.push(gte(transactions.date, fromDate));
     }
     if (dateTo) {
-      // Bangkok end-of-day = client date + "T23:59:59.999+07:00"
-      const [datePart] = dateTo.split('T');
-      const bangkokEnd = new Date(`${datePart}T23:59:59.999+07:00`);
-      filters.push(lte(transactions.date, bangkokEnd));
+      const toDate = new Date(dateTo);
+      toDate.setHours(23, 59, 59, 999);
+      filters.push(lte(transactions.date, toDate));
     }
 
     // Pagination: only apply if BOTH page and limit are provided
