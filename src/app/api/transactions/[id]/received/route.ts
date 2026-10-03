@@ -29,12 +29,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // อัพเดท businessStatus, status และ date ให้สอดคล้องกัน
     // businessStatus = received หมายถึง ได้รับ/จ่ายเงินแล้ว → status ต้องเป็น completed
     // date = วันที่จ่ายจริง (ปัจจุบัน) แทนวันที่นัดหมาย
+    // Use UTC midnight so Bangkok date = today's calendar date (not UTC-1 midnight).
+    // e.g. Bangkok 2026-09-30 00:30 → new Date() = UTC 2026-09-29 17:30 → off-by-one.
+    // Fix: start from UTC midnight of today, then add Bangkok offset to get Bangkok 00:00.
+    const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+    const now = new Date();
+    const bangkokNow = new Date(now.getTime() + BANGKOK_OFFSET_MS);
+    bangkokNow.setHours(0, 0, 0, 0);
     const [updated] = await db
       .update(transactions)
       .set({
         businessStatus: 'received',
         status: 'completed',
-        date: new Date(),
+        date: bangkokNow,
         updatedAt: new Date()
       })
       .where(and(
