@@ -47,6 +47,7 @@ const formatAccountLabel = (account: {
 };
 
 // Sort transactions helper
+// Business Logic: Financial Timeline - sort by transaction date first, then createdAt as tie-breaker
 const sortTransactions = <T extends { date: string; amount: number; createdAt?: string }>(
   transactions: T[],
   sortOrder: SortOrder
@@ -58,7 +59,16 @@ const sortTransactions = <T extends { date: string; amount: number; createdAt?: 
     if (sortOrder === 'amount_asc') {
       return a.amount - b.amount;
     }
-    // Sort by createdAt (most recently created first for date_desc)
+    // Sort by date first, then createdAt as tie-breaker
+    const dateA = new Date(a.date).getTime();
+    const dateB = new Date(b.date).getTime();
+    
+    if (dateB !== dateA) {
+      // Different dates - sort by date
+      return sortOrder === 'date_desc' ? dateB - dateA : dateA - dateB;
+    }
+    
+    // Same date - use createdAt as tie-breaker
     const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
     const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
     return sortOrder === 'date_desc' ? createdB - createdA : createdA - createdB;
