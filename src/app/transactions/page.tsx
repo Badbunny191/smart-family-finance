@@ -694,6 +694,23 @@ function TransactionsContent() {
     await loadData();
   };
 
+  const markBusinessPaid = async (id: string) => {
+    setIsMarkingReceived(id);
+
+    const response = await fetch(`/api/transactions/${id}/paid`, { method: 'POST' });
+
+    setIsMarkingReceived(null);
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
+      return;
+    }
+
+    showToast('บันทึกข้อมูลสำเร็จ', 'success');
+    await loadData();
+  };
+
   const accountNames = useMemo(() => new Map(accounts.map((account) => [account.id, account.name])), [accounts]);
 
   const getAccountLabel = (accountId: string | null) => {
@@ -1002,6 +1019,7 @@ function TransactionsContent() {
                 onEdit={setEditingTransaction}
                 onView={setViewingTransaction}
                 onReceived={markBusinessReceived}
+                onPaid={markBusinessPaid}
                 onDelete={deleteTransaction}
                 isDeleting={isDeleting === transaction.id}
                 isMarkingReceived={isMarkingReceived === transaction.id}
@@ -1469,7 +1487,7 @@ function AddTransactionSheet({
   );
 }
 
-function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, isDeleting, isMarkingReceived, isAdmin }: { transaction: Transaction; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean; isAdmin: boolean }) {
+function TransactionCard({ transaction, onEdit, onView, onReceived, onPaid, onDelete, isDeleting, isMarkingReceived, isAdmin }: { transaction: Transaction; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onPaid: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean; isAdmin: boolean }) {
   const typeLabels: Record<TransactionType, string> = {
     income: 'รายรับ',
     expense: 'รายจ่าย',
@@ -1816,7 +1834,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
         {transaction.type === 'expense' && transaction.businessStatus === 'pending' && (
           <button
             type="button"
-            onClick={() => void onReceived(transaction.id)}
+            onClick={() => void onPaid(transaction.id)}
             disabled={isMarkingReceived}
             className="touch-button rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
