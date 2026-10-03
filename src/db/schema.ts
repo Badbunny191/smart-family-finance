@@ -196,6 +196,12 @@ export const transactions = sqliteTable(
     // - Date  = full instant in UTC; client converts ICT date+time → UTC
     // - Required when type IN ('income','expense') AND businessStatus='pending'
     dueDateTime: integer('due_date_time', { mode: 'timestamp' }),
+    // Actual settlement date (Phase B v3.0)
+    // - receivedDate: date when customer actually paid (income only)
+    // - paidDate: date when payment was actually made (expense only)
+    // Stored as UTC unix epoch seconds (Drizzle auto-converts Date ↔ integer).
+    receivedDate: integer('received_date', { mode: 'timestamp' }),
+    paidDate: integer('paid_date', { mode: 'timestamp' }),
     note: text('note'),
     adjustmentReason: text('adjustment_reason'),
     adjustmentDirection: text('adjustment_direction', {
@@ -226,6 +232,9 @@ export const transactions = sqliteTable(
       table.businessStatus,
       table.dueDateTime
     ),
+    // Index for daily received/paid summary queries
+    receivedDateIdx: index('transactions_received_date_idx').on(table.receivedDate),
+    paidDateIdx: index('transactions_paid_date_idx').on(table.paidDate),
     sourceAccountIdx: index('transactions_source_account_idx').on(table.sourceAccountId),
     destinationAccountIdx: index('transactions_destination_account_idx').on(table.destinationAccountId),
     deletedIdx: index('transactions_deleted_idx').on(table.deletedAt),

@@ -58,6 +58,12 @@ export const transactionInputSchema = z
     // - Must be null/undefined for transfer/adjustment
     // - Optional otherwise (defaults to NULL for completed income)
     dueDateTime: z.coerce.date().nullable().optional(),
+    // Actual payment date (Phase B v3.0)
+    // - receivedDate: date when customer actually paid (income only)
+    // - paidDate: date when payment was actually made (expense only)
+    // Both nullable — set to null on create; set by "รับชำระแล้ว/จ่ายแล้ว" action (Phase 3+)
+    receivedDate: z.coerce.date().nullable().optional(),
+    paidDate: z.coerce.date().nullable().optional(),
     sourceAccountId: z.string().trim().min(1).nullable().optional(),
     destinationAccountId: z.string().trim().min(1).nullable().optional(),
     note: z.string().trim().max(500, 'หมายเหตุต้องไม่เกิน 500 ตัวอักษร').nullable().optional(),
@@ -143,6 +149,10 @@ export const transactionMetadataSchema = z.object({
   // Per-transaction Due DateTime (Phase 1 v3.0) — editable via PATCH
   // Allowed to be null (clear due date) or omitted (no change)
   dueDateTime: z.coerce.date().nullable().optional(),
+  // Actual payment date (Phase B v3.0) — editable via PATCH
+  // Set when marking a transaction as received/paid
+  receivedDate: z.coerce.date().nullable().optional(),
+  paidDate: z.coerce.date().nullable().optional(),
   // Editable metadata only — financial fields (amount, type, accounts, date)
   // are intentionally NOT allowed via PATCH to preserve financial integrity.
   title: z.string().trim().min(1).max(200).optional(),
