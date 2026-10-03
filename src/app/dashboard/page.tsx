@@ -229,6 +229,7 @@ export default async function DashboardPage() {
       )),
 
     // QUERY 4: Recent transactions (include all types: income, expense, transfer, adjustment)
+    // Sort by date DESC (Financial Timeline), then createdAt DESC for same-day entries
     db
       .select({
         id: transactions.id,

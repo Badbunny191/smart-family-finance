@@ -47,32 +47,30 @@ const formatAccountLabel = (account: {
 };
 
 // Sort transactions helper
-// Business Logic: Financial Timeline - sort by transaction date first, then createdAt as tie-breaker
+// API already sorts by date DESC, createdAt DESC
+// This helper only handles:
+// - amount sorting (re-sort needed)
+// - date_asc (reverse from API order)
 const sortTransactions = <T extends { date: string; amount: number; createdAt?: string }>(
   transactions: T[],
   sortOrder: SortOrder
 ): T[] => {
-  return [...transactions].sort((a, b) => {
-    if (sortOrder === 'amount_desc') {
-      return b.amount - a.amount;
-    }
-    if (sortOrder === 'amount_asc') {
-      return a.amount - b.amount;
-    }
-    // Sort by date first, then createdAt as tie-breaker
-    const dateA = new Date(a.date).getTime();
-    const dateB = new Date(b.date).getTime();
-    
-    if (dateB !== dateA) {
-      // Different dates - sort by date
-      return sortOrder === 'date_desc' ? dateB - dateA : dateA - dateB;
-    }
-    
-    // Same date - use createdAt as tie-breaker
-    const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return sortOrder === 'date_desc' ? createdB - createdA : createdA - createdB;
-  });
+  // For date sorting, API already provides correct order (date DESC, createdAt DESC)
+  // We only need to reverse for date_asc
+  if (sortOrder === 'date_asc') {
+    return [...transactions].reverse();
+  }
+  
+  // For amount sorting, re-sort the API result
+  if (sortOrder === 'amount_desc') {
+    return [...transactions].sort((a, b) => b.amount - a.amount);
+  }
+  if (sortOrder === 'amount_asc') {
+    return [...transactions].sort((a, b) => a.amount - b.amount);
+  }
+  
+  // date_desc - return API order as-is (no additional sorting needed)
+  return transactions;
 };
 
 type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean; accountType: 'bank' | 'cash'; personId: string; personName: string; accountAlias?: string | null };
