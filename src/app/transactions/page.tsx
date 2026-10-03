@@ -1559,7 +1559,8 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onDelete, is
   };
 
   const formatDate = (dateStr: string) => {
-    return formatDateFull(new Date(dateStr));
+    // transaction.date is Unix timestamp in seconds; multiply by 1000 for milliseconds
+    return formatDateFull(new Date(Number(dateStr) * 1000));
   };
 
   const amountColor = transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700';

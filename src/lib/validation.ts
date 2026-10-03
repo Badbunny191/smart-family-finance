@@ -45,7 +45,13 @@ export const transactionInputSchema = z
   .object({
     type: z.enum(['income', 'expense', 'transfer', 'adjustment']),
     amount: z.number().finite().positive('จำนวนเงินต้องมากกว่า 0'),
-    date: z.coerce.date(),
+    // Parse date string as Bangkok midnight to avoid UTC offset bug
+    // "2026-10-03" → Oct 3, 00:00 Bangkok = Oct 2, 17:00 UTC
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'รูปแบบวันที่ไม่ถูกต้อง').transform((val) => {
+      const [year, month, day] = val.split('-').map(Number);
+      // Bangkok midnight: UTC previous day 17:00
+      return new Date(Date.UTC(year, month - 1, day - 1, 17, 0, 0, 0));
+    }),
     title: requiredName,
     propertyId: z.string().trim().min(1).nullable().optional(),
     categoryId: z.string().trim().min(1).nullable().optional(),
