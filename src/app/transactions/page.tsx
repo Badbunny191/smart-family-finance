@@ -374,9 +374,17 @@ function TransactionsContent() {
         filterParams.set('accountId', selectedAccount);
       }
       // Date range filter - only apply if not 'all'
+      // Send date-only (YYYY-MM-DD) to avoid timezone issues
+      // Server will convert to Bangkok midnight UTC boundary
       if (selectedDateFilter !== 'all') {
-        filterParams.set('dateFrom', dateRangeStart.toISOString());
-        filterParams.set('dateTo', dateRangeEnd.toISOString());
+        const formatDateOnly = (date: Date) => {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        };
+        filterParams.set('dateFrom', formatDateOnly(dateRangeStart));
+        filterParams.set('dateTo', formatDateOnly(dateRangeEnd));
       }
 
       const responses = await Promise.all([

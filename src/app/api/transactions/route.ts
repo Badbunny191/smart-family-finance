@@ -93,18 +93,22 @@ export async function GET(request: NextRequest) {
     }
 
     // Date range filter
-    // Client sends Bangkok midnight directly as UTC ISO string.
-    // e.g. Bangkok 30/09 00:00 → toISOString() → "2026-09-30T00:00:00.000Z"
-    // Set boundary directly as Bangkok 00:00 (UTC 00:00) and 23:59:59.999.
+    // Client sends date-only (YYYY-MM-DD) as Bangkok date.
+    // Server converts to UTC boundary:
+    //   - Bangkok 2026-10-01 00:00:00 = UTC 2026-09-30 17:00:00
+    //   - Bangkok 2026-10-01 23:59:59.999 = UTC 2026-10-01 16:59:59.999
     if (dateFrom) {
-      const bangkokDate = new Date(dateFrom);
-      bangkokDate.setHours(0, 0, 0, 0);
-      filters.push(gte(transactions.date, bangkokDate));
+      // Bangkok midnight = UTC previous day 17:00
+      const [year, month, day] = dateFrom.split('-').map(Number);
+      // UTC: (Bangkok date) - 7 hours = (Bangkok day - 1) 17:00
+      const utcDate = new Date(Date.UTC(year, month - 1, day - 1, 17, 0, 0, 0));
+      filters.push(gte(transactions.date, sql`${Math.floor(utcDate.getTime() / 1000)}`));
     }
     if (dateTo) {
-      const bangkokDate = new Date(dateTo);
-      bangkokDate.setHours(23, 59, 59, 999);
-      filters.push(lte(transactions.date, bangkokDate));
+      // Bangkok end of day = UTC same day 16:59:59.999
+      const [year, month, day] = dateTo.split('-').map(Number);
+      const utcDate = new Date(Date.UTC(year, month - 1, day, 16, 59, 59, 999));
+      filters.push(lte(transactions.date, sql`${Math.floor(utcDate.getTime() / 1000)}`));
     }
 
     // Pagination: only apply if BOTH page and limit are provided
