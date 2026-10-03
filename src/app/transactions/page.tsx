@@ -58,13 +58,7 @@ const sortTransactions = <T extends { date: string; amount: number; createdAt?: 
     if (sortOrder === 'amount_asc') {
       return a.amount - b.amount;
     }
-    // Date sorting
-    const dateA = new Date(a.date).getTime();
-    const dateB = new Date(b.date).getTime();
-    if (dateB !== dateA) {
-      return sortOrder === 'date_desc' ? dateB - dateA : dateA - dateB;
-    }
-    // Secondary sort by createdAt for same date
+    // Sort by createdAt (most recently created first for date_desc)
     const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
     const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
     return sortOrder === 'date_desc' ? createdB - createdA : createdA - createdB;
