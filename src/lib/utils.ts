@@ -313,6 +313,24 @@ export function getBangkokDateString(): string {
 }
 
 /**
+ * Extract Bangkok date string from any date (for sorting by Business Date)
+ * @param dateStr - ISO date string, timestamp (seconds), or Date object
+ * @returns Bangkok date in YYYY-MM-DD format
+ */
+export function toBangkokDateString(dateStr: string | number | Date): string {
+  let d: Date;
+  if (dateStr instanceof Date) {
+    d = dateStr;
+  } else if (typeof dateStr === 'number') {
+    // Unix timestamp in seconds from Drizzle
+    d = new Date(dateStr * 1000);
+  } else {
+    d = new Date(dateStr);
+  }
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+}
+
+/**
  * Get current datetime in Bangkok timezone as ISO string
  */
 export function getBangkokISOString(): string {

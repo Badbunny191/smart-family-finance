@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
-import { formatAccountDisplayName, formatCurrency, formatDateRange, formatDate, parseBangkokDate } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency, formatDateRange, formatDate, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
 
@@ -135,6 +135,7 @@ const hasTransactionsInRange = (
 };
 
 // Sort transactions helper
+// Business Rule: Sort by Business Date (Bangkok date), then CreatedAt as tie-breaker
 const sortTransactions = <T extends { date: string; amount: number; createdAt?: string }>(
   transactions: T[],
   sortOrder: SortOrder
@@ -146,14 +147,26 @@ const sortTransactions = <T extends { date: string; amount: number; createdAt?: 
     if (sortOrder === 'amount_asc') {
       return a.amount - b.amount;
     }
-    const dateA = new Date(a.date).getTime();
-    const dateB = new Date(b.date).getTime();
-    if (dateB !== dateA) {
-      return sortOrder === 'date_desc' ? dateB - dateA : dateA - dateB;
+    
+    // Sort by Business Date (Bangkok date) first
+    const bangkokDateA = toBangkokDateString(a.date);
+    const bangkokDateB = toBangkokDateString(b.date);
+    
+    if (sortOrder === 'date_desc') {
+      if (bangkokDateB !== bangkokDateA) {
+        return bangkokDateB.localeCompare(bangkokDateA);
+      }
+      const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return createdB - createdA;
+    } else {
+      if (bangkokDateA !== bangkokDateB) {
+        return bangkokDateA.localeCompare(bangkokDateB);
+      }
+      const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return createdA - createdB;
     }
-    const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return sortOrder === 'date_desc' ? createdB - createdA : createdA - createdB;
   });
 };
 

@@ -10,7 +10,7 @@ import { accounts, persons, transactions } from '@/db/schema';
 import { getDb } from '@/db/client';
 import { createAuth } from '@/lib/auth';
 import { getD1 } from '@/lib/cloudflare';
-import { formatAccountDisplayName, formatCurrency, formatDate } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency, formatDate, toBangkokDateString } from '@/lib/utils';
 import { PersonAccordionCard } from './_components/person-accordion-card';
 
 // Alias for self-join (source and destination accounts)
@@ -444,34 +444,53 @@ export default async function DashboardPage() {
       .sort((a, b) => b.totalBalance - a.totalBalance)
   );
 
+  // Cast recent transactions for type safety
+  const recentTransactionsList: {
+    id: string;
+    type: 'income' | 'expense' | 'transfer' | 'adjustment';
+    amount: number;
+    date: Date;
+    title: string;
+    status: string;
+    sourceAccountId: string | null;
+    destinationAccountId: string | null;
+    note: string | null;
+    createdAt: Date;
+    sourceAccountName: string | null;
+    sourceAccountAlias: string | null;
+    sourceAccountBank: string | null;
+    sourceAccountNumber: string | null;
+    sourceAccountType: 'bank' | 'cash' | null;
+    destinationAccountName: string | null;
+    destinationAccountAlias: string | null;
+    destinationAccountBank: string | null;
+    destinationAccountNumber: string | null;
+    destinationAccountType: 'bank' | 'cash' | null;
+    adjustmentDirection: 'increase' | 'decrease' | null;
+  }[] = (recentRows ?? []) as any;
+
+  // Sort recentTransactions by Business Date (Bangkok date) DESC, then CreatedAt DESC
+  // This fixes timezone issues where UTC date differs from Bangkok date display
+  const sortedRecentTransactions = [...recentTransactionsList].sort((a, b) => {
+    const bangkokDateA = toBangkokDateString(a.date);
+    const bangkokDateB = toBangkokDateString(b.date);
+    
+    if (bangkokDateB !== bangkokDateA) {
+      return bangkokDateB.localeCompare(bangkokDateA);
+    }
+    
+    // Same Bangkok date - use createdAt DESC as tie-breaker
+    const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return createdB - createdA;
+  });
+
   const data = {
     totalBalance,
     monthlyIncome,
     monthlyExpense,
     monthlyAdjustmentTotal,
-    recentTransactions: (recentRows ?? []) as {
-      id: string;
-      type: 'income' | 'expense' | 'transfer' | 'adjustment';
-      amount: number;
-      date: Date;
-      title: string;
-      status: string;
-      sourceAccountId: string | null;
-      destinationAccountId: string | null;
-      note: string | null;
-      createdAt: Date;
-      sourceAccountName: string | null;
-      sourceAccountAlias: string | null;
-      sourceAccountBank: string | null;
-      sourceAccountNumber: string | null;
-      sourceAccountType: 'bank' | 'cash' | null;
-      destinationAccountName: string | null;
-      destinationAccountAlias: string | null;
-      destinationAccountBank: string | null;
-      destinationAccountNumber: string | null;
-      destinationAccountType: 'bank' | 'cash' | null;
-      adjustmentDirection: 'increase' | 'decrease' | null;
-    }[],
+    recentTransactions: sortedRecentTransactions,
     pending: {
       total: Number(typedPendingResult?.[0]?.total) || 0,
       count: Number(typedPendingResult?.[0]?.count) || 0

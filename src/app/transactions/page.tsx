@@ -7,7 +7,7 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
-import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
 import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -47,30 +47,44 @@ const formatAccountLabel = (account: {
 };
 
 // Sort transactions helper
-// API already sorts by date DESC, createdAt DESC
-// This helper only handles:
-// - amount sorting (re-sort needed)
-// - date_asc (reverse from API order)
+// Business Rule: Sort by Business Date (Bangkok date), then CreatedAt as tie-breaker
+// Business Date = วันที่ UI แสดงให้ผู้ใช้เห็น (ไม่ใช่ UTC timestamp ดิบ)
 const sortTransactions = <T extends { date: string; amount: number; createdAt?: string }>(
   transactions: T[],
   sortOrder: SortOrder
 ): T[] => {
-  // For date sorting, API already provides correct order (date DESC, createdAt DESC)
-  // We only need to reverse for date_asc
-  if (sortOrder === 'date_asc') {
-    return [...transactions].reverse();
-  }
-  
-  // For amount sorting, re-sort the API result
-  if (sortOrder === 'amount_desc') {
-    return [...transactions].sort((a, b) => b.amount - a.amount);
-  }
-  if (sortOrder === 'amount_asc') {
-    return [...transactions].sort((a, b) => a.amount - b.amount);
-  }
-  
-  // date_desc - return API order as-is (no additional sorting needed)
-  return transactions;
+  return [...transactions].sort((a, b) => {
+    if (sortOrder === 'amount_desc') {
+      return b.amount - a.amount;
+    }
+    if (sortOrder === 'amount_asc') {
+      return a.amount - b.amount;
+    }
+    
+    // Sort by Business Date (Bangkok date) first
+    const bangkokDateA = toBangkokDateString(a.date);
+    const bangkokDateB = toBangkokDateString(b.date);
+    
+    if (sortOrder === 'date_desc') {
+      // Newest first - if different Bangkok dates, sort by Bangkok date DESC
+      if (bangkokDateB !== bangkokDateA) {
+        return bangkokDateB.localeCompare(bangkokDateA);
+      }
+      // Same Bangkok date - use createdAt DESC as tie-breaker
+      const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return createdB - createdA;
+    } else {
+      // Oldest first
+      if (bangkokDateA !== bangkokDateB) {
+        return bangkokDateA.localeCompare(bangkokDateB);
+      }
+      // Same Bangkok date - use createdAt ASC as tie-breaker
+      const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return createdA - createdB;
+    }
+  });
 };
 
 type Account = { id: string; name: string; accountNumber: string | null; bankName: string | null; currentBalance: number; isBusinessAccount: boolean; accountType: 'bank' | 'cash'; personId: string; personName: string; accountAlias?: string | null };
