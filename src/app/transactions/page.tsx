@@ -482,7 +482,7 @@ function TransactionsContent() {
       body: JSON.stringify({
         ...form,
         amount: Number(form.amount),
-        date: parseBangkokDate(form.date).toISOString(),
+        date: form.date,
         // Phase 1 v3.0: combine dueDate (YYYY-MM-DD) + dueTime (HH:mm)
         // Both are in Bangkok/ICT timezone → convert to UTC ISO before send.
         // Only create dueDateTime when businessStatus === 'pending' AND dueDate is not empty.
