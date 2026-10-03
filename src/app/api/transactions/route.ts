@@ -93,19 +93,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Date range filter
-    // Client sends Bangkok midnight encoded as UTC ISO string.
-    // e.g. Bangkok 30/09 00:00 → toISOString() → "2026-09-29T17:00:00.000Z"
-    // We MUST shift back by +7h to get Bangkok wall-clock date before setting boundary.
-    const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+    // Client sends Bangkok midnight directly as UTC ISO string.
+    // e.g. Bangkok 30/09 00:00 → toISOString() → "2026-09-30T00:00:00.000Z"
+    // Set boundary directly as Bangkok 00:00 (UTC 00:00) and 23:59:59.999.
     if (dateFrom) {
-      const utcDate = new Date(dateFrom);
-      const bangkokDate = new Date(utcDate.getTime() + BANGKOK_OFFSET_MS);
+      const bangkokDate = new Date(dateFrom);
       bangkokDate.setHours(0, 0, 0, 0);
       filters.push(gte(transactions.date, bangkokDate));
     }
     if (dateTo) {
-      const utcDate = new Date(dateTo);
-      const bangkokDate = new Date(utcDate.getTime() + BANGKOK_OFFSET_MS);
+      const bangkokDate = new Date(dateTo);
       bangkokDate.setHours(23, 59, 59, 999);
       filters.push(lte(transactions.date, bangkokDate));
     }
