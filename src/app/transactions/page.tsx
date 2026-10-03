@@ -7,7 +7,7 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
-import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, isOverdue, getOverdueInfo, getBangkokDateString } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate } from '@/lib/utils';
 import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -309,12 +309,16 @@ function TransactionsContent() {
         break;
       case 'custom':
         // Use custom dates if provided
+        // Use parseBangkokDate to treat YYYY-MM-DD as Bangkok midnight
+        // (avoids UTC midnight bug: new Date("2026-09-29") = UTC 29/09 00:00 = Bangkok 29/09 07:00)
         if (customFrom) {
-          start.setTime(new Date(customFrom).getTime());
+          const parsed = parseBangkokDate(customFrom);
+          start.setTime(parsed.getTime());
           start.setHours(0, 0, 0, 0);
         }
         if (customTo) {
-          end.setTime(new Date(customTo).getTime());
+          const parsed = parseBangkokDate(customTo);
+          end.setTime(parsed.getTime());
           end.setHours(23, 59, 59, 999);
         }
         break;

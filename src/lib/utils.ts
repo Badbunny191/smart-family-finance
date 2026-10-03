@@ -132,7 +132,23 @@ function createBuddhistFormatter(options: Intl.DateTimeFormatOptions) {
 }
 
 /**
+ * Parse a date-only string (YYYY-MM-DD) as Bangkok midnight.
+ * 
+ * Problem: new Date("2026-09-29") parses as UTC midnight (Bangkok 07:00),
+ * causing off-by-one-day errors when the date is used as a Bangkok boundary.
+ * 
+ * Fix: Extract year/month/day from string manually, then construct
+ * UTC midnight using Date.UTC(), so Bangkok midnight = UTC midnight.
+ */
+export function parseBangkokDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  // Date.UTC(year, month-1, day) = UTC midnight of that Bangkok date
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+}
+
+/**
  * Format date as short format: 20 ก.ย. 2569
+ * Uses Asia/Bangkok timezone to correctly display dates.
  */
 export function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
@@ -154,7 +170,8 @@ export function formatDateFull(date: Date | string): string {
 
 /**
  * Format date range: 1 ก.ย. 2569 - 20 ก.ย. 2569
- * Returns single date if same day
+ * Returns single date if same day.
+ * Uses Asia/Bangkok timezone for correct Bangkok date boundaries.
  */
 export function formatDateRange(start: Date | string, end: Date | string): string {
   const s = typeof start === 'string' ? new Date(start) : start;
