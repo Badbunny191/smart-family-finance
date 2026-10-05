@@ -13,6 +13,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { db } = await getRequestContext(request);
     const { id } = await params;
 
+    // Parse optional settlement date from request body
+    let settlementDate: Date | null = null;
+    try {
+      const body = await request.json() as { settlementDate?: string };
+      if (body.settlementDate) {
+        const parsed = new Date(body.settlementDate);
+        if (!isNaN(parsed.getTime())) {
+          settlementDate = parsed;
+        }
+      }
+    } catch {
+      // Empty body is fine — use current time as fallback
+    }
+
     // ดึงข้อมูล transaction ก่อน
     const [tx] = await db
       .select()
@@ -31,12 +45,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // ห้ามแก้ date เพราะ date คือวันที่ทำธุรกรรมจริง (original transaction date)
     // ใช้ receivedDate เพื่อบันทึกวันที่ตอกย้ำว่าได้รับเงิน/จ่ายเงินแล้ว
     const now = new Date();
+    const receivedDate = settlementDate ?? now;
     const [updated] = await db
       .update(transactions)
       .set({
         businessStatus: 'received',
         status: 'completed',
-        receivedDate: now,
+        receivedDate: receivedDate,
         updatedAt: now
       })
       .where(and(

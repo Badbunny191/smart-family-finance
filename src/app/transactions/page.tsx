@@ -239,7 +239,15 @@ function TransactionsContent() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [viewingTransaction, setViewingTransaction] = useState<Transaction | null>(null);
+  // Phase B v3.0: Modal renders by deriving the Transaction object from
+  // `transactions` state on every render. Storing only the id ensures that
+  // when loadData() refreshes the list (e.g., after marking paid/received),
+  // the Modal automatically picks up the fresh businessStatus, dates, etc.
+  const [viewingTransactionId, setViewingTransactionId] = useState<string | null>(null);
+  const viewingTransaction = useMemo(
+    () => transactions.find((t) => t.id === viewingTransactionId) ?? null,
+    [transactions, viewingTransactionId]
+  );
 
   // Admin check for adjustment permissions
   const { data: sessionData } = useSession();
@@ -287,6 +295,23 @@ function TransactionsContent() {
   const [isAddSheetOpen, setIsAddSheetOpen] = useState(false);
   const [savedTransactionId, setSavedTransactionId] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<AttachmentPickerFile[]>([]);
+
+  // Settlement Date Dialog state (Phase B v3.0)
+  const [settleDialog, setSettleDialog] = useState<{
+    open: boolean;
+    mode: 'received' | 'paid';
+    transactionId: string | null;
+  }>({ open: false, mode: 'received', transactionId: null });
+
+  // Listen for open events from TransactionCard
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string; mode: 'received' | 'paid' }>).detail;
+      setSettleDialog({ open: true, mode: detail.mode, transactionId: detail.id });
+    };
+    window.addEventListener('open-settle-dialog', handler);
+    return () => window.removeEventListener('open-settle-dialog', handler);
+  }, []);
   // Initialize from URL param (default: 'month' if not specified, but 'all' if overdue/pending filter is set)
   const [selectedDateFilter, setSelectedDateFilter] = useState<DateFilterOption>(() => {
     if (urlDateFilter && validDateFilters.includes(urlDateFilter as DateFilterOption)) {
@@ -703,10 +728,14 @@ function TransactionsContent() {
     setEditingTransaction(null);
   };
 
-  const markBusinessReceived = async (id: string) => {
+  const markBusinessReceived = async (id: string, settlementDate: Date) => {
     setIsMarkingReceived(id);
 
-    const response = await fetch(`/api/transactions/${id}/received`, { method: 'POST' });
+    const response = await fetch(`/api/transactions/${id}/received`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settlementDate: settlementDate.toISOString() }),
+    });
 
     setIsMarkingReceived(null);
 
@@ -716,26 +745,20 @@ function TransactionsContent() {
       return;
     }
 
-    const updatedTx = await response.json() as Partial<Transaction>;
-
-    // Update viewingTransaction so Modal reflects new status immediately
-    if (viewingTransaction?.id === id) {
-      setViewingTransaction({
-        ...viewingTransaction,
-        businessStatus: updatedTx.businessStatus ?? 'received',
-        status: updatedTx.status ?? 'completed',
-        receivedDate: updatedTx.receivedDate ?? new Date().toISOString(),
-      });
-    }
-
     showToast('บันทึกข้อมูลสำเร็จ', 'success');
+    // Single source of truth: loadData() refreshes `transactions` state.
+    // Modal reads via `viewingTransaction = transactions.find(id)` → updates automatically.
     await loadData();
   };
 
-  const markBusinessPaid = async (id: string) => {
+  const markBusinessPaid = async (id: string, settlementDate: Date) => {
     setIsMarkingReceived(id);
 
-    const response = await fetch(`/api/transactions/${id}/paid`, { method: 'POST' });
+    const response = await fetch(`/api/transactions/${id}/paid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settlementDate: settlementDate.toISOString() }),
+    });
 
     setIsMarkingReceived(null);
 
@@ -745,19 +768,9 @@ function TransactionsContent() {
       return;
     }
 
-    const updatedTx = await response.json() as Partial<Transaction>;
-
-    // Update viewingTransaction so Modal reflects new status immediately
-    if (viewingTransaction?.id === id) {
-      setViewingTransaction({
-        ...viewingTransaction,
-        businessStatus: updatedTx.businessStatus ?? 'received',
-        status: updatedTx.status ?? 'completed',
-        paidDate: updatedTx.paidDate ?? new Date().toISOString(),
-      });
-    }
-
     showToast('บันทึกข้อมูลสำเร็จ', 'success');
+    // Single source of truth: loadData() refreshes `transactions` state.
+    // Modal reads via `viewingTransaction = transactions.find(id)` → updates automatically.
     await loadData();
   };
 
@@ -1067,9 +1080,7 @@ function TransactionsContent() {
                 key={transaction.id}
                 transaction={transaction}
                 onEdit={setEditingTransaction}
-                onView={setViewingTransaction}
-                onReceived={markBusinessReceived}
-                onPaid={markBusinessPaid}
+                onView={(tx) => setViewingTransactionId(tx.id)}
                 onDelete={deleteTransaction}
                 isDeleting={isDeleting === transaction.id}
                 isMarkingReceived={isMarkingReceived === transaction.id}
@@ -1186,19 +1197,36 @@ function TransactionsContent() {
         />
       )}
 
-      {/* View Detail Modal */}
+      {/* View Detail Modal — derives from `transactions` state via useMemo above */}
       {viewingTransaction && (
         <TransactionDetailModal
           transaction={viewingTransaction}
-          onClose={() => setViewingTransaction(null)}
+          onClose={() => setViewingTransactionId(null)}
           onEdit={(tx) => {
-            setViewingTransaction(null);
+            setViewingTransactionId(null);
             setEditingTransaction(tx);
           }}
           onDelete={deleteTransaction}
           isAdmin={isAdmin}
         />
       )}
+
+      {/* Settlement Date Dialog (Phase B v3.0) */}
+      <SettlementDateDialog
+        isOpen={settleDialog.open}
+        mode={settleDialog.mode}
+        isSubmitting={isMarkingReceived !== null}
+        onClose={() => setSettleDialog((prev) => ({ ...prev, open: false }))}
+        onConfirm={async (date) => {
+          if (!settleDialog.transactionId) return;
+          if (settleDialog.mode === 'received') {
+            await markBusinessReceived(settleDialog.transactionId, date);
+          } else {
+            await markBusinessPaid(settleDialog.transactionId, date);
+          }
+          setSettleDialog({ open: false, mode: settleDialog.mode, transactionId: null });
+        }}
+      />
 
       <MobileNav />
     </main>
@@ -1537,7 +1565,19 @@ function AddTransactionSheet({
   );
 }
 
-function TransactionCard({ transaction, onEdit, onView, onReceived, onPaid, onDelete, isDeleting, isMarkingReceived, isAdmin }: { transaction: Transaction; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onReceived: (id: string) => Promise<void>; onPaid: (id: string) => Promise<void>; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean; isAdmin: boolean }) {
+function TransactionCard({ transaction, onEdit, onView, onDelete, isDeleting, isMarkingReceived, isAdmin }: { transaction: Transaction; onEdit: (transaction: Transaction) => void; onView: (transaction: Transaction) => void; onDelete: (id: string) => Promise<void>; isDeleting: boolean; isMarkingReceived: boolean; isAdmin: boolean }) {
+  const handleReceivedClick = () => {
+    // Open the global SettlementDateDialog (controlled by parent)
+    // by dispatching a custom event the page can listen to.
+    window.dispatchEvent(new CustomEvent('open-settle-dialog', {
+      detail: { id: transaction.id, mode: 'received' },
+    }));
+  };
+  const handlePaidClick = () => {
+    window.dispatchEvent(new CustomEvent('open-settle-dialog', {
+      detail: { id: transaction.id, mode: 'paid' },
+    }));
+  };
   const typeLabels: Record<TransactionType, string> = {
     income: 'รายรับ',
     expense: 'รายจ่าย',
@@ -1874,7 +1914,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onPaid, onDe
         {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
           <button
             type="button"
-            onClick={() => void onReceived(transaction.id)}
+            onClick={handleReceivedClick}
             disabled={isMarkingReceived}
             className="touch-button rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -1884,7 +1924,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onPaid, onDe
         {transaction.type === 'expense' && transaction.businessStatus === 'pending' && (
           <button
             type="button"
-            onClick={() => void onPaid(transaction.id)}
+            onClick={handlePaidClick}
             disabled={isMarkingReceived}
             className="touch-button rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -2738,6 +2778,151 @@ function EmptyState() {
       <ArrowLeftRight className="mx-auto text-slate-400" size={30} />
       <p className="mt-3 font-medium text-slate-700">ยังไม่มีรายการที่ตรงกัน</p>
       <p className="mt-1 text-sm text-slate-500">เพิ่มรายการใหม่ได้โดยกดปุ่ม + ด้านล่าง</p>
+    </div>
+  );
+}
+
+function SettlementDateDialog({
+  isOpen,
+  mode,
+  onConfirm,
+  onClose,
+  isSubmitting,
+}: {
+  isOpen: boolean;
+  mode: 'received' | 'paid';
+  onConfirm: (date: Date) => Promise<void> | void;
+  onClose: () => void;
+  isSubmitting: boolean;
+}) {
+  // Default: วันเวลาปัจจุบันประเทศไทย (Bangkok time)
+  const getBangkokNowParts = () => {
+    const now = new Date();
+    // Use Intl to extract Bangkok year/month/day/hour/minute
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+    return {
+      date: `${get('year')}-${get('month')}-${get('day')}`,
+      time: `${get('hour')}:${get('minute')}`,
+    };
+  };
+
+  const initial = getBangkokNowParts();
+  const [dateValue, setDateValue] = useState<string>(initial.date);
+  const [timeValue, setTimeValue] = useState<string>(initial.time);
+
+  // Reset to current Bangkok time whenever dialog opens
+  useEffect(() => {
+    if (isOpen) {
+      const parts = getBangkokNowParts();
+      setDateValue(parts.date);
+      setTimeValue(parts.time);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const title = mode === 'received' ? 'ยืนยันการรับเงิน' : 'ยืนยันการจ่ายเงิน';
+  const description = mode === 'received'
+    ? 'กรอกวันและเวลาที่ได้รับเงินจริง'
+    : 'กรอกวันและเวลาที่จ่ายเงินจริง';
+
+  const handleConfirm = async () => {
+    if (!dateValue || !timeValue) return;
+    // Build Bangkok-local date, then convert to UTC ISO string
+    const [year, month, day] = dateValue.split('-').map(Number);
+    const [hour, minute] = timeValue.split(':').map(Number);
+    // Bangkok time → UTC: subtract 7 hours
+    const utcMs = Date.UTC(year, month - 1, day, hour - 7, minute, 0, 0);
+    const combined = new Date(utcMs);
+    if (isNaN(combined.getTime())) return;
+    await onConfirm(combined);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-slate-950/50 sm:items-center sm:justify-center sm:p-5"
+      onClick={onClose}
+    >
+      <div
+        className="flex w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-md sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div className="w-11" />
+          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid min-h-11 min-w-11 place-items-center rounded-xl bg-slate-100 text-slate-600"
+            aria-label="ปิด"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          <p className="text-sm text-slate-600 text-center">{description}</p>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                วันที่รับ/จ่ายจริง
+              </label>
+              <input
+                type="date"
+                value={dateValue}
+                onChange={(e) => setDateValue(e.target.value)}
+                max={getBangkokNowParts().date}
+                className="form-input w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">
+                เวลา
+              </label>
+              <input
+                type="time"
+                value={timeValue}
+                onChange={(e) => setTimeValue(e.target.value)}
+                className="form-input w-full"
+              />
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-400 text-center">
+            ค่าเริ่มต้นเป็นเวลาปัจจุบัน (Asia/Bangkok) — สามารถแก้ย้อนหลังได้
+          </p>
+        </div>
+
+        <div className="flex gap-3 border-t border-slate-100 px-5 py-4 pb-6">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="flex-1 rounded-xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          >
+            ยกเลิก
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={isSubmitting || !dateValue || !timeValue}
+            className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {isSubmitting ? 'กำลังบันทึก...' : 'ยืนยัน'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
