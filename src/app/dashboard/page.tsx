@@ -10,7 +10,8 @@ import { accounts, persons, transactions } from '@/db/schema';
 import { getDb } from '@/db/client';
 import { createAuth } from '@/lib/auth';
 import { getD1 } from '@/lib/cloudflare';
-import { formatAccountDisplayName, formatCurrency, formatDate, toBangkokDateString } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency, formatEffectiveDate, getEffectiveDate, toBangkokDateString } from '@/lib/utils';
+import { effectiveDateExpr } from '@/lib/transaction-effective-date-query';
 import { PersonAccordionCard } from './_components/person-accordion-card';
 
 // Alias for self-join (source and destination accounts)
@@ -100,8 +101,11 @@ export default async function DashboardPage() {
       )),
 
     // QUERY 2: Monthly income/expense (exclude adjustments)
-    // ใช้ raw SQL สำหรับ date comparison เนื่องจาก transactions.date เก็บเป็น Unix timestamp (seconds) ใน SQLite
-    // แม้ว่า Drizzle schema จะบอกว่าเป็น Date แต่ใน SQLite เป็น INTEGER
+    // Phase B v3.0: filter by Effective Date (receivedDate / paidDate / date)
+    //   - income + received → receivedDate, else date
+    //   - expense + received → paidDate, else date
+    //   - pending → date (business date)
+    //   - transfer/adjustment → date
     db
       .select({
         type: transactions.type,
@@ -110,14 +114,16 @@ export default async function DashboardPage() {
       .from(transactions)
       .where(and(
         eq(transactions.status, 'completed'),
-        sql`${transactions.date} >= ${monthStartSec}`,
-        sql`${transactions.date} < ${nextMonthStartSec}`,
+        sql`${effectiveDateExpr()} >= ${monthStartSec}`,
+        sql`${effectiveDateExpr()} < ${nextMonthStartSec}`,
         or(eq(transactions.type, 'income'), eq(transactions.type, 'expense')),
       ))
       .groupBy(transactions.type),
 
     // QUERY 2b: Monthly adjustments (separate query)
-    // ใช้ raw SQL สำหรับ date comparison
+    // Phase B v3.0: adjustments have no settlement date — always use transactions.date.
+    // We still go through effectiveDateExpr() to keep one source of truth and
+    // to make future changes (e.g. settlement date for adjustments) a single-file update.
     db
       .select({
         total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
@@ -126,8 +132,8 @@ export default async function DashboardPage() {
       .where(and(
         eq(transactions.status, 'completed'),
         eq(transactions.type, 'adjustment'),
-        sql`${transactions.date} >= ${monthStartSec}`,
-        sql`${transactions.date} < ${nextMonthStartSec}`,
+        sql`${effectiveDateExpr()} >= ${monthStartSec}`,
+        sql`${effectiveDateExpr()} < ${nextMonthStartSec}`,
       )),
 
     // QUERY 3a: Pending income (not yet overdue)
@@ -229,13 +235,16 @@ export default async function DashboardPage() {
       )),
 
     // QUERY 4: Recent transactions (include all types: income, expense, transfer, adjustment)
-    // Sort by date DESC (Financial Timeline), then createdAt DESC for same-day entries
+    // Phase B v3.0: Sort by Effective Date DESC (Bangkok-aware), then createdAt DESC for same-day entries.
     db
       .select({
         id: transactions.id,
         type: transactions.type,
         amount: transactions.amount,
         date: transactions.date,
+        receivedDate: transactions.receivedDate,
+        paidDate: transactions.paidDate,
+        businessStatus: transactions.businessStatus,
         title: transactions.title,
         status: transactions.status,
         sourceAccountId: transactions.sourceAccountId,
@@ -260,7 +269,7 @@ export default async function DashboardPage() {
       .where(and(
         eq(transactions.status, 'completed'),
       ))
-      .orderBy(desc(transactions.date), desc(transactions.createdAt))
+      .orderBy(sql`${effectiveDateExpr()} DESC`, desc(transactions.createdAt))
       .limit(10),
 
     // QUERY 5: Personal accounts with person names (grouped by person)
@@ -445,11 +454,16 @@ export default async function DashboardPage() {
   );
 
   // Cast recent transactions for type safety
+  // Phase B v3.0: include receivedDate / paidDate / businessStatus so the client
+  // can resolve Effective Date via getEffectiveDate() for display + tie-breaker sort.
   const recentTransactionsList: {
     id: string;
     type: 'income' | 'expense' | 'transfer' | 'adjustment';
     amount: number;
     date: Date;
+    receivedDate: Date | null;
+    paidDate: Date | null;
+    businessStatus: 'pending' | 'received' | null;
     title: string;
     status: string;
     sourceAccountId: string | null;
@@ -469,16 +483,31 @@ export default async function DashboardPage() {
     adjustmentDirection: 'increase' | 'decrease' | null;
   }[] = (recentRows ?? []) as any;
 
-  // Sort recentTransactions by Business Date (Bangkok date) DESC, then CreatedAt DESC
-  // This fixes timezone issues where UTC date differs from Bangkok date display
+  // Sort recentTransactions by Effective Date (Bangkok date) DESC, then CreatedAt DESC
+  // - Effective Date: pending = date, income received = receivedDate, expense received = paidDate
+  // - This matches how Transactions page sorts (see src/app/transactions/page.tsx)
   const sortedRecentTransactions = [...recentTransactionsList].sort((a, b) => {
-    const bangkokDateA = toBangkokDateString(a.date);
-    const bangkokDateB = toBangkokDateString(b.date);
-    
+    const effectiveA = getEffectiveDate({
+      type: a.type,
+      businessStatus: a.businessStatus,
+      date: typeof a.date === 'string' ? a.date : new Date(a.date).toISOString(),
+      receivedDate: a.receivedDate ? (typeof a.receivedDate === 'string' ? a.receivedDate : new Date(a.receivedDate).toISOString()) : null,
+      paidDate: a.paidDate ? (typeof a.paidDate === 'string' ? a.paidDate : new Date(a.paidDate).toISOString()) : null,
+    });
+    const effectiveB = getEffectiveDate({
+      type: b.type,
+      businessStatus: b.businessStatus,
+      date: typeof b.date === 'string' ? b.date : new Date(b.date).toISOString(),
+      receivedDate: b.receivedDate ? (typeof b.receivedDate === 'string' ? b.receivedDate : new Date(b.receivedDate).toISOString()) : null,
+      paidDate: b.paidDate ? (typeof b.paidDate === 'string' ? b.paidDate : new Date(b.paidDate).toISOString()) : null,
+    });
+    const bangkokDateA = toBangkokDateString(effectiveA);
+    const bangkokDateB = toBangkokDateString(effectiveB);
+
     if (bangkokDateB !== bangkokDateA) {
       return bangkokDateB.localeCompare(bangkokDateA);
     }
-    
+
     // Same Bangkok date - use createdAt DESC as tie-breaker
     const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
     const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -1007,7 +1036,13 @@ export default async function DashboardPage() {
                         <div className="min-w-0">
                           <h3 className="truncate font-semibold text-slate-900">{tx.title}</h3>
                           <p className="mt-1 text-xs text-slate-500">
-                            {typeLabel} · {formatDate(tx.date)}
+                            {typeLabel} · {formatEffectiveDate({
+                              type: tx.type,
+                              businessStatus: tx.businessStatus ?? null,
+                              date: typeof tx.date === 'string' ? tx.date : new Date(tx.date).toISOString(),
+                              receivedDate: tx.receivedDate ? (typeof tx.receivedDate === 'string' ? tx.receivedDate : new Date(tx.receivedDate).toISOString()) : null,
+                              paidDate: tx.paidDate ? (typeof tx.paidDate === 'string' ? tx.paidDate : new Date(tx.paidDate).toISOString()) : null,
+                            })}
                           </p>
                         </div>
                         <p className={`shrink-0 font-bold ${amountColor}`}>
