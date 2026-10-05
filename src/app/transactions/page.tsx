@@ -7,7 +7,7 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
-import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, formatEffectiveDate, formatEffectiveDateFull, getEffectiveDate, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
 import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -47,9 +47,18 @@ const formatAccountLabel = (account: {
 };
 
 // Sort transactions helper
-// Business Rule: Sort by Business Date (Bangkok date), then CreatedAt as tie-breaker
+// Business Rule: Sort by Effective Date (Bangkok date), then CreatedAt as tie-breaker
+// Effective Date = receivedDate for completed income, paidDate for completed expense, date otherwise
 // Business Date = วันที่ UI แสดงให้ผู้ใช้เห็น (ไม่ใช่ UTC timestamp ดิบ)
-const sortTransactions = <T extends { date: string; amount: number; createdAt?: string }>(
+const sortTransactions = <T extends {
+  date: string;
+  amount: number;
+  createdAt?: string;
+  type?: 'income' | 'expense' | 'transfer' | 'adjustment';
+  businessStatus?: 'pending' | 'received' | null;
+  receivedDate?: string | null;
+  paidDate?: string | null;
+}>(
   transactions: T[],
   sortOrder: SortOrder
 ): T[] => {
@@ -60,11 +69,25 @@ const sortTransactions = <T extends { date: string; amount: number; createdAt?: 
     if (sortOrder === 'amount_asc') {
       return a.amount - b.amount;
     }
-    
-    // Sort by Business Date (Bangkok date) first
-    const bangkokDateA = toBangkokDateString(a.date);
-    const bangkokDateB = toBangkokDateString(b.date);
-    
+
+    // Sort by Effective Date (Bangkok date) first
+    const effectiveA = getEffectiveDate({
+      type: a.type ?? 'expense',
+      businessStatus: a.businessStatus ?? null,
+      date: a.date,
+      receivedDate: a.receivedDate ?? null,
+      paidDate: a.paidDate ?? null,
+    });
+    const effectiveB = getEffectiveDate({
+      type: b.type ?? 'expense',
+      businessStatus: b.businessStatus ?? null,
+      date: b.date,
+      receivedDate: b.receivedDate ?? null,
+      paidDate: b.paidDate ?? null,
+    });
+    const bangkokDateA = toBangkokDateString(effectiveA);
+    const bangkokDateB = toBangkokDateString(effectiveB);
+
     if (sortOrder === 'date_desc') {
       // Newest first - if different Bangkok dates, sort by Bangkok date DESC
       if (bangkokDateB !== bangkokDateA) {
@@ -101,6 +124,9 @@ type Transaction = {
   categoryId: string | null;
   categoryName: string | null;
   businessStatus: BusinessStatus | null;
+  // Phase B v3.0: settlement dates (UTC ISO string from API)
+  receivedDate?: string | null;
+  paidDate?: string | null;
   sourceAccountId: string | null;
   sourceAccountName: string | null;
   sourceAccountAlias?: string | null;
@@ -690,6 +716,18 @@ function TransactionsContent() {
       return;
     }
 
+    const updatedTx = await response.json() as Partial<Transaction>;
+
+    // Update viewingTransaction so Modal reflects new status immediately
+    if (viewingTransaction?.id === id) {
+      setViewingTransaction({
+        ...viewingTransaction,
+        businessStatus: updatedTx.businessStatus ?? 'received',
+        status: updatedTx.status ?? 'completed',
+        receivedDate: updatedTx.receivedDate ?? new Date().toISOString(),
+      });
+    }
+
     showToast('บันทึกข้อมูลสำเร็จ', 'success');
     await loadData();
   };
@@ -705,6 +743,18 @@ function TransactionsContent() {
       const payload = (await response.json()) as { error?: string };
       showToast(payload.error || 'ไม่สามารถบันทึกข้อมูลได้', 'error');
       return;
+    }
+
+    const updatedTx = await response.json() as Partial<Transaction>;
+
+    // Update viewingTransaction so Modal reflects new status immediately
+    if (viewingTransaction?.id === id) {
+      setViewingTransaction({
+        ...viewingTransaction,
+        businessStatus: updatedTx.businessStatus ?? 'received',
+        status: updatedTx.status ?? 'completed',
+        paidDate: updatedTx.paidDate ?? new Date().toISOString(),
+      });
     }
 
     showToast('บันทึกข้อมูลสำเร็จ', 'success');
@@ -1820,7 +1870,7 @@ function TransactionCard({ transaction, onEdit, onView, onReceived, onPaid, onDe
 
       {/* Date & Received/Paid Button */}
       <div className="mt-3 flex items-center justify-between">
-        <p className="text-xs text-slate-400">{formatDate(transaction.date)}</p>
+        <p className="text-xs text-slate-400">{formatEffectiveDate(transaction)}</p>
         {transaction.type === 'income' && transaction.businessStatus === 'pending' && (
           <button
             type="button"
@@ -2813,8 +2863,38 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
             </p>
             <h3 className="mt-2 text-lg font-semibold text-slate-900">{transaction.title}</h3>
             <p className="mt-1 text-sm text-slate-500">
-              {formatDateFull(new Date(transaction.date))}
+              {formatEffectiveDateFull(transaction)}
             </p>
+          </div>
+
+          {/* Date Details Section (Phase B v3.0) */}
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+            {transaction.businessStatus === 'received' && transaction.type === 'income' && transaction.receivedDate && (
+              <DetailRow
+                label="วันที่รับจริง"
+                value={formatEffectiveDateFull(transaction)}
+                icon="💰"
+              />
+            )}
+            {transaction.businessStatus === 'received' && transaction.type === 'expense' && transaction.paidDate && (
+              <DetailRow
+                label="วันที่จ่ายจริง"
+                value={formatEffectiveDateFull(transaction)}
+                icon="💸"
+              />
+            )}
+            <DetailRow
+              label="วันที่รายการ"
+              value={formatDateFull(new Date(transaction.date))}
+              icon="📅"
+            />
+            {transaction.dueDateTime && (
+              <DetailRow
+                label={transaction.type === 'income' ? 'กำหนดรับเงิน' : 'กำหนดจ่าย'}
+                value={formatDueDateDisplay(transaction.dueDateTime) ?? ''}
+                icon="⏰"
+              />
+            )}
           </div>
 
           {/* Business Status Section */}

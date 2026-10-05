@@ -1,0 +1,7 @@
+PRAGMA defer_foreign_keys=TRUE;
+CREATE TABLE IF NOT EXISTS "d1_migrations"(
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		name       TEXT UNIQUE,
+		applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+DELETE FROM sqlite_sequence;

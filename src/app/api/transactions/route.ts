@@ -97,18 +97,30 @@ export async function GET(request: NextRequest) {
     // Server converts to UTC boundary:
     //   - Bangkok 2026-10-01 00:00:00 = UTC 2026-09-30 17:00:00
     //   - Bangkok 2026-10-01 23:59:59.999 = UTC 2026-10-01 16:59:59.999
+    // Phase B v3.0: filter by Effective Date, not business date
+    //   - income + received → receivedDate, else date
+    //   - expense + received → paidDate, else date
+    //   - pending → date
+    //   - transfer/adjustment → date
+    const effectiveDateExpr = sql`CASE
+      WHEN ${transactions.type} = 'income' AND ${transactions.businessStatus} = 'received' AND ${transactions.receivedDate} IS NOT NULL
+        THEN ${transactions.receivedDate}
+      WHEN ${transactions.type} = 'expense' AND ${transactions.businessStatus} = 'received' AND ${transactions.paidDate} IS NOT NULL
+        THEN ${transactions.paidDate}
+      ELSE ${transactions.date}
+    END`;
     if (dateFrom) {
       // Bangkok midnight = UTC previous day 17:00
       const [year, month, day] = dateFrom.split('-').map(Number);
       // UTC: (Bangkok date) - 7 hours = (Bangkok day - 1) 17:00
       const utcDate = new Date(Date.UTC(year, month - 1, day - 1, 17, 0, 0, 0));
-      filters.push(gte(transactions.date, sql`${Math.floor(utcDate.getTime() / 1000)}`));
+      filters.push(gte(effectiveDateExpr, sql`${Math.floor(utcDate.getTime() / 1000)}`));
     }
     if (dateTo) {
       // Bangkok end of day = UTC same day 16:59:59.999
       const [year, month, day] = dateTo.split('-').map(Number);
       const utcDate = new Date(Date.UTC(year, month - 1, day, 16, 59, 59, 999));
-      filters.push(lte(transactions.date, sql`${Math.floor(utcDate.getTime() / 1000)}`));
+      filters.push(lte(effectiveDateExpr, sql`${Math.floor(utcDate.getTime() / 1000)}`));
     }
 
     // Pagination: only apply if BOTH page and limit are provided
@@ -175,10 +187,19 @@ export async function GET(request: NextRequest) {
         .leftJoin(destAcc, eq(transactions.destinationAccountId, destAcc.id))
         .leftJoin(destOwner, eq(destAcc.personId, destOwner.id))
         .leftJoin(txCreatedBy, eq(transactions.createdByUserId, txCreatedBy.id))
-        .where(and(...filters))
-        .orderBy(desc(transactions.date), desc(transactions.createdAt))
-        .limit(limit)
-        .offset(offset);
+      .where(and(...filters))
+      .orderBy(
+        sql`CASE
+          WHEN ${transactions.type} = 'income' AND ${transactions.businessStatus} = 'received' AND ${transactions.receivedDate} IS NOT NULL
+            THEN ${transactions.receivedDate}
+          WHEN ${transactions.type} = 'expense' AND ${transactions.businessStatus} = 'received' AND ${transactions.paidDate} IS NOT NULL
+            THEN ${transactions.paidDate}
+          ELSE ${transactions.date}
+        END DESC`,
+        desc(transactions.createdAt)
+      )
+      .limit(limit)
+      .offset(offset);
 
       return NextResponse.json({
         data: rows,
@@ -238,7 +259,16 @@ export async function GET(request: NextRequest) {
       .leftJoin(destOwner, eq(destAcc.personId, destOwner.id))
       .leftJoin(txCreatedBy, eq(transactions.createdByUserId, txCreatedBy.id))
       .where(and(...filters))
-      .orderBy(desc(transactions.date), desc(transactions.createdAt));
+      .orderBy(
+        sql`CASE
+          WHEN ${transactions.type} = 'income' AND ${transactions.businessStatus} = 'received' AND ${transactions.receivedDate} IS NOT NULL
+            THEN ${transactions.receivedDate}
+          WHEN ${transactions.type} = 'expense' AND ${transactions.businessStatus} = 'received' AND ${transactions.paidDate} IS NOT NULL
+            THEN ${transactions.paidDate}
+          ELSE ${transactions.date}
+        END DESC`,
+        desc(transactions.createdAt)
+      );
 
     return NextResponse.json(rows);
   } catch (error) {

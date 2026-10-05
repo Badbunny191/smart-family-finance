@@ -338,3 +338,80 @@ export function getBangkokISOString(): string {
   const bangkokStr = now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok', hour12: false });
   return new Date(bangkokStr).toISOString();
 }
+
+// ============================================================
+// EFFECTIVE DATE (Phase B v3.0 — Settlement Date Display)
+// Used by: Transactions List, Detail Modal, Sort, Filter
+// ============================================================
+
+/**
+ * Shape for getEffectiveDate input.
+ * Mirrors the Transaction type fields used.
+ */
+export type EffectiveDateInput = {
+  type: 'income' | 'expense' | 'transfer' | 'adjustment';
+  businessStatus?: 'pending' | 'received' | null;
+  date: string;
+  receivedDate?: string | null;
+  paidDate?: string | null;
+};
+
+/**
+ * Get effective date for display/sort/filter.
+ *
+ * Rules:
+ * - pending → use date (Business Date)
+ * - completed + income + receivedDate → use receivedDate (Settlement Date)
+ * - completed + expense + paidDate → use paidDate (Settlement Date)
+ * - completed but no settlement date yet → fallback to date
+ *
+ * Returns a Date object (UTC), compatible with toBangkokDateString() for sorting.
+ */
+export function getEffectiveDate(tx: EffectiveDateInput): Date {
+  if (tx.businessStatus === 'pending') {
+    return new Date(tx.date);
+  }
+
+  // Completed transactions: use settlement date
+  if (tx.type === 'income' && tx.receivedDate) {
+    return new Date(tx.receivedDate);
+  }
+  if (tx.type === 'expense' && tx.paidDate) {
+    return new Date(tx.paidDate);
+  }
+
+  // Fallback to business date
+  return new Date(tx.date);
+}
+
+/**
+ * Format effective date for display (short format: 20 ก.ย. 2569).
+ * Wraps getEffectiveDate + formatDate for convenience.
+ */
+export function formatEffectiveDate(tx: EffectiveDateInput): string {
+  return formatDate(getEffectiveDate(tx));
+}
+
+/**
+ * Format effective date for display (full format with time: วันจันทร์ที่ 20 กันยายน พ.ศ. 2569 เวลา 20:40 น.).
+ * Includes time component from the settlement date.
+ */
+export function formatEffectiveDateFull(tx: EffectiveDateInput): string {
+  const effective = getEffectiveDate(tx);
+  const datePart = createBuddhistFormatter({
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(effective);
+
+  // Format time separately (24-hour, Bangkok)
+  const timePart = effective.toLocaleTimeString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  return `${datePart} เวลา ${timePart} น.`;
+}
