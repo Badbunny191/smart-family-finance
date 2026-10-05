@@ -25,6 +25,7 @@ import { and, eq, isNull, sql, gte, lt, or } from 'drizzle-orm';
 import { accounts, transactions } from '@/db/schema';
 import type { AppDatabase } from '@/db/client';
 import { sendDailySummaryFlexToUser, type LineNotificationMetrics } from './line-flex-sender';
+import { EFFECTIVE_DATE_SQL_CASE } from './transaction-effective-date-query';
 import {
   effectiveSlots,
   readSlotHistory,
@@ -594,13 +595,18 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
     .first<{ total_balance: number }>();
 
   // Query 2: Monthly Income/Expense
+  // Phase B v3.0: filter by Effective Date (SSOT = transaction-effective-date-query.ts)
+  //   - pending                → date
+  //   - completed income       → receivedDate ?? date
+  //   - completed expense      → paidDate ?? date
+  //   - transfer / adjustment  → date
   const incomeExpenseResult = await db
     .prepare(`
       SELECT type, COALESCE(SUM(amount), 0) as total
       FROM transactions
       WHERE status = 'completed'
-        AND date >= ?
-        AND date < ?
+        AND ${EFFECTIVE_DATE_SQL_CASE} >= ?
+        AND ${EFFECTIVE_DATE_SQL_CASE} < ?
         AND type IN ('income', 'expense')
         GROUP BY type
     `)
@@ -723,13 +729,17 @@ export async function getLineNotificationMetrics(db: D1Database): Promise<LineNo
     .all<{ title: string; amount: number }>();
 
   // Query 7: Today's Transactions (completed only) - for Flex "รายการวันนี้" section
+  // Phase B v3.0: filter by Effective Date (SSOT = transaction-effective-date-query.ts)
+  //   - pending                → date
+  //   - completed income       → receivedDate ?? date
+  //   - completed expense      → paidDate ?? date
   const todayResult = await db
     .prepare(`
       SELECT type, COUNT(*) as cnt, COALESCE(SUM(amount), 0) as total
       FROM transactions
       WHERE status = 'completed'
-        AND date >= ?
-        AND date < ?
+        AND ${EFFECTIVE_DATE_SQL_CASE} >= ?
+        AND ${EFFECTIVE_DATE_SQL_CASE} < ?
       GROUP BY type
     `)
     .bind(todayStart, todayEnd)
