@@ -5,7 +5,18 @@
  *
  * IMPORTANT: Only transactions with status === 'completed' affect real money balance.
  * Pending and cancelled transactions are excluded (consistent with financial engine rules).
+ *
+ * Phase 3: Effective Date is used for date filtering, sorting, and display
+ *   - pending               → date
+ *   - completed income      → receivedDate ?? date
+ *   - completed expense     → paidDate ?? date
+ *   - transfer / adjustment → date
+ *
+ * Aligned with Transactions / Dashboard / LINE Summary.
+ * See: src/lib/utils.ts → getEffectiveDate() (JS helper, single source of truth)
  */
+
+import { getEffectiveDate } from './utils';
 
 export type ReportPeriod = 'today' | 'week' | 'month' | 'custom';
 
@@ -85,7 +96,14 @@ export type TransactionRow = {
   id: string;
   type: 'income' | 'expense' | 'transfer' | 'adjustment';
   amount: number;
-  date: string; // ISO string
+  /** ISO string OR unix-seconds-as-string (API returns seconds; we keep as string for getEffectiveDate()). */
+  date: string;
+  /** ISO string OR unix-seconds-as-string (income, completed). Null otherwise. */
+  receivedDate: string | null;
+  /** ISO string OR unix-seconds-as-string (expense, completed). Null otherwise. */
+  paidDate: string | null;
+  /** Phase 3: drives effective-date rule in getEffectiveDate() */
+  businessStatus: 'pending' | 'received' | null;
   title: string;
   status?: 'pending' | 'completed' | 'cancelled' | null;
   propertyId: string | null;
@@ -250,74 +268,79 @@ export function buildReport(
   const todayRange = period === 'today' ? getTodayRange() : null;
 
   // Filter: completed income/expense in date range
+  // Phase 3: use getEffectiveDate() — same rule as Transactions / Dashboard / LINE
+  //   - pending               → date
+  //   - completed income      → receivedDate ?? date
+  //   - completed expense     → paidDate ?? date
+  //   - transfer / adjustment → date
   const filtered = transactions.filter((tx) => {
-    const txDate = new Date(tx.date);
+    // Only completed income/expense affect real balance
+    if (tx.status !== 'completed') return false;
+    if (tx.type !== 'income' && tx.type !== 'expense') return false;
+
+    const effectiveMs = getEffectiveDate(tx).getTime();
 
     // For 'month' period: use Bangkok unix seconds comparison (same as Dashboard/Flex)
     if (monthRange) {
-      const txDateSec = txDate.getTime() / 1000;
+      const txDateSec = effectiveMs / 1000;
       return (
         txDateSec >= monthRange.monthStart &&
-        txDateSec < monthRange.nextMonthStart &&
-        (tx.type === 'income' || tx.type === 'expense') &&
-        tx.status === 'completed'
+        txDateSec < monthRange.nextMonthStart
       );
     }
 
     // For 'week' period: use Bangkok unix seconds comparison
     if (weekRange) {
-      const txDateSec = txDate.getTime() / 1000;
+      const txDateSec = effectiveMs / 1000;
       return (
         txDateSec >= weekRange.weekStart &&
-        txDateSec <= weekRange.weekEnd &&
-        (tx.type === 'income' || tx.type === 'expense') &&
-        tx.status === 'completed'
+        txDateSec <= weekRange.weekEnd
       );
     }
 
     // For 'today' period: use Bangkok unix seconds comparison
     if (todayRange) {
-      const txDateSec = txDate.getTime() / 1000;
+      const txDateSec = effectiveMs / 1000;
       return (
         txDateSec >= todayRange.todayStart &&
-        txDateSec <= todayRange.todayEnd &&
-        (tx.type === 'income' || tx.type === 'expense') &&
-        tx.status === 'completed'
+        txDateSec <= todayRange.todayEnd
       );
     }
 
     // For 'custom': use Date comparison (legacy, less critical)
-    return (
-      txDate >= start &&
-      txDate <= end &&
-      (tx.type === 'income' || tx.type === 'expense') &&
-      tx.status === 'completed'
-    );
+    const effectiveDate = new Date(effectiveMs);
+    return effectiveDate >= start && effectiveDate <= end;
   });
 
   // Separate income / expense
   const incomeTxs = filtered.filter((tx) => tx.type === 'income');
   const expenseTxs = filtered.filter((tx) => tx.type === 'expense');
 
-  // Build items - sort by Date object (epoch ms), not by formatted string
+  // Build items - sort by effective date (epoch ms), not by formatted string
   const incomeItems: ReportItem[] = incomeTxs
-    .map((tx) => ({
-      dateMs: new Date(tx.date).getTime(),
-      dateDisplay: formatThaiDate(new Date(tx.date), 'short'),
-      title: tx.title,
-      icon: resolveIcon(tx.categoryIcon, '📥'),
-      amount: tx.amount,
-    }))
+    .map((tx) => {
+      const effectiveDate = getEffectiveDate(tx);
+      return {
+        dateMs: effectiveDate.getTime(),
+        dateDisplay: formatThaiDate(effectiveDate, 'short'),
+        title: tx.title,
+        icon: resolveIcon(tx.categoryIcon, '📥'),
+        amount: tx.amount,
+      };
+    })
     .sort((a, b) => a.dateMs - b.dateMs);
 
   const expenseItems: ReportItem[] = expenseTxs
-    .map((tx) => ({
-      dateMs: new Date(tx.date).getTime(),
-      dateDisplay: formatThaiDate(new Date(tx.date), 'short'),
-      title: tx.title,
-      icon: resolveIcon(tx.categoryIcon, '💸'),
-      amount: tx.amount,
-    }))
+    .map((tx) => {
+      const effectiveDate = getEffectiveDate(tx);
+      return {
+        dateMs: effectiveDate.getTime(),
+        dateDisplay: formatThaiDate(effectiveDate, 'short'),
+        title: tx.title,
+        icon: resolveIcon(tx.categoryIcon, '💸'),
+        amount: tx.amount,
+      };
+    })
     .sort((a, b) => a.dateMs - b.dateMs);
 
   // Group expense by property
@@ -338,9 +361,10 @@ export function buildReport(
 
     const group = propertyGroupsMap.get(propId)!;
     group.total += tx.amount;
+    const effectiveDate = getEffectiveDate(tx);
     group.items.push({
-      dateMs: new Date(tx.date).getTime(),
-      dateDisplay: formatThaiDate(new Date(tx.date), 'short'),
+      dateMs: effectiveDate.getTime(),
+      dateDisplay: formatThaiDate(effectiveDate, 'short'),
       title: tx.title,
       icon: resolveIcon(tx.categoryIcon, '💸'),
       amount: tx.amount,

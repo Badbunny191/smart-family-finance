@@ -53,12 +53,23 @@ export default function ShareReportPage() {
         if (!all.ok) throw new Error('ไม่สามารถโหลดข้อมูลรายการได้');
         const data = await all.json();
         // Map response to TransactionRow — preserve categoryIcon from API
+        // Phase 3: pass receivedDate / paidDate / businessStatus so buildReport()
+        // can resolve the Effective Date via getEffectiveDate().
+        // API returns unix seconds (integer). getEffectiveDate() accepts both
+        // ISO strings and numeric strings (it wraps them in `new Date(...)`).
         const rows: TransactionRow[] = (data as Array<Record<string, unknown>>).map(
           (row) => ({
             id: String(row.id),
             type: row.type as TransactionRow['type'],
             amount: Number(row.amount),
+            // Keep API value as string — getEffectiveDate() handles both shapes
             date: String(row.date),
+            receivedDate:
+              row.receivedDate == null ? null : String(row.receivedDate),
+            paidDate:
+              row.paidDate == null ? null : String(row.paidDate),
+            businessStatus:
+              (row.businessStatus as TransactionRow['businessStatus']) ?? null,
             title: String(row.title),
             status: (row.status as TransactionRow['status']) ?? 'completed',
             propertyId: (row.propertyId as string | null) ?? null,
