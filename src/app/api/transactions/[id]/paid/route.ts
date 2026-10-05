@@ -27,6 +27,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // Empty body is fine — use current time as fallback
     }
 
+    // Phase B v3.0 — Future-date guard (backend, defense in depth)
+    // Reject settlementDate in the future. Compare against Date.now() UTC.
+    // Note: this is a strict server-side check. Frontend dialog also blocks
+    // future dates (see SettlementDateDialog), but a malicious or buggy client
+    // could bypass that — backend is the final authority.
+    if (settlementDate && settlementDate.getTime() > Date.now()) {
+      return NextResponse.json(
+        {
+          error: 'ไม่สามารถบันทึกวันที่/เวลาในอนาคตได้',
+          code: 'FUTURE_SETTLEMENT_DATE',
+        },
+        { status: 400 }
+      );
+    }
+
     // ดึงข้อมูล transaction ก่อน
     const [tx] = await db
       .select()

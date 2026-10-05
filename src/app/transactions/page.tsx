@@ -2829,6 +2829,40 @@ function SettlementDateDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  // ============================================================
+  // Phase B v3.0 — Future-date guard
+  // - settlementDate must not be in the future (relative to Asia/Bangkok now)
+  // - Validation covers:
+  //   (a) date > today           → reject
+  //   (b) date == today AND time > current Bangkok time → reject
+  // - Also drives the `<input type="time" max={...}>` so the browser prevents
+  //   future times when the user has selected today.
+  // - Note: backend ALSO validates (defense in depth), see /api/transactions/[id]/{received,paid}/route.ts
+  // ============================================================
+  const combinedBangkokMs = useMemo<number | null>(() => {
+    if (!dateValue || !timeValue) return null;
+    const [year, month, day] = dateValue.split('-').map(Number);
+    const [hour, minute] = timeValue.split(':').map(Number);
+    if ([year, month, day, hour, minute].some((n) => Number.isNaN(n))) return null;
+    // Bangkok time → UTC ms: subtract 7 hours
+    return Date.UTC(year, month - 1, day, hour - 7, minute, 0, 0);
+  }, [dateValue, timeValue]);
+
+  // Recompute Bangkok now once per render (cheap; no useEffect needed)
+  const bangkokNowParts = getBangkokNowParts();
+  const bangkokNowMs = useMemo(() => {
+    const [y, mo, d] = bangkokNowParts.date.split('-').map(Number);
+    const [h, mi] = bangkokNowParts.time.split(':').map(Number);
+    return Date.UTC(y, mo - 1, d, h - 7, mi, 0, 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bangkokNowParts.date, bangkokNowParts.time]);
+
+  const isFuture =
+    combinedBangkokMs !== null && bangkokNowMs !== null && combinedBangkokMs > bangkokNowMs;
+  // Time picker max only meaningful when date is today
+  const isToday = dateValue === bangkokNowParts.date;
+  const timeMax = isToday ? bangkokNowParts.time : undefined;
+
   if (!isOpen) return null;
 
   const title = mode === 'received' ? 'ยืนยันการรับเงิน' : 'ยืนยันการจ่ายเงิน';
@@ -2838,12 +2872,12 @@ function SettlementDateDialog({
 
   const handleConfirm = async () => {
     if (!dateValue || !timeValue) return;
+    // Phase B v3.0 — Future-date guard (frontend)
+    // Reject if user somehow bypassed the date/time <input> constraints
+    // (e.g. browser autofill). Backend also validates; see /api/transactions/[id]/{received,paid}/route.ts
+    if (combinedBangkokMs === null || isFuture) return;
     // Build Bangkok-local date, then convert to UTC ISO string
-    const [year, month, day] = dateValue.split('-').map(Number);
-    const [hour, minute] = timeValue.split(':').map(Number);
-    // Bangkok time → UTC: subtract 7 hours
-    const utcMs = Date.UTC(year, month - 1, day, hour - 7, minute, 0, 0);
-    const combined = new Date(utcMs);
+    const combined = new Date(combinedBangkokMs);
     if (isNaN(combined.getTime())) return;
     await onConfirm(combined);
   };
@@ -2882,7 +2916,7 @@ function SettlementDateDialog({
                 type="date"
                 value={dateValue}
                 onChange={(e) => setDateValue(e.target.value)}
-                max={getBangkokNowParts().date}
+                max={bangkokNowParts.date}
                 className="form-input w-full"
               />
             </div>
@@ -2894,10 +2928,18 @@ function SettlementDateDialog({
                 type="time"
                 value={timeValue}
                 onChange={(e) => setTimeValue(e.target.value)}
+                max={timeMax}
                 className="form-input w-full"
               />
             </div>
           </div>
+
+          {/* Phase B v3.0 — Future-date guard message */}
+          {isFuture && (
+            <p className="text-center text-xs font-medium text-rose-600" role="alert">
+              ⚠️ วันที่/เวลาที่เลือกอยู่ในอนาคต กรุณาเลือกวันที่/เวลาย้อนหลังหรือปัจจุบัน (Asia/Bangkok)
+            </p>
+          )}
 
           <p className="text-xs text-slate-400 text-center">
             ค่าเริ่มต้นเป็นเวลาปัจจุบัน (Asia/Bangkok) — สามารถแก้ย้อนหลังได้
@@ -2916,7 +2958,7 @@ function SettlementDateDialog({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={isSubmitting || !dateValue || !timeValue}
+            disabled={isSubmitting || !dateValue || !timeValue || isFuture}
             className="flex-1 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
           >
             {isSubmitting ? 'กำลังบันทึก...' : 'ยืนยัน'}
