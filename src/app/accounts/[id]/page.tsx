@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
-import { formatAccountDisplayName, formatCurrency, formatDateRange, formatDate, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency, formatDateRange, formatDate, formatEffectiveDate, parseBangkokDate, toBangkokDateString, getEffectiveDate } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
 
@@ -26,6 +26,9 @@ type Transaction = {
   type: TransactionType;
   amount: number;
   date: string;
+  // Phase 1/2 v3.0: effective date fields (reused from getEffectiveDate helper)
+  receivedDate: string | null;
+  paidDate: string | null;
   title: string;
   categoryId: string | null;
   categoryName: string | null;
@@ -119,24 +122,41 @@ const normalizeSearchText = (str: string): string => {
 };
 
 // Check if there are any transactions in the date range (for showing search section)
+// Business Rule: filter by effective date (Bangkok) so completed expense shows paidDate (not date)
 const hasTransactionsInRange = (
   transactions: Transaction[],
   accountId: string,
   dateRange: { start: Date; end: Date }
 ): boolean => {
   return transactions.some(tx => {
-    const txDate = new Date(tx.date);
+    const effectiveDate = getEffectiveDate({
+      type: tx.type,
+      businessStatus: tx.businessStatus,
+      date: tx.date,
+      receivedDate: tx.receivedDate,
+      paidDate: tx.paidDate,
+    });
     const isForThisAccount =
       tx.sourceAccountId === accountId ||
       tx.destinationAccountId === accountId;
-    const isInPeriod = txDate >= dateRange.start && txDate < dateRange.end;
+    const isInPeriod = effectiveDate >= dateRange.start && effectiveDate < dateRange.end;
     return isForThisAccount && isInPeriod && tx.status === 'completed';
   });
 };
 
 // Sort transactions helper
-// Business Rule: Sort by Business Date (Bangkok date), then CreatedAt as tie-breaker
-const sortTransactions = <T extends { date: string; amount: number; createdAt?: string }>(
+// Business Rule: Sort by Effective Date (Bangkok), then CreatedAt as tie-breaker
+// Reuses getEffectiveDate() so Account Detail matches Dashboard / Transactions / LINE
+const sortTransactions = <
+  T extends {
+    date: string;
+    amount: number;
+    businessStatus?: BusinessStatus | null;
+    receivedDate?: string | null;
+    paidDate?: string | null;
+    createdAt?: string;
+  }
+>(
   transactions: T[],
   sortOrder: SortOrder
 ): T[] => {
@@ -147,11 +167,25 @@ const sortTransactions = <T extends { date: string; amount: number; createdAt?: 
     if (sortOrder === 'amount_asc') {
       return a.amount - b.amount;
     }
-    
-    // Sort by Business Date (Bangkok date) first
-    const bangkokDateA = toBangkokDateString(a.date);
-    const bangkokDateB = toBangkokDateString(b.date);
-    
+
+    // Sort by Effective Date (Bangkok date) first
+    const effectiveA = getEffectiveDate({
+      type: ((a as unknown as { type?: TransactionType }).type) ?? 'expense',
+      businessStatus: a.businessStatus ?? null,
+      date: a.date,
+      receivedDate: a.receivedDate ?? null,
+      paidDate: a.paidDate ?? null,
+    });
+    const effectiveB = getEffectiveDate({
+      type: ((b as unknown as { type?: TransactionType }).type) ?? 'expense',
+      businessStatus: b.businessStatus ?? null,
+      date: b.date,
+      receivedDate: b.receivedDate ?? null,
+      paidDate: b.paidDate ?? null,
+    });
+    const bangkokDateA = toBangkokDateString(effectiveA);
+    const bangkokDateB = toBangkokDateString(effectiveB);
+
     if (sortOrder === 'date_desc') {
       if (bangkokDateB !== bangkokDateA) {
         return bangkokDateB.localeCompare(bangkokDateA);
@@ -361,12 +395,19 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
 
     // Filter transactions for this account
     // Logic: completed=shown, cancelled=hidden, pending=hidden
+    // Business Rule: filter by effective date (Bangkok) so completed income/expense show receivedDate/paidDate
     const accountTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date);
+      const effectiveDate = getEffectiveDate({
+        type: tx.type,
+        businessStatus: tx.businessStatus,
+        date: tx.date,
+        receivedDate: tx.receivedDate,
+        paidDate: tx.paidDate,
+      });
       const isForThisAccount =
         tx.sourceAccountId === accountId ||
         tx.destinationAccountId === accountId;
-      const isInPeriod = txDate >= start && txDate < end;
+      const isInPeriod = effectiveDate >= start && effectiveDate < end;
 
       // Status filter: completed=shown, cancelled=hidden, pending=hidden
       const isCompleted = tx.status === 'completed';
@@ -890,7 +931,7 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
                         <div className="min-w-0">
                           <h3 className="truncate font-semibold text-slate-900">{tx.title}</h3>
                           <p className="mt-1 text-xs text-slate-500">
-                            {formatDate(tx.date)}
+                            {formatEffectiveDate(tx)}
                           </p>
                           {display.accountLabel && (
                             <p className="mt-1 truncate text-xs text-slate-400">
