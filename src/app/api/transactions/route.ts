@@ -324,6 +324,15 @@ export async function POST(request: NextRequest) {
     }
 
     const now = new Date();
+    // v3.0.1 — When creating a transaction directly as 'received' (e.g. expense
+    // ที่จ่ายสำเร็จตั้งแต่แรก หรือ income ที่รับเงินสำเร็จตั้งแต่แรก), stamp the
+    // settlement timestamp immediately so the UI can show full date+time
+    // consistently with transactions that flow through Pending → Completed.
+    // Note: legacy records (no settlement date) will keep showing the badge
+    // without a time-of-day, by design.
+    const isSettled = input.businessStatus === 'received';
+    const receivedDate = isSettled && input.type === 'income' ? now : null;
+    const paidDate = isSettled && input.type === 'expense' ? now : null;
     const transaction = {
       id: crypto.randomUUID(),
       type: input.type,
@@ -336,6 +345,8 @@ export async function POST(request: NextRequest) {
       destinationAccountId: input.destinationAccountId || null,
       status: (input.businessStatus === 'pending' ? 'pending' : 'completed') as 'pending' | 'completed',
       businessStatus: input.businessStatus || null,
+      receivedDate,
+      paidDate,
       // Phase 1 v3.0: per-transaction due date+time (full timestamp, UTC)
       // Drizzle converts Date → integer (unix epoch seconds) automatically.
       dueDateTime: input.dueDateTime ?? null,
