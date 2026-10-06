@@ -787,3 +787,35 @@ Result:
 - Attachment deletion verified
 - Legacy columns identified
 - Production schema safe
+
+2026-10-06
+
+✅ Completed
+
+Transaction UX & Settlement Timestamp
+
+Transaction Detail
+- ลบการแสดงวันที่ซ้ำใน Detail Modal
+- เปลี่ยนการแสดงผลมาใช้ createdAt จริง
+- แก้ปัญหาเวลา 00:00 น. จาก date-only fields
+
+Settlement Timestamp
+- แสดงวันเวลา "รับเงินแล้ว" และ "จ่ายแล้ว" จาก receivedDate/paidDate จริง
+- ซ่อนเวลาสำหรับ legacy records ที่ไม่มี timestamp จริง
+- Transaction ใหม่ที่สร้างเป็น Completed จะบันทึก settlement timestamp อัตโนมัติ
+
+Transaction Ordering
+- ปรับการเรียงรายการวันเดียวกัน
+- ใช้ effectiveDate DESC + createdAt DESC
+- Dashboard และ Transaction List แสดงลำดับถูกต้อง
+
+Testing
+- เพิ่ม helper hasBangkokTimeOfDay()
+- เพิ่ม unit tests 12 รายการ
+- Tests ผ่าน 465/465
+
+Commit
+8051e90e
+
+Tag
+v2.1
