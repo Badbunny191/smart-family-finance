@@ -218,6 +218,40 @@ export function formatDateTimeFull(date: Date | string | number): string {
 }
 
 /**
+ * Check if a date-time value has REAL time-of-day in Asia/Bangkok timezone.
+ *
+ * Use this before rendering `formatDateTimeFull()` for settlement dates
+ * (receivedDate / paidDate). Returns `false` for:
+ *   - null / undefined
+ *   - a value whose Bangkok wall-clock time is 00:00 (legacy date-only
+ *     backfill where receivedDate was set to transactions.date)
+ *
+ * UI rule: If this returns `false`, hide the settlement date line entirely.
+ * NEVER silently fall back to "00:00 น." — it leaks the legacy
+ * date-only convention into the UI.
+ */
+export function hasBangkokTimeOfDay(date: Date | string | number | null | undefined): boolean {
+  if (date === null || date === undefined) return false;
+  let d: Date;
+  if (typeof date === 'number') {
+    d = new Date(date * 1000);
+  } else if (typeof date === 'string') {
+    d = new Date(date);
+  } else {
+    d = date;
+  }
+  if (Number.isNaN(d.getTime())) return false;
+  // Bangkok wall-clock hour:minute → "00:00" means legacy/date-only value
+  const hh = Number(
+    d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', hour12: false }).replace(/[^0-9]/g, '')
+  );
+  const mm = Number(
+    d.toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', minute: '2-digit' }).replace(/[^0-9]/g, '')
+  );
+  return !(Number.isNaN(hh) || Number.isNaN(mm)) && (hh !== 0 || mm !== 0);
+}
+
+/**
  * Format date range: 1 ก.ย. 2569 - 20 ก.ย. 2569
  * Returns single date if same day.
  * Uses Asia/Bangkok timezone for correct Bangkok date boundaries.

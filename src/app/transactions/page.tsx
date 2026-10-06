@@ -7,7 +7,7 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
-import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, formatDateTimeFull, formatEffectiveDate, getEffectiveDate, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, formatDateTimeFull, formatEffectiveDate, getEffectiveDate, hasBangkokTimeOfDay, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
 import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -1820,20 +1820,24 @@ function TransactionCard({ transaction, onEdit, onView, onDelete, isDeleting, is
         </div>
       )}
 
-      {/* Business Status - For Income/Expense with Received status */}
+      {/* Business Status - For Income/Expense with Received status
+          RULE: Only show the settlement date+time line if receivedDate/paidDate
+          has REAL time-of-day in Bangkok. Hide the line entirely if:
+            (a) receivedDate/paidDate is null/undefined, OR
+            (b) the value is a legacy backfill (transactions.date → 00:00 Bangkok)
+          This prevents silently rendering "00:00 น." which would leak the
+          date-only storage convention into the UI. */}
       {transaction.businessStatus === 'received' && (transaction.type === 'income' || transaction.type === 'expense') && (
         <div className="mt-3 space-y-1">
           <span className="text-sm font-medium text-emerald-600">
             ✅ {getStatusLabel(transaction.businessStatus, transaction.type)}
           </span>
-          {/* Show real settlement date+time. RULE: receivedDate/paidDate are real
-              timestamps (with time-of-day) — safe to display as full date+time. */}
-          {transaction.type === 'income' && transaction.receivedDate && (
+          {transaction.type === 'income' && hasBangkokTimeOfDay(transaction.receivedDate) && (
             <p className="text-xs text-slate-600">
               {formatDateTimeFull(transaction.receivedDate)}
             </p>
           )}
-          {transaction.type === 'expense' && transaction.paidDate && (
+          {transaction.type === 'expense' && hasBangkokTimeOfDay(transaction.paidDate) && (
             <p className="text-xs text-slate-600">
               {formatDateTimeFull(transaction.paidDate)}
             </p>
@@ -3088,13 +3092,14 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
                   {transaction.businessStatus === 'pending' ? '⏳' : '✅'} {getStatusLabel(transaction.businessStatus, transaction.type)}
                 </span>
                 {/* Show real settlement date+time (receivedDate / paidDate) when received.
-                    RULE: Always use the real timestamp field — never fall back to date. */}
-                {transaction.businessStatus === 'received' && transaction.type === 'income' && transaction.receivedDate && (
+                    RULE: Only render the line if receivedDate/paidDate has REAL
+                    time-of-day in Bangkok. Hide if null or legacy 00:00 backfill. */}
+                {transaction.businessStatus === 'received' && transaction.type === 'income' && hasBangkokTimeOfDay(transaction.receivedDate) && (
                   <p className="text-sm text-slate-600">
                     {formatDateTimeFull(transaction.receivedDate)}
                   </p>
                 )}
-                {transaction.businessStatus === 'received' && transaction.type === 'expense' && transaction.paidDate && (
+                {transaction.businessStatus === 'received' && transaction.type === 'expense' && hasBangkokTimeOfDay(transaction.paidDate) && (
                   <p className="text-sm text-slate-600">
                     {formatDateTimeFull(transaction.paidDate)}
                   </p>

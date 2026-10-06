@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
-import { formatAccountDisplayName, formatCurrency, formatDateRange, formatDate, formatDateTimeFull, formatEffectiveDate, parseBangkokDate, toBangkokDateString, getEffectiveDate } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency, formatDateRange, formatDate, formatDateTimeFull, formatEffectiveDate, hasBangkokTimeOfDay, parseBangkokDate, toBangkokDateString, getEffectiveDate } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
 
@@ -934,13 +934,14 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
                             {formatEffectiveDate(tx)}
                           </p>
                           {/* Received/Paid status with real settlement date+time.
-                                RULE: receivedDate/paidDate are real timestamps — safe to format as full date+time. */}
-                          {tx.businessStatus === 'received' && tx.type === 'income' && tx.receivedDate && (
+                              RULE: Only render if receivedDate/paidDate has REAL
+                              time-of-day in Bangkok. Hide if null or legacy 00:00. */}
+                          {tx.businessStatus === 'received' && tx.type === 'income' && hasBangkokTimeOfDay(tx.receivedDate) && (
                             <p className="mt-1 text-xs font-medium text-emerald-700">
                               ✅ รับเงินแล้ว · {formatDateTimeFull(tx.receivedDate)}
                             </p>
                           )}
-                          {tx.businessStatus === 'received' && tx.type === 'expense' && tx.paidDate && (
+                          {tx.businessStatus === 'received' && tx.type === 'expense' && hasBangkokTimeOfDay(tx.paidDate) && (
                             <p className="mt-1 text-xs font-medium text-emerald-700">
                               ✅ จ่ายแล้ว · {formatDateTimeFull(tx.paidDate)}
                             </p>
