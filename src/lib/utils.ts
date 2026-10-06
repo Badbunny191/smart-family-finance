@@ -229,8 +229,14 @@ export function formatDateTimeFull(date: Date | string | number): string {
  * UI rule: If this returns `false`, hide the settlement date line entirely.
  * NEVER silently fall back to "00:00 น." — it leaks the legacy
  * date-only convention into the UI.
+ *
+ * Type guard: narrows `T | null | undefined` to `T` so the caller can
+ * safely pass the value to `formatDateTimeFull()` without a separate
+ * null check.
  */
-export function hasBangkokTimeOfDay(date: Date | string | number | null | undefined): boolean {
+export function hasBangkokTimeOfDay<T extends Date | string | number>(
+  date: T | null | undefined,
+): date is T {
   if (date === null || date === undefined) return false;
   let d: Date;
   if (typeof date === 'number') {
