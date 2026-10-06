@@ -157,6 +157,15 @@ export function formatDate(date: Date | string): string {
 
 /**
  * Format date as full format: วันอาทิตย์ที่ 20 กันยายน พ.ศ. 2569
+ *
+ * NOTE: This is the DATE part only — does NOT include time.
+ * For full date+time, use `formatDateTimeFull()` instead.
+ *
+ * RULE: Never use this helper to display `transactions.date` or
+ * `effectiveDate` because those fields are date-only and would
+ * silently show 00:00 if a caller mistakenly appends a time. Use
+ * `formatDateTimeFull()` with a real timestamp (createdAt /
+ * receivedDate / paidDate) whenever time is needed.
  */
 export function formatDateFull(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
@@ -166,6 +175,46 @@ export function formatDateFull(date: Date | string): string {
     month: 'long',
     day: 'numeric',
   }).format(d);
+}
+
+/**
+ * Format date as FULL date + time: วันอาทิตย์ที่ 20 กันยายน พ.ศ. 2569 เวลา 20:40 น.
+ *
+ * RULE: Only use with a REAL timestamp that carries time-of-day:
+ *   - createdAt (always present, real timestamp)
+ *   - receivedDate / paidDate (settlement date — has time-of-day)
+ * NEVER use with transactions.date (date-only → renders "00:00").
+ *
+ * Accepts Date object, ISO string, or unix seconds (number).
+ */
+export function formatDateTimeFull(date: Date | string | number): string {
+  let d: Date;
+  if (typeof date === 'number') {
+    // Unix seconds (drizzle mode='timestamp') → ms
+    d = new Date(date * 1000);
+  } else if (typeof date === 'string') {
+    d = new Date(date);
+  } else {
+    d = date;
+  }
+
+  if (Number.isNaN(d.getTime())) return '';
+
+  const datePart = createBuddhistFormatter({
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(d);
+
+  const timePart = d.toLocaleTimeString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  return `${datePart} เวลา ${timePart} น.`;
 }
 
 /**

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MobileNav } from '@/components/mobile-nav';
-import { formatAccountDisplayName, formatCurrency, formatDateRange, formatDate, formatEffectiveDate, parseBangkokDate, toBangkokDateString, getEffectiveDate } from '@/lib/utils';
+import { formatAccountDisplayName, formatCurrency, formatDateRange, formatDate, formatDateTimeFull, formatEffectiveDate, parseBangkokDate, toBangkokDateString, getEffectiveDate } from '@/lib/utils';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
 
@@ -933,6 +933,18 @@ function AccountDetailContent({ accountId }: { accountId: string }) {
                           <p className="mt-1 text-xs text-slate-500">
                             {formatEffectiveDate(tx)}
                           </p>
+                          {/* Received/Paid status with real settlement date+time.
+                                RULE: receivedDate/paidDate are real timestamps — safe to format as full date+time. */}
+                          {tx.businessStatus === 'received' && tx.type === 'income' && tx.receivedDate && (
+                            <p className="mt-1 text-xs font-medium text-emerald-700">
+                              ✅ รับเงินแล้ว · {formatDateTimeFull(tx.receivedDate)}
+                            </p>
+                          )}
+                          {tx.businessStatus === 'received' && tx.type === 'expense' && tx.paidDate && (
+                            <p className="mt-1 text-xs font-medium text-emerald-700">
+                              ✅ จ่ายแล้ว · {formatDateTimeFull(tx.paidDate)}
+                            </p>
+                          )}
                           {display.accountLabel && (
                             <p className="mt-1 truncate text-xs text-slate-400">
                               {display.accountLabel}

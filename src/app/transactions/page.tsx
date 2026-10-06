@@ -7,7 +7,7 @@ import { MobileNav } from '@/components/mobile-nav';
 import { useToast } from '@/components/ui/toast';
 import { AttachmentManager } from '@/components/ui/attachment-manager';
 import { AttachmentPicker, type AttachmentPickerFile } from '@/components/ui/attachment-picker';
-import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, formatEffectiveDate, formatEffectiveDateFull, getEffectiveDate, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
+import { formatAccountDisplayName, formatAccountForSelector, formatDateRange, formatDate, formatDateFull, formatDateTimeFull, formatEffectiveDate, getEffectiveDate, isOverdue, getOverdueInfo, getBangkokDateString, parseBangkokDate, toBangkokDateString } from '@/lib/utils';
 import { formatFileSize } from '@/lib/image-compression';
 import { useSession } from '@/lib/auth-client';
 import { isUserAdmin, type Session } from '@/types/session';
@@ -1682,14 +1682,6 @@ function TransactionCard({ transaction, onEdit, onView, onDelete, isDeleting, is
     }
   };
 
-  const formatDate = (dateStr: string | number) => {
-    // Handle both Unix seconds (old) and ISO string (new) formats
-    const date = typeof dateStr === 'number'
-      ? new Date(dateStr * 1000)
-      : new Date(dateStr);
-    return formatDateFull(date);
-  };
-
   const amountColor = transaction.type === 'expense' ? 'text-rose-700' : transaction.type === 'transfer' ? 'text-indigo-700' : 'text-emerald-700';
   const typeColor = transaction.type === 'expense' ? 'text-rose-600' : transaction.type === 'transfer' ? 'text-indigo-600' : 'text-emerald-600';
 
@@ -1800,19 +1792,11 @@ function TransactionCard({ transaction, onEdit, onView, onDelete, isDeleting, is
             </span>
           </div>
 
-          {/* Due Date Display */}
+          {/* Due Date Display — real timestamp (dueDateTime) so full date+time is safe */}
           {transaction.dueDateTime && (
             <div className="text-sm text-slate-600">
               <span className="mr-1">📅</span>
-              {new Date(transaction.dueDateTime).toLocaleDateString('th-TH', {
-                timeZone: 'Asia/Bangkok',
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false,
-              })} น.
+              {formatDateTimeFull(transaction.dueDateTime)}
             </div>
           )}
 
@@ -1836,21 +1820,24 @@ function TransactionCard({ transaction, onEdit, onView, onDelete, isDeleting, is
         </div>
       )}
 
-      {/* Business Status - For Income with Received status */}
-      {transaction.type === 'income' && transaction.businessStatus === 'received' && (
-        <div className="mt-3">
+      {/* Business Status - For Income/Expense with Received status */}
+      {transaction.businessStatus === 'received' && (transaction.type === 'income' || transaction.type === 'expense') && (
+        <div className="mt-3 space-y-1">
           <span className="text-sm font-medium text-emerald-600">
             ✅ {getStatusLabel(transaction.businessStatus, transaction.type)}
           </span>
-        </div>
-      )}
-
-      {/* Business Status - For Expense with Received status */}
-      {transaction.type === 'expense' && transaction.businessStatus === 'received' && (
-        <div className="mt-3">
-          <span className="text-sm font-medium text-emerald-600">
-            ✅ {getStatusLabel(transaction.businessStatus, transaction.type)}
-          </span>
+          {/* Show real settlement date+time. RULE: receivedDate/paidDate are real
+              timestamps (with time-of-day) — safe to display as full date+time. */}
+          {transaction.type === 'income' && transaction.receivedDate && (
+            <p className="text-xs text-slate-600">
+              {formatDateTimeFull(transaction.receivedDate)}
+            </p>
+          )}
+          {transaction.type === 'expense' && transaction.paidDate && (
+            <p className="text-xs text-slate-600">
+              {formatDateTimeFull(transaction.paidDate)}
+            </p>
+          )}
         </div>
       )}
 
@@ -1864,19 +1851,11 @@ function TransactionCard({ transaction, onEdit, onView, onDelete, isDeleting, is
             </span>
           </div>
 
-          {/* Due Date Display */}
+          {/* Due Date Display — real timestamp (dueDateTime) so full date+time is safe */}
           {transaction.dueDateTime && (
             <div className="text-sm text-slate-600">
               <span className="mr-1">📅</span>
-              {new Date(transaction.dueDateTime).toLocaleDateString('th-TH', {
-                timeZone: 'Asia/Bangkok',
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false,
-              })} น.
+              {formatDateTimeFull(transaction.dueDateTime)}
             </div>
           )}
 
@@ -3005,23 +2984,10 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
     ? getOverdueInfo({ dueDateTime: transaction.dueDateTime, date: transaction.date })
     : null;
 
-  // Format due date for display
+  // Format due date for display — use shared helper for system-wide date+time format
   const formatDueDateDisplay = (dueDateTimeStr: string | null | undefined) => {
     if (!dueDateTimeStr) return null;
-    const date = new Date(dueDateTimeStr);
-    const bangkokDate = date.toLocaleDateString('th-TH', {
-      timeZone: 'Asia/Bangkok',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
-    const bangkokTime = date.toLocaleTimeString('th-TH', {
-      timeZone: 'Asia/Bangkok',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-    return `${bangkokDate} เวลา ${bangkokTime} น.`;
+    return formatDateTimeFull(dueDateTimeStr);
   };
 
   // Human-friendly relative time formatter
@@ -3089,30 +3055,19 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
               {transaction.type === 'expense' ? '-' : '+'}{transaction.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
             </p>
             <h3 className="mt-2 text-lg font-semibold text-slate-900">{transaction.title}</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              {formatEffectiveDateFull(transaction)}
-            </p>
           </div>
 
-          {/* Date Details Section (Phase B v3.0) */}
+          {/* Date Details Section
+              Rule: Always show createdAt (real timestamp) as "วันที่รายการ".
+              NEVER use transactions.date (date-only) — would silently render 00:00. */}
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
-            {transaction.businessStatus === 'received' && transaction.type === 'income' && transaction.receivedDate && (
-              <DetailRow
-                label="วันที่รับจริง"
-                value={formatEffectiveDateFull(transaction)}
-                icon="💰"
-              />
-            )}
-            {transaction.businessStatus === 'received' && transaction.type === 'expense' && transaction.paidDate && (
-              <DetailRow
-                label="วันที่จ่ายจริง"
-                value={formatEffectiveDateFull(transaction)}
-                icon="💸"
-              />
-            )}
             <DetailRow
               label="วันที่รายการ"
-              value={formatDateFull(new Date(transaction.date))}
+              value={
+                transaction.createdAt
+                  ? formatDateTimeFull(transaction.createdAt)
+                  : formatDateTimeFull(new Date(transaction.date))
+              }
               icon="📅"
             />
             {transaction.dueDateTime && (
@@ -3126,12 +3081,24 @@ function TransactionDetailModal({ transaction, onClose, onEdit, onDelete, isAdmi
 
           {/* Business Status Section */}
           {transaction.businessStatus && (
-            <div className="space-y-3">
+            <div className="space-y-3 mt-4">
               {/* Status Badge */}
-              <div className="flex items-center justify-center">
+              <div className="flex flex-col items-center gap-1.5">
                 <span className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-base font-medium ${statusColors[transaction.businessStatus]}`}>
                   {transaction.businessStatus === 'pending' ? '⏳' : '✅'} {getStatusLabel(transaction.businessStatus, transaction.type)}
                 </span>
+                {/* Show real settlement date+time (receivedDate / paidDate) when received.
+                    RULE: Always use the real timestamp field — never fall back to date. */}
+                {transaction.businessStatus === 'received' && transaction.type === 'income' && transaction.receivedDate && (
+                  <p className="text-sm text-slate-600">
+                    {formatDateTimeFull(transaction.receivedDate)}
+                  </p>
+                )}
+                {transaction.businessStatus === 'received' && transaction.type === 'expense' && transaction.paidDate && (
+                  <p className="text-sm text-slate-600">
+                    {formatDateTimeFull(transaction.paidDate)}
+                  </p>
+                )}
               </div>
 
               {/* Due Date Section - For Income with Pending status */}
