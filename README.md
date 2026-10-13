@@ -185,3 +185,258 @@ node --env-file=.env.local scripts/seed-admin.mjs
 ### `An admin user already exists.`
 
 ระบบมี admin แล้ว ไม่จำเป็นต้อง seed ซ้ำ ให้ใช้ email/password ของ admin เดิม login
+
+เพิ่มหัวข้อนี้ต่อท้าย README ได้เลย เพราะมึงเพิ่งเจอบั๊กจริงจากเรื่องนี้
+
+LINE Cron Worker & Multi-Send Time
+ภาพรวม
+
+ระบบส่ง LINE รายวันใช้ Cloudflare Cron Worker ชื่อ
+
+name = "smart-family-finance-line-cron"
+
+
+โดย Worker จะทำงานทุก 1 นาที
+
+[triggers]
+crons = ["* * * * *"]
+
+
+และตรวจสอบเวลาส่งจริงด้วย timezone Asia/Bangkok
+
+Multi-Send Time
+
+ผู้ใช้สามารถกำหนดเวลาได้มากกว่า 1 เวลา
+
+ตัวอย่าง:
+
+{
+  "sendTime": "08:35",
+  "additionalTimes": ["16:00", "19:00"]
+}
+
+
+ระบบจะตีความเป็น
+
+08:35
+16:00
+19:00
+
+
+และตรวจสอบทุกนาทีว่าตรงกับ slot ใดหรือไม่
+
+Slot-Level Dedup
+ปัญหาเดิม
+
+เดิมระบบใช้
+
+notification_settings.last_sent_at
+
+
+เป็นตัวป้องกันการส่งซ้ำ
+
+ตัวอย่าง:
+
+08:35 ส่งสำเร็จ
+↓
+last_sent_at ถูกอัปเดต
+↓
+16:00 ถูกมองว่า "ส่งแล้ววันนี้"
+↓
+ไม่ส่ง
+
+
+ทำให้ผู้ใช้ที่ตั้งหลายเวลาได้รับข้อความเพียงรอบแรกของวัน
+
+แนวทางใหม่
+
+ระบบปัจจุบันใช้
+
+"_slotHistory"
+
+
+เก็บประวัติการส่งเป็นรายเวลา
+
+ตัวอย่าง
+
+{
+  "_slotHistory": {
+    "13/10/2569": [
+      "08:35",
+      "16:00"
+    ]
+  }
+}
+
+
+การตรวจสอบจะทำแบบราย slot
+
+08:35 ส่งแล้ว
+↓
+16:00 ยังไม่เคยส่ง
+↓
+ส่งได้
+
+19:00 ยังไม่เคยส่ง
+↓
+ส่งได้
+
+ตัวอย่างการทำงาน
+
+ผู้ใช้ตั้งค่า
+
+{
+  "sendTime": "08:35",
+  "additionalTimes": ["16:00", "19:00"]
+}
+
+
+เวลา 08:35
+
+slotHistory = {}
+→ ส่ง
+
+
+ผลลัพธ์
+
+{
+  "_slotHistory": {
+    "13/10/2569": ["08:35"]
+  }
+}
+
+
+เวลา 16:00
+
+slotHistory = ["08:35"]
+16:00 ยังไม่เคยส่ง
+→ ส่ง
+
+
+ผลลัพธ์
+
+{
+  "_slotHistory": {
+    "13/10/2569": ["08:35", "16:00"]
+  }
+}
+
+
+เวลา 19:00
+
+slotHistory = ["08:35", "16:00"]
+19:00 ยังไม่เคยส่ง
+→ ส่ง
+
+
+ผลลัพธ์
+
+{
+  "_slotHistory": {
+    "13/10/2569": ["08:35", "16:00", "19:00"]
+  }
+}
+
+Deploy LINE Cron Worker
+
+หลังแก้ไขไฟล์
+
+src/workers/line-cron-worker/index.ts
+
+
+ให้ deploy ด้วย
+
+npx wrangler deploy --config wrangler-cron.toml
+
+
+ตรวจสอบ deployment
+
+npx wrangler deployments list
+
+ดู Log แบบ Real-Time
+
+เปิด tail
+
+npx wrangler tail smart-family-finance-line-cron --format pretty
+
+
+ตัวอย่าง log ที่ถูกต้อง
+
+[LINE Cron] Found 2 enabled recipients
+[LINE Cron] Current Thai Time (ICT): 16:00
+[LINE Cron] 🎯 1 to send, 0 already sent today
+[LINE Cron] Sending Flex Messages to 1 recipient(s)...
+[LINE Cron] ✅ Updated last_sent_at + _slotHistory
+
+Debug Checklist
+
+ถ้าผู้ใช้แจ้งว่า "ตั้งหลายเวลาแต่ส่งแค่รอบเดียว"
+
+ตรวจสอบตามลำดับ:
+
+1. ตรวจ settings
+npx wrangler d1 execute smart-family-finance-db --remote --command "
+SELECT user_id, settings
+FROM notification_settings
+WHERE notification_type='daily_summary';
+"
+
+
+ต้องเห็น
+
+"additionalTimes"
+
+2. เปิด Tail
+npx wrangler tail smart-family-finance-line-cron --format pretty
+
+
+ดูว่ามี
+
+🎯 1 to send
+
+
+หรือ
+
+No recipients match Thai time
+
+3. ตรวจ _slotHistory
+
+ต้องเห็นการอัปเดตใน log
+
+✅ Updated last_sent_at + _slotHistory
+
+4. ตรวจ Worker Version
+
+หลังแก้ worker แล้วต้อง deploy ใหม่ทุกครั้ง
+
+npx wrangler deploy --config wrangler-cron.toml
+
+
+หากลืม deploy จะยังรัน logic เก่าอยู่
+
+บทเรียนจาก Incident 2026-10-13
+
+สาเหตุของปัญหา:
+
+UI รองรับ Multi-Send Time แล้ว
+line-cron-service.ts รองรับ Slot-Level Dedup แล้ว
+
+แต่
+Cloudflare Cron Worker ยังใช้ dedup แบบ last_sent_at
+
+ผล:
+ส่งได้เฉพาะรอบแรกของวัน
+
+
+วิธีแก้:
+
+ย้าย Cron Worker ให้ใช้ runLineCron()
+จาก line-cron-service.ts เป็น Single Source of Truth
+และใช้ _slotHistory สำหรับ slot-level dedup
+
+
+ผลลัพธ์:
+
+✅ ส่งได้หลายเวลาในวันเดียว
+✅ ป้องกันส่งซ้ำราย slot
+✅ ใช้ logic เดียวกันทั้งระบบ
