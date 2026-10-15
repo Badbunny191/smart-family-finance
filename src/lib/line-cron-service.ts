@@ -140,6 +140,14 @@ export async function runLineCron(
 
   console.log(`[LINE Cron] Found ${recipients.length} enabled recipients`);
 
+  console.log('[LINE DEBUG] RECIPIENTS', {
+    count: recipients.length,
+    users: recipients.map(r => ({
+      userId: r.userId,
+      lineUserId: r.lineUserId,
+    })),
+  });
+
   // 4. Filter recipients by Thai time AND dedup
   const currentThaiTime = getCurrentBangkokTimeString();
   const currentBangkokDate = getBangkokDateString();
@@ -299,6 +307,15 @@ function filterRecipientsByTimeAndDedup(
   for (const r of recipients) {
     // Multi-SendTime: expand sendTime + additionalTimes
     const slots = effectiveSlots(r.settings);
+
+    console.log('[LINE DEBUG] RECIPIENT_SCAN', {
+      lineUserId: r.lineUserId,
+      currentThaiTime,
+      sendTime: (r.settings as any)?.sendTime,
+      additionalTimes: (r.settings as any)?.additionalTimes,
+      effectiveSlots: slots,
+    });
+
     if (slots.length === 0) {
       console.log(`[LINE Cron] Recipient ${r.lineUserId} has no valid times — skipping`);
       continue;
@@ -312,6 +329,12 @@ function filterRecipientsByTimeAndDedup(
         matchedSlots.push(slot);
       }
     }
+
+    console.log('[LINE DEBUG] NO_MATCH', {
+      lineUserId: r.lineUserId,
+      currentThaiTime,
+      effectiveSlots: slots,
+    });
     if (matchedSlots.length === 0) continue;
 
     // Slot-level dedup via _slotHistory
@@ -322,6 +345,14 @@ function filterRecipientsByTimeAndDedup(
     // user has only 1 slot → treat as "already sent" (backward compat)
     const useLegacyFallback =
       sentToday.length === 0 && slots.length === 1 && r.lastSentAt;
+
+    console.log('[LINE DEBUG] LEGACY_CHECK', {
+      lineUserId: r.lineUserId,
+      sentToday,
+      slotsLength: slots.length,
+      lastSentAt: r.lastSentAt,
+      useLegacyFallback,
+    });
 
     if (useLegacyFallback) {
       const lastSentDate = bangkokDateFromUnixSeconds(r.lastSentAt!);
@@ -337,6 +368,13 @@ function filterRecipientsByTimeAndDedup(
     // Per-slot filter: skip slots already sent today
     const slotsToSend = matchedSlots.filter((s) => !sentToday.includes(s));
 
+    console.log('[LINE DEBUG] DEDUP_CHECK', {
+      lineUserId: r.lineUserId,
+      matchedSlots,
+      sentToday,
+      slotsToSend,
+    });
+
     if (slotsToSend.length === 0) {
       console.log(
         `[LINE Cron] ${r.lineUserId}: all ${matchedSlots.length} matched slot(s) already sent today — skipping`
@@ -347,6 +385,11 @@ function filterRecipientsByTimeAndDedup(
       });
       continue;
     }
+
+    console.log('[LINE DEBUG] WILL_SEND', {
+      lineUserId: r.lineUserId,
+      matchedSlots: slotsToSend,
+    });
 
     toSend.push({ recipient: r, matchedSlots: slotsToSend });
   }
