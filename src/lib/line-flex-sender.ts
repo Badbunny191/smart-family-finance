@@ -104,6 +104,11 @@ export async function sendFlexMessage(
     const responseBody = await response.text();
 
     if (!response.ok) {
+      console.error('[LINE Flex] API ERROR', {
+        lineUserId,
+        statusCode,
+        responseBody,
+      });
       return { success: false, lineUserId, error: `LINE API error ${statusCode}: ${responseBody}` };
     }
 

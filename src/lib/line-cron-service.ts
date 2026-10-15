@@ -244,11 +244,23 @@ export async function runLineCron(
         }
       } else {
         totalFailed++;
+        console.error('[LINE Cron] SEND FAILED', {
+          userId: recipient.userId,
+          lineUserId: recipient.lineUserId,
+          slot,
+          error: result.error,
+        });
       }
     }
   }
 
   console.log(`[LINE Cron] Send complete: ${totalSent} sent, ${totalFailed} failed`);
+
+  // Failure summary for observability
+  if (totalFailed > 0) {
+    const failedResults = results.filter(r => !r.success);
+    console.error('[LINE Cron] FAILURE SUMMARY', failedResults);
+  }
 
   return {
     success: totalFailed === 0,
